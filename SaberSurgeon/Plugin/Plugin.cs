@@ -37,6 +37,9 @@ namespace SaberSurgeon
 
             // Initialize chat integration
             InitializeChatIntegration();
+
+            // Initialize gameplay manager
+            InitializeGameplayManager();
         }
 
         private void OnMainMenuInitializing()
@@ -109,6 +112,21 @@ namespace SaberSurgeon
             }
         }
 
+        private void InitializeGameplayManager()
+        {
+            try
+            {
+                Plugin.Log.Info("SaberSurgeon: Initializing gameplay manager...");
+                var gameplayManager = Gameplay.GameplayManager.GetInstance();
+                Plugin.Log.Info("SaberSurgeon: Gameplay manager initialized!");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"SaberSurgeon: Exception initializing gameplay manager: {ex.Message}");
+            }
+        }
+
+
         [OnExit]
         public void OnApplicationQuit()
         {
@@ -118,6 +136,7 @@ namespace SaberSurgeon
             {
                 CommandHandler.Instance.Shutdown();
                 ChatManager.GetInstance().Shutdown();
+                Gameplay.GameplayManager.GetInstance().Shutdown();
                 Log.Info("SaberSurgeon: Chat integration shut down");
             }
             catch (Exception ex)

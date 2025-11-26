@@ -1,5 +1,6 @@
 ﻿using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.ViewControllers;
+using SaberSurgeon.Chat;
 using UnityEngine;
 
 namespace SaberSurgeon.UI.Controllers
@@ -29,7 +30,24 @@ namespace SaberSurgeon.UI.Controllers
         {
             Plugin.Log.Info("SaberSurgeon: Start/Play button pressed!");
             Plugin.Log.Info($"Timer set to: {PlayTime} minutes");
-            // gameplay logic to start/stop the mod will go here later.
+
+            // Start the endless mode gameplay
+            var gameplayManager = SaberSurgeon.Gameplay.GameplayManager.GetInstance();
+
+            if (gameplayManager.IsPlaying())
+            {
+                // Stop if already playing
+                gameplayManager.StopEndlessMode();
+                Plugin.Log.Info("SaberSurgeon: Stopped endless mode");
+                ChatManager.GetInstance().SendChatMessage("Saber Surgeon session ended!");
+            }
+            else
+            {
+                // Start new session
+                gameplayManager.StartEndlessMode(PlayTime);
+                Plugin.Log.Info($"SaberSurgeon: Started endless mode for {PlayTime} minutes");
+                ChatManager.GetInstance().SendChatMessage($"Saber Surgeon started! Playing for {PlayTime} minutes. Request songs with !bsr <code>");
+            }
         }
     }
 }

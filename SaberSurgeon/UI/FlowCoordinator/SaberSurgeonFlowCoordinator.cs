@@ -1,6 +1,9 @@
 ﻿using HMUI;
 using BeatSaberMarkupLanguage;
 using SaberSurgeon.UI.Controllers;
+using UnityEngine;
+using Zenject;
+using SaberSurgeon.Gameplay;
 
 namespace SaberSurgeon.UI.FlowCoordinators
 {
@@ -8,30 +11,45 @@ namespace SaberSurgeon.UI.FlowCoordinators
     {
         private SaberSurgeonViewController _viewController;
 
+        [Inject] private GameplaySetupViewController _gameplaySetupViewController;
+        [Inject] private MenuTransitionsHelper _menuTransitionsHelper;
+        [Inject] private EnvironmentsListModel _environmentsListModel;
+
         protected override void DidActivate(bool firstActivation, bool addedToHierarchy, bool screenSystemEnabling)
         {
             if (firstActivation)
             {
-                // Set the title
                 SetTitle("Saber Surgeon");
-
-                // Enable the back button
                 showBackButton = true;
 
-                // Create the view controller
                 _viewController = BeatSaberUI.CreateViewController<SaberSurgeonViewController>();
+
+                // NEW: Inject dependencies into GameplayManager
+                GameplayManager.GetInstance().SetDependencies(_menuTransitionsHelper, _environmentsListModel);
             }
 
             if (addedToHierarchy)
             {
-                // Show the view controller
-                ProvideInitialViewControllers(_viewController);
+                // Important: configure which tabs to show, just like Shaffuru does
+                _gameplaySetupViewController.Setup(
+                    true,  // enableModifiers
+                    true,  // enablePlayerSettings
+                    true,  // enableEnvironmentOverrides
+                    true, // enableColorSchemes (set true if you want color schemes)
+                    
+                    PlayerSettingsPanelController.PlayerSettingsPanelLayout.Singleplayer
+                );
+
+                ProvideInitialViewControllers(
+                    _viewController,
+                    _gameplaySetupViewController,
+                    null
+                );
             }
         }
 
         protected override void BackButtonWasPressed(ViewController topViewController)
         {
-            // Dismiss this flow coordinator
             BeatSaberUI.MainFlowCoordinator.DismissFlowCoordinator(this);
         }
     }

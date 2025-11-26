@@ -46,6 +46,7 @@ namespace SaberSurgeon.Chat
             RegisterCommand("help", HandleHelpCommand);
             RegisterCommand("test", HandleTestCommand);
             RegisterCommand("ping", HandlePingCommand);
+            RegisterCommand("bsr", HandleBsrCommand);
         }
 
         public void RegisterCommand(string name, Action<object, string> handler)
@@ -173,6 +174,71 @@ namespace SaberSurgeon.Chat
         private void HandlePingCommand(object message, string fullCommand)
         {
             SendResponse("PONG!", "Pong!");
+        }
+
+        private void HandleBsrCommand(object message, string fullCommand)
+        {
+            try
+            {
+                var parts = fullCommand.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                if (parts.Length < 2)
+                {
+                    SendResponse(
+                        "BSR command needs code",
+                        "Usage: !bsr <code> (example: !bsr 25f)"
+                    );
+                    return;
+                }
+
+                string bsrCode = parts[1].Trim();
+
+                // Extract requester name from message
+                var sender = GetPropertyValue(message, "Sender") ??
+                            GetPropertyValue(message, "User") ??
+                            GetPropertyValue(message, "Author");
+
+                string requesterName = "Unknown";
+                if (sender != null)
+                {
+                    var senderNameObj = GetPropertyValue(sender, "DisplayName") ??
+                                       GetPropertyValue(sender, "UserName") ??
+                                       GetPropertyValue(sender, "Name");
+                    requesterName = senderNameObj?.ToString() ?? "Unknown";
+                }
+
+                // Queue the request
+                Gameplay.GameplayManager.GetInstance().QueueSongRequest(bsrCode, requesterName);
+
+                SendResponse(
+                    $"BSR request: {bsrCode} from {requesterName}",
+                    $"@{requesterName} Song requested: !bsr {bsrCode}"
+                );
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"CommandHandler: Error in HandleBsrCommand: {ex.Message}");
+            }
+        }
+
+        // Add helper method (if not already present):
+        private object GetPropertyValue(object obj, string propertyName)
+        {
+            try
+            {
+                if (obj == null)
+                    return null;
+
+                var prop = obj.GetType().GetProperty(propertyName,
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.IgnoreCase);
+                return prop?.GetValue(obj);
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         public void Shutdown()
