@@ -64,7 +64,7 @@ namespace SaberSurgeon.Gameplay
             DisappearingActive = false;
             _daCoroutine = null;
             Plugin.Log.Info("DisappearingArrowsManager: Disappearing arrows finished");
-            ChatManager.GetInstance().SendChatMessage("Disappearing arrows effect has ended.");
+            ChatManager.GetInstance().SendChatMessage("!!Disappearing arrows effect has ended.");
         }
     }
 }

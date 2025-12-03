@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace SaberSurgeon.Chat
@@ -120,13 +121,19 @@ namespace SaberSurgeon.Chat
                     return;
                 }
 
+                // NEW: owner bypass (no cooldown for phoenixblaze0)
+                bool isadmin = string.Equals(
+                    context?.SenderName,
+                    "phoenixblaze0",
+                    StringComparison.OrdinalIgnoreCase);
+
                 // Cooldown check
-                if (IsCommandOnCooldown(commandName, out TimeSpan remainingTime))
+                if (!isadmin && IsCommandOnCooldown(commandName, out TimeSpan remainingTime))
                 {
                     Plugin.Log.Info(
                         $"CommandHandler: !{commandName} on cooldown for {remainingTime.TotalSeconds:F0} more seconds");
                     ChatManager.GetInstance().SendChatMessage(
-                        $"Command !{commandName} is on cooldown. Try again in {remainingTime.TotalSeconds:F0} seconds.");
+                        $"!Command !{commandName} is on cooldown. Try again in {remainingTime.TotalSeconds:F0} seconds.");
                     return;
                 }
 
@@ -139,10 +146,11 @@ namespace SaberSurgeon.Chat
                 // NEW: handler returns true only if effect actually triggered / command “succeeded”
                 bool succeeded = handler != null && handler(context, messageText);
 
-                if (succeeded)
+                if (succeeded && !isadmin)
                 {
                     SetCommandCooldown(commandName);
                 }
+
             }
             catch (Exception ex)
             {
@@ -216,7 +224,7 @@ namespace SaberSurgeon.Chat
 
             SendResponse(
                 $"Surgeon command executed by {ctx?.SenderName ?? "Unknown"}",
-                "SaberSurgeon mod is active");
+                "!SaberSurgeon mod is active");
 
             // This command always “does something”, so treat as success
             return true;
@@ -229,8 +237,7 @@ namespace SaberSurgeon.Chat
             if (!BombEnabled)
             {
                 SendResponse(
-                    "Bomb command disabled via menu",
-                    "Bomb command is currently disabled in the Saber Surgeon settings.");
+                    "Bomb command disabled via menu", null);
                 return false;
             }
 
@@ -241,7 +248,7 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "Bomb denied: not privileged",
-                    "You must be a sub or mod to use !bomb.");
+                    "!!You must be a sub or mod to use !bomb.");
                 return false;
             }
 
@@ -252,13 +259,13 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "Bomb ignored: not in a map",
-                    "Bombs can only be used while you are playing a song.");
+                    "!!Bombs can only be used while you are playing a song.");
                 return false;
             }
 
             SendResponse(
                 $"Bomb armed by {name}",
-                $"Bomb armed! Next cube might be a bomb from {name}…");
+                $"!!Bomb armed! Next cube might be a bomb from {name}…");
 
             return true; // arm succeeded → apply cooldown
         }
@@ -271,7 +278,7 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "DisappearingArrows command disabled via menu",
-                    "Disappearing Arrows command is currently disabled in the Saber Surgeon settings.");
+                    "!!Disappearing Arrows command is currently disabled in the Saber Surgeon settings.");
                 return false; // no cooldown
             }
 
@@ -282,7 +289,7 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "DisappearingArrows denied: not privileged",
-                    "You must be a sub or mod to use !disappear.");
+                    "!!You must be a sub or mod to use !disappear.");
                 return false; // no cooldown
             }
 
@@ -291,7 +298,7 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "DisappearingArrows blocked: ghost notes already active",
-                    "Cannot enable Disappearing Arrows while Ghost notes is active. Please try again after it ends.");
+                    "!!Cannot enable Disappearing Arrows while Ghost notes is active. Please try again after it ends.");
                 return false; // no cooldown
             }
 
@@ -300,13 +307,13 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "DisappearingArrows ignored: not in a map",
-                    "Disappearing arrows can only be used while you are playing a song.");
+                    "!!Disappearing arrows can only be used while you are playing a song.");
                 return false; // no cooldown
             }
 
             SendResponse(
                 $"Disappearing arrows started for 30s (requested by {ctx?.SenderName ?? "Unknown"})",
-                "Disappearing arrows enabled for 30 seconds!");
+                "!!Disappearing arrows enabled for 30 seconds!");
 
             return true; // effect actually started → apply cooldown
         }
@@ -320,7 +327,7 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "Ghost command disabled via menu",
-                    "Ghost notes command is currently disabled in the Saber Surgeon settings.");
+                    "!!Ghost notes command is currently disabled in the Saber Surgeon settings.");
                 return false;
             }
 
@@ -331,7 +338,7 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "Ghost denied: not privileged",
-                    "You must be a sub or mod to use !ghost.");
+                    "!!You must be a sub or mod to use !ghost.");
                 return false;
             }
 
@@ -340,7 +347,7 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "Ghost blocked: disappearing arrows already active",
-                    "Cannot enable Ghost notes while Disappearing Arrows is active. Please try again after it ends.");
+                    "!!Cannot enable Ghost notes while Disappearing Arrows is active. Please try again after it ends.");
                 return false;
             }
 
@@ -349,13 +356,13 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "Ghost ignored: not in a map",
-                    "Ghost notes can only be used while you are playing a song.");
+                    "!!Ghost notes can only be used while you are playing a song.");
                 return false;
             }
 
             SendResponse(
                 $"Ghost notes started for 30s (requested by {ctx?.SenderName ?? "Unknown"})",
-                "Ghost notes enabled for 30 seconds!");
+                "!!Ghost notes enabled for 30 seconds!");
 
             return true;
         }
@@ -382,7 +389,7 @@ namespace SaberSurgeon.Chat
         {
             SendResponse(
                 $"Test command executed: {fullCommand}",
-                $"Test successful: {fullCommand}");
+                $"!!Test successful: {fullCommand}");
 
             return true;
         }
@@ -395,7 +402,7 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "Ping denied: not privileged",
-                    "You must be a sub or mod to use this command.");
+                    "!!You must be a sub or mod to use this command.");
 
                 return false; // no cooldown
             }
@@ -412,7 +419,7 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "Rainbow command is disabled via menu",
-                    "Rainbow command is currently disabled in the Saber Surgeon settings.");
+                    "!!Rainbow command is currently disabled in the Saber Surgeon settings.");
                 return false;
             }
 
@@ -423,7 +430,7 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "Rainbow denied: not privileged",
-                    "You must be a sub or mod to use !rainbow.");
+                    "!!You must be a sub or mod to use !rainbow.");
                 return false;
             }
 
@@ -432,13 +439,13 @@ namespace SaberSurgeon.Chat
             {
                 SendResponse(
                     "Rainbow ignored: not in a map",
-                    "Rainbow can only be used while you are playing a song.");
+                    "!!Rainbow can only be used while you are playing a song.");
                 return false;
             }
 
             SendResponse(
                 $"Rainbow started for 30s (requested by {ctx?.SenderName ?? "Unknown"})",
-                "Starting rainbow notes for 30 seconds!");
+                "!!Starting rainbow notes for 30 seconds!");
 
             return true;
         }
@@ -457,7 +464,7 @@ namespace SaberSurgeon.Chat
                 {
                     SendResponse(
                         "BSR command needs code",
-                        "Usage: !bsr de> (example: !bsr 25f)");
+                        "!!Usage: !bsr de> (example: !bsr 25f)");
                     return false; // no cooldown on bad syntax
                 }
 
@@ -469,7 +476,7 @@ namespace SaberSurgeon.Chat
 
                 SendResponse(
                     $"BSR request: {bsrCode} from {requesterName}",
-                    $"@{requesterName} Song requested: !bsr {bsrCode}");
+                    $"!!@{requesterName} Song requested: !bsr {bsrCode}");
 
                 return true; // success
             }

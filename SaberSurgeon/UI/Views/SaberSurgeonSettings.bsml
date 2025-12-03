@@ -43,6 +43,18 @@
 						   pref-width="13"
 						   pref-height="13" />
 				</button>
+
+				<!-- Bomb Command -->
+				<button id="bombbutton"
+						on-click="OnBombButtonClicked"
+						pref-width="15"
+						pref-height="15"
+						hover-hint="Enable/Disable Bomb Command">
+					<image id="bombicon"
+						   preserve-aspect="true"
+						   pref-width="13"
+						   pref-height="13" />
+				</button>
 			</horizontal>
 			
 

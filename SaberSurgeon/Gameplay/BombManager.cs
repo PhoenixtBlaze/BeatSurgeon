@@ -54,8 +54,8 @@ namespace SaberSurgeon.Gameplay
             CurrentBomberName = string.IsNullOrEmpty(bomberName) ? "Unknown" : bomberName;
             Plugin.Log.Info($"BombManager: Bomb armed for user {CurrentBomberName}");
 
-            ChatManager.GetInstance().SendChatMessage(
-                $"Bomb armed! Watch out {CurrentBomberName}…");
+            //ChatManager.GetInstance().SendChatMessage($"Bomb armed! Watch out {CurrentBomberName}…");
+       
 
             return true;
         }
@@ -99,8 +99,8 @@ namespace SaberSurgeon.Gameplay
             Plugin.Log.Info(
                 $"BombManager: Bomb cut! Triggered by {bomber} at t={noteData.time:F3}");
 
-            ChatManager.GetInstance().SendChatMessage(
-                $"!BOOM! Bomb triggered by {bomber}!");
+            //ChatManager.GetInstance().SendChatMessage(
+               // $"!BOOM! Bomb triggered by {bomber}!");
 
             return true;
         }

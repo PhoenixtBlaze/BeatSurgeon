@@ -4,14 +4,17 @@ using SaberSurgeon.Gameplay;
 using System;
 using System.Collections;
 using System.Linq;
+using System.Reflection;
 using TMPro;
 using UnityEngine;
 
+
 namespace SaberSurgeon.HarmonyPatches
 {
-    
+
+    // Runs after ColorNoteVisuals creates the normal note visuals
     [HarmonyPatch(typeof(ColorNoteVisuals), "HandleNoteControllerDidInit")]
-    [HarmonyPriority(Priority.Low)] // Run after other mods
+    [HarmonyPriority(Priority.Last)]
     internal static class BombNotePatch
     {
         private static BombNoteController _bombPrefab;
@@ -21,7 +24,7 @@ namespace SaberSurgeon.HarmonyPatches
             if (!BombManager.BombArmed)
                 return;
 
-            var noteData = noteController.noteData;
+            var noteData = noteController?.noteData;
             if (noteData == null || noteData.colorType == ColorType.None)
                 return;
 
@@ -32,72 +35,213 @@ namespace SaberSurgeon.HarmonyPatches
                 return;
             }
 
+            Plugin.Log.Info(
+                $"BombNotePatch: INIT -> time={noteData.time:F3}, colorType={noteData.colorType}, " +
+                $"cutDir={noteData.cutDirection}, obj='{gameNote.name}', layer={gameNote.gameObject.layer}");
+
             BombManager.Instance.MarkNoteAsBomb(noteData);
 
-            // 1) Hide the normal note visuals (cube + arrows)
-            foreach (var r in gameNote.GetComponentsInChildren<MeshRenderer>())
-                r.enabled = false;
+            // Cache BombNote prefab
+            if (_bombPrefab == null)
+            {
+                _bombPrefab = Resources.FindObjectsOfTypeAll<BombNoteController>().FirstOrDefault();
+                if (_bombPrefab != null)
+                    Plugin.Log.Info($"BombNotePatch: Cached BombNoteController prefab '{_bombPrefab.name}'");
+                else
+                    Plugin.Log.Warn("BombNotePatch: No BombNoteController found – will use sphere fallback");
+            }
 
-            // 2) Add a simple bomb “sphere” so it doesn’t look like an invisible/dot note
-            AddSimpleBombVisual(gameNote);
+            // FIX: Get color from ColorNoteVisuals using correct field name with underscore
+            Color noteColor = Color.magenta; // fallback
+            try
+            {
+                // Try multiple possible field names
+                var colorField = AccessTools.Field(typeof(ColorNoteVisuals), "_noteColor")
+                                ?? AccessTools.Field(typeof(ColorNoteVisuals), "noteColor");
 
+                if (colorField != null)
+                {
+                    noteColor = (Color)colorField.GetValue(__instance);
+                    Plugin.Log.Info($"BombNotePatch: Got note color via reflection: {noteColor}");
+                }
+                else
+                {
+                    // Fallback: get ColorManager and call ColorForType
+                    var cmField = AccessTools.Field(typeof(ColorNoteVisuals), "_colorManager")
+                                 ?? AccessTools.Field(typeof(ColorNoteVisuals), "colorManager");
+                    var cm = cmField?.GetValue(__instance);
+                    if (cm != null)
+                    {
+                        var colorForType = cm.GetType().GetMethod("ColorForType");
+                        if (colorForType != null)
+                        {
+                            noteColor = (Color)colorForType.Invoke(cm, new object[] { noteData.colorType });
+                            Plugin.Log.Info($"BombNotePatch: Got color from ColorManager: {noteColor}");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"BombNotePatch: Error getting color: {ex}");
+            }
+
+            // Only disable the NoteCube mesh (main note body), keep arrows
+            DisableNoteCubeOnly(gameNote);
+
+            // Create bomb visual with color
+            AttachBombVisualWithColor(gameNote, noteColor);
         }
 
-        private static void HideNoteVisuals(GameNoteController gameNote)
+        private static void DisableNoteCubeOnly(GameNoteController gameNote)
         {
-            // Fallback: just hide if we can't find bomb prefab
-            foreach (var r in gameNote.GetComponentsInChildren<MeshRenderer>())
-                r.enabled = false;
-            gameNote.transform.localScale *= 1.2f;
+            // Find and disable only the NoteCube renderer (main cube body)
+            var noteCube = gameNote.transform.Find("NoteCube");
+            if (noteCube != null)
+            {
+                var cubeRenderer = noteCube.GetComponent<MeshRenderer>();
+                if (cubeRenderer != null)
+                {
+                    cubeRenderer.enabled = false;
+                    Plugin.Log.Info("BombNotePatch: Disabled NoteCube renderer (keeping arrows visible)");
+                }
+
+                // Also disable the circle mesh if it exists (for dot notes)
+                var circle = noteCube.Find("NoteCircleGlow");
+                if (circle != null)
+                {
+                    var circleRenderer = circle.GetComponent<MeshRenderer>();
+                    if (circleRenderer != null) circleRenderer.enabled = false;
+                }
+            }
         }
 
-        private static void AddSimpleBombVisual(GameNoteController gameNote)
+        private static void AttachBombVisualWithColor(GameNoteController gameNote, Color noteColor)
         {
-            // Prevent duplicates if pooled object re-inits
             var existing = gameNote.transform.Find("SaberSurgeon_BombVisual");
             if (existing != null)
+            {
+                Plugin.Log.Debug("BombNotePatch: Bomb visual already exists, skipping create");
                 return;
-
-            var bombGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            bombGo.name = "SaberSurgeon_BombVisual";
-            bombGo.transform.SetParent(gameNote.transform, false);
-            bombGo.transform.localPosition = Vector3.zero;
-            bombGo.transform.localScale = Vector3.one * 0.45f;
-
-            var mr = bombGo.GetComponent<MeshRenderer>();
-            if (mr != null)
-            {
-                // Dark body
-                mr.material = new Material(Shader.Find("Standard"));
-                mr.material.color = new Color(0.1f, 0.1f, 0.1f, 1f);
-                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                mr.receiveShadows = false;
             }
 
-            // Optional: small “fuse”
-            var fuse = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            fuse.name = "SaberSurgeon_BombFuse";
-            fuse.transform.SetParent(bombGo.transform, false);
-            fuse.transform.localPosition = new Vector3(0f, 0.6f, 0f);
-            fuse.transform.localScale = new Vector3(0.15f, 0.4f, 0.15f);
+            var root = new GameObject("SaberSurgeon_BombVisual");
+            root.transform.SetParent(gameNote.transform, false);
+            root.transform.localPosition = Vector3.zero;
+            root.transform.localRotation = Quaternion.identity;
+            root.transform.localScale = Vector3.one;
 
-            var fuseMr = fuse.GetComponent<MeshRenderer>();
-            if (fuseMr != null)
+            int noteLayer = gameNote.gameObject.layer;
+            root.layer = noteLayer;
+
+            // FIX: Make sure GameObject is ACTIVE
+            root.SetActive(true);
+
+            Plugin.Log.Info($"BombNotePatch: Created bomb root under {gameNote.name}, layer={noteLayer}");
+
+            if (_bombPrefab != null)
             {
-                fuseMr.material = new Material(Shader.Find("Standard"));
-                fuseMr.material.color = Color.yellow;
-                fuseMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                fuseMr.receiveShadows = false;
+                Plugin.Log.Info($"BombNotePatch: Using BombNote prefab '{_bombPrefab.name}' for visual");
+                var prefabGO = _bombPrefab.gameObject;
+                var instance = UnityEngine.Object.Instantiate(prefabGO, root.transform);
+                instance.name = "BombPrefabInstance";
+                instance.transform.localPosition = Vector3.zero;
+                instance.transform.localRotation = Quaternion.identity;
+                instance.transform.localScale = Vector3.one;
+
+                // FIX: Activate the instance
+                instance.SetActive(true);
+
+                // Remove BombNoteController to prevent it from being a real bomb
+                foreach (var bomb in instance.GetComponentsInChildren<BombNoteController>(true))
+                    UnityEngine.Object.Destroy(bomb);
+                foreach (var col in instance.GetComponentsInChildren<Collider>(true))
+                    UnityEngine.Object.Destroy(col);
+
+                SetLayerRecursively(root.transform, noteLayer);
+
+                // FIX: Enable and color all mesh renderers
+                var bombRenderers = root.GetComponentsInChildren<MeshRenderer>(true);
+                Plugin.Log.Info($"BombNotePatch: Found {bombRenderers.Length} renderers in bomb visual");
+
+                foreach (var mr in bombRenderers)
+                {
+                    if (mr == null) continue;
+
+                    mr.enabled = true;
+                    mr.gameObject.SetActive(true); // Make sure gameobject is active too
+
+                    // FIX: Create new material instance with color
+                    if (mr.sharedMaterial != null)
+                    {
+                        var newMat = new Material(mr.sharedMaterial);
+                        newMat.color = noteColor;
+                        // Also try setting other possible color properties
+                        if (newMat.HasProperty("_Color")) newMat.SetColor("_Color", noteColor);
+                        if (newMat.HasProperty("_SimpleColor")) newMat.SetColor("_SimpleColor", noteColor);
+                        mr.material = newMat;
+                        Plugin.Log.Info($"BombNotePatch: Applied color {noteColor} to renderer '{mr.name}'");
+                    }
+
+                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                    mr.receiveShadows = true;
+                }
+
+                Plugin.Log.Info($"BombNotePatch: Enabled and colored {bombRenderers.Length} bomb MeshRenderers");
+            }
+            else
+            {
+                Plugin.Log.Info("BombNotePatch: Using sphere fallback for bomb visual");
+                var bombGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                bombGo.name = "BombSphere";
+                bombGo.transform.SetParent(root.transform, false);
+                bombGo.transform.localPosition = Vector3.zero;
+                bombGo.transform.localRotation = Quaternion.identity;
+                bombGo.transform.localScale = Vector3.one * 0.45f;
+                bombGo.SetActive(true);
+
+                var col = bombGo.GetComponent<Collider>();
+                if (col != null) UnityEngine.Object.Destroy(col);
+
+                var mr = bombGo.GetComponent<MeshRenderer>();
+                if (mr != null)
+                {
+                    mr.enabled = true;
+                    var mat = new Material(Shader.Find("Standard"));
+                    mat.color = noteColor;
+                    mr.material = mat;
+                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                    mr.receiveShadows = true;
+                }
+
+                SetLayerRecursively(root.transform, noteLayer);
+                Plugin.Log.Info($"BombNotePatch: Sphere bomb visual created and colored");
             }
 
-            // Remove colliders so we don’t mess with hitbox
-            //UnityEngine.Object.DestroyImmediate(bombGo.GetComponent<Collider>(), true);
-            //UnityEngine.Object.DestroyImmediate(fuse.GetComponent<Collider>(), true);
+            // FIX: START WATCHDOG (this was completely missing!)
+            var bombNode = gameNote.transform.Find("SaberSurgeon_BombVisual");
+            if (bombNode != null)
+            {
+                var watchdog = gameNote.gameObject.AddComponent<RendererWatchdog>();
+                watchdog.Init(gameNote.transform, 10.0f, bombNode);
+                Plugin.Log.Info("BombNotePatch: Watchdog started for 10s (ignoring SaberSurgeon_BombVisual)");
+            }
+            else
+            {
+                Plugin.Log.Warn("BombNotePatch: bombNode not found after creation, watchdog not started");
+            }
+        }
 
-            Plugin.Log.Info("BombNotePatch: Added simple bomb visual to note");
+        private static void SetLayerRecursively(Transform t, int layer)
+        {
+            t.gameObject.layer = layer;
+            for (int i = 0; i < t.childCount; i++)
+                SetLayerRecursively(t.GetChild(i), layer);
         }
     }
     
+   
+
 
     [HarmonyPatch(typeof(GameNoteController), "HandleCut")]
     [HarmonyPriority(Priority.High)] // Run before normal processing

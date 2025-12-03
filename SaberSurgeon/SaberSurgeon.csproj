@@ -180,6 +180,11 @@
       <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.ParticleSystemModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
+    <Reference Include="UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <Private>False</Private>
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
     <Reference Include="UnityEngine.UI">
       <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.UI.dll</HintPath>
       <Private>False</Private>
@@ -238,6 +243,7 @@
     <Compile Include="Gameplay\GhostVisualController.cs" />
     <Compile Include="Gameplay\LookAtCamera.cs" />
     <Compile Include="Gameplay\RainbowManager.cs" />
+    <Compile Include="Gameplay\RendererWatchdog.cs" />
     <Compile Include="Gameplay\SaberSurgeonTextMover.cs" />
     <Compile Include="Harmony\BombNotePatch.cs" />
     <Compile Include="Harmony\DisappearingArrowsPatch.cs" />
@@ -265,8 +271,8 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <Content Include="Assets\Bomb.png" />
-    <Content Include="Assets\BombGB.png" />
+    <EmbeddedResource Include="Assets\Bomb.png" />
+    <EmbeddedResource Include="Assets\BombGB.png" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Assets\Rainbow.png" />

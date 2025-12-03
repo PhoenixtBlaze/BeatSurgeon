@@ -82,6 +82,13 @@ namespace SaberSurgeon.UI.Controllers
         private static readonly Sprite GhostOnSprite =
             LoadEmbeddedSprite("SaberSurgeon.Assets.GhostNotesGB.png");
 
+        //Button Icons ((off = Bomb, on = BombGB)
+        private static readonly Sprite BombOffSprite =
+            LoadEmbeddedSprite("SaberSurgeon.Assets.Bomb.png");
+
+        private static readonly Sprite BombOnSprite =
+            LoadEmbeddedSprite("SaberSurgeon.Assets.BombGB.png");
+
 
 
         // === Play time slider ===
@@ -162,6 +169,37 @@ namespace SaberSurgeon.UI.Controllers
 
 
 
+        [UIValue("bomb_enabled")]
+        public bool BombEnabled
+        {
+            get => CommandHandler.BombEnabled;
+            set
+            {
+                CommandHandler.BombEnabled = value;
+                NotifyPropertyChanged(nameof(BombEnabled));
+                UpdateBombButtonVisual();
+            }
+        }
+
+        [UIValue("bomb_cd_enabled")]
+        public bool BombCooldownEnabled
+        {
+            get => CommandHandler.BombCooldownEnabled;
+            set
+            {
+                CommandHandler.BombCooldownEnabled = value;
+                NotifyPropertyChanged(nameof(BombCooldownEnabled));
+            }
+        }
+
+
+        [UIComponent("bombbutton")]
+        private Button bombButton;
+
+        [UIComponent("bombicon")]
+        private Image bombIcon;
+        private Image bombButtonImage;
+
 
         // === UI components from BSML ===
         [UIComponent("rainbowbutton")]
@@ -219,6 +257,17 @@ namespace SaberSurgeon.UI.Controllers
             {
                 CommandHandler.RainbowCooldownSeconds = Mathf.Clamp(value, 0f, 300f);
                 NotifyPropertyChanged(nameof(RainbowCooldownSeconds));
+            }
+        }
+
+        [UIValue("bomb_cd_seconds")]
+        public float BombCooldownSeconds
+        {
+            get => CommandHandler.BombCooldownSeconds;
+            set
+            {
+                CommandHandler.BombCooldownSeconds = Mathf.Clamp(value, 0f, 300f);
+                NotifyPropertyChanged(nameof(BombCooldownSeconds));
             }
         }
 
@@ -281,12 +330,51 @@ namespace SaberSurgeon.UI.Controllers
                     rt.anchoredPosition = Vector2.zero;
                     rt.sizeDelta = new Vector2(12f, 12f);
                 }
+                if (bombButton != null)
+                {
+                    BeatSaberUI.SetButtonText(bombButton, string.Empty);
+                    bombButtonImage = bombButton.GetComponent<Image>();
+                }
+
+                if (bombIcon != null)
+                {
+                    var rt = bombIcon.rectTransform;
+                    rt.anchorMin = new Vector2(0.5f, 0.5f);
+                    rt.anchorMax = new Vector2(0.5f, 0.5f);
+                    rt.anchoredPosition = Vector2.zero;
+                    rt.sizeDelta = new Vector2(12f, 12f);
+                }
+
+                
             }
 
             // Apply correct sprite & color for current state
             UpdateRainbowButtonVisual();
             UpdateGhostButtonVisual();
+            UpdateBombButtonVisual();
             UpdateDAButtonVisual();
+        }
+
+
+
+        private void UpdateBombButtonVisual()
+        {
+            if (bombIcon != null)
+            {
+                var sprite = BombEnabled ? BombOnSprite : BombOffSprite;
+                if (sprite != null)
+                    bombIcon.sprite = sprite;
+            }
+
+            if (bombButtonImage != null)
+                bombButtonImage.color = BombEnabled ? onColor : offColor;
+        }
+
+        [UIAction("OnBombButtonClicked")]
+        private void OnBombButtonClicked()
+        {
+            BombEnabled = !BombEnabled;
+            Plugin.Log.Info($"SaberSurgeon: Bomb command enabled = {BombEnabled}");
         }
 
 

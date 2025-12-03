@@ -78,7 +78,7 @@ namespace SaberSurgeon.Gameplay
             {
                 GhostActive = false;
                 Plugin.Log.Info("GhostNotesManager: Ghost notes manually stopped");
-                ChatManager.GetInstance().SendChatMessage("Ghost notes effect has been stopped.");
+                //ChatManager.GetInstance().SendChatMessage("Ghost notes effect has been stopped.");
             }
         }
 
@@ -90,12 +90,12 @@ namespace SaberSurgeon.Gameplay
             if (!string.IsNullOrEmpty(requesterName))
             {
                 ChatManager.GetInstance().SendChatMessage(
-                    $"Ghost notes enabled for {durationSeconds:F0} seconds! (requested by {requesterName})");
+                    $"!!Ghost notes enabled for {durationSeconds:F0} seconds! (requested by {requesterName})");
             }
             else
             {
                 ChatManager.GetInstance().SendChatMessage(
-                    $"Ghost notes enabled for {durationSeconds:F0} seconds!");
+                    $"!!Ghost notes enabled for {durationSeconds:F0} seconds!");
             }
 
             float elapsed = 0f;
@@ -110,7 +110,7 @@ namespace SaberSurgeon.Gameplay
             _ghostCoroutine = null;
 
             Plugin.Log.Info("GhostNotesManager: Ghost notes finished");
-            ChatManager.GetInstance().SendChatMessage("Ghost notes effect has ended.");
+            ChatManager.GetInstance().SendChatMessage("!!Ghost notes effect has ended.");
         }
     }
 }

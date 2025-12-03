@@ -66,7 +66,7 @@ namespace SaberSurgeon.Gameplay
             RainbowActive = false;
             _rainbowCoroutine = null;
             Plugin.Log.Info("RainbowManager: Rainbow finished");
-            ChatManager.GetInstance().SendChatMessage("Rainbow notes effect has ended.");
+            ChatManager.GetInstance().SendChatMessage("!!Rainbow notes effect has ended.");
         }
     }
 }

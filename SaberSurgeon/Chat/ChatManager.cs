@@ -305,7 +305,7 @@ namespace SaberSurgeon.Chat
                 Plugin.Log.Info($"CHAT MESSAGE RECEIVED: {ctx.SenderName} (Mod={ctx.IsModerator}, VIP={ctx.IsVip}, Sub={ctx.IsSubscriber}, Bits={ctx.Bits})");
 
                 // Commands handled by SaberSurgeon
-                if (ctx.MessageText.StartsWith("!"))
+                if (ctx.MessageText.StartsWith("!") && !ctx.MessageText.StartsWith("!!"))
                 {
                     CommandHandler.Instance.ProcessCommand(ctx.MessageText, ctx);
                 }
