@@ -4,7 +4,7 @@
   "name": "SaberSurgeon",
   "author": "PhoenixBlaze0",
   "version": "0.0.1",
-  "description": "A Beat Saber Mod that does mod stuff",
+  "description": "Twitch chat-driven gameplay modifiers: rainbow / note colors, ghost notes, disappearing arrows, bombs, speed changes, flashbang lights, and endless play sessions.",
   "gameVersion": "1.40.8",
   "dependsOn": {
     "BSIPA": "^4.3.6",
