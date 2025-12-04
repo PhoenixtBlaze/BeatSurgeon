@@ -92,6 +92,17 @@
 						   pref-width="13"
 						   pref-height="13" />
 				</button>
+				<button id="flashbangbutton"
+						on-click="OnFlashbangButtonClicked"
+						pref-width="15"
+						pref-height="15"
+						hover-hint="Enable/Disable Flashbang Command (!flashbang)">
+					<image id="flashbangicon"
+						   preserve-aspect="true"
+						   pref-width="13"
+						   pref-height="13" />
+				</button>
+				
 			</horizontal>
 
 			<!-- Play Time Slider -->

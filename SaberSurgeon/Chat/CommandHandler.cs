@@ -66,6 +66,12 @@ namespace SaberSurgeon.Chat
         public static bool SpeedExclusiveEnabled { get; set; } = true;
 
 
+        // Flashbang command toggle + cooldown
+        public static bool FlashbangEnabled { get; set; } = true;
+        public static float FlashbangCooldownSeconds { get; set; } = 60f;
+
+
+
 
         // Commands that never use cooldowns (not checked, not set)
         private static readonly HashSet<string> NoCooldownCommands =
@@ -123,6 +129,10 @@ namespace SaberSurgeon.Chat
             RegisterCommand("faster", HandleFasterCommand);
             RegisterCommand("superfast", HandleSuperFastCommand);
             RegisterCommand("slower", HandleSlowerCommand);
+            RegisterCommand("notecolor", HandleNoteColorCommand);
+            RegisterCommand("notecolour", HandleNoteColorCommand);
+            RegisterCommand("flashbang", HandleFlashbangCommand);
+
         }
 
         private void RegisterCommand(string name, CommandDelegate handler)
@@ -209,6 +219,107 @@ namespace SaberSurgeon.Chat
             return !string.Equals(mgr.ActiveEffectKey, thisKey, StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool TryParseColorString(string input, out Color color)
+        {
+            color = Color.white;
+
+            if (string.IsNullOrEmpty(input))
+                return false;
+
+            string s = input.Trim();
+
+            // Unity supports CSS color names and #RRGGBB / #RRGGBBAA via TryParseHtmlString
+            if (ColorUtility.TryParseHtmlString(s, out color))
+                return true;
+
+            // Allow hex without leading '#'
+            if (!s.StartsWith("#") && ColorUtility.TryParseHtmlString("#" + s, out color))
+                return true;
+
+            return false;
+        }
+
+        private bool HandleNoteColorCommand(object ctxObj, string fullCommand)
+        {
+            // Share the same enable/disable toggle as !rainbow
+            if (!RainbowEnabled)
+            {
+                SendResponse(
+                    "NoteColor command is disabled via menu",
+                    "!!NoteColor command is currently disabled in the Saber Surgeon settings (Rainbow toggle).");
+                return false;
+            }
+
+            var ctx = ctxObj as ChatContext;
+
+            // Same privilege gating as !rainbow
+            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            {
+                SendResponse(
+                    "NoteColor denied: not privileged",
+                    "!!You must be a sub or mod to use !notecolor.");
+                return false;
+            }
+
+            // Parse arguments: !notecolor <left> <right>
+            var parts = fullCommand.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3)
+            {
+                SendResponse(
+                    "NoteColor bad syntax",
+                    "!!Usage: !notecolor <leftColor> <rightColor> (names like 'red' or hex like #FF0000).");
+                return false;
+            }
+
+            string leftArg = parts[1];
+            string rightArg = parts[2];
+
+            // Special case: !notecolor rainbow rainbow → just run the normal rainbow effect
+            if (leftArg.Equals("rainbow", StringComparison.OrdinalIgnoreCase) &&
+                rightArg.Equals("rainbow", StringComparison.OrdinalIgnoreCase))
+            {
+                bool startedRainbow = Gameplay.RainbowManager.Instance.StartRainbow(30f);
+                if (!startedRainbow)
+                {
+                    SendResponse(
+                        "NoteColor-rainbow ignored: not in a map",
+                        "!!Rainbow can only be used while you are playing a song.");
+                    return false;
+                }
+
+                SendResponse(
+                    $"NoteColor rainbow mode started for 30s (requested by {ctx?.SenderName ?? "Unknown"})",
+                    "!!Rainbow notes enabled for 30 seconds!");
+                return true;
+            }
+
+            // Otherwise: fixed left/right colors
+            if (!TryParseColorString(leftArg, out Color leftColor) ||
+                !TryParseColorString(rightArg, out Color rightColor))
+            {
+                SendResponse(
+                    "NoteColor invalid color input",
+                    "!!Could not parse one of the colors. Use names like 'red' or hex like #FF0000.");
+                return false;
+            }
+
+            bool started = Gameplay.RainbowManager.Instance.StartNoteColor(leftColor, rightColor, 30f);
+            if (!started)
+            {
+                SendResponse(
+                    "NoteColor ignored: not in a map",
+                    "!!NoteColor can only be used while you are playing a song.");
+                return false;
+            }
+
+            SendResponse(
+                $"NoteColor started for 30s (requested by {ctx?.SenderName ?? "Unknown"})",
+                $"!!Note colors changed: left={leftArg}, right={rightArg} for 30 seconds!");
+            return true;
+        }
+
+
+
 
         /// <summary>Check if a command is currently on cooldown.</summary>
         private bool IsCommandOnCooldown(string commandName, out TimeSpan remainingTime)
@@ -248,6 +359,8 @@ namespace SaberSurgeon.Chat
                 switch (commandName.ToLowerInvariant())
                 {
                     case "rainbow":
+                    case "notecolor":
+                    case "notecolour":
                         seconds = RainbowCooldownSeconds;
                         break;
                     case "ghost":
@@ -267,6 +380,9 @@ namespace SaberSurgeon.Chat
                         break;
                     case "slower":
                         seconds = SlowerCooldownSeconds;
+                        break;
+                    case "flashbang":
+                        seconds = FlashbangCooldownSeconds;
                         break;
                 }
             }
@@ -299,6 +415,46 @@ namespace SaberSurgeon.Chat
             // This command always “does something”, so treat as success
             return true;
         }
+
+
+        private bool HandleFlashbangCommand(object ctxObj, string fullCommand)
+        {
+            // Respect menu toggle
+            if (!FlashbangEnabled)
+            {
+                SendResponse(
+                    "Flashbang command disabled via menu",
+                    "!!Flashbang command is currently disabled in the Saber Surgeon settings.");
+                return false;
+            }
+
+            var ctx = ctxObj as ChatContext;
+
+            // Optional privilege gating: subs/mods/broadcaster only (same as !bomb / !rainbow)
+            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            {
+                SendResponse(
+                    "Flashbang denied: not privileged",
+                    "!!You must be a sub or mod to use !flashbang.");
+                return false;
+            }
+
+            // 2500% (x25) for 1s, then fade 3s
+            bool started = Gameplay.FlashbangManager.Instance.TriggerFlashbang(25f, 1f, 3f);
+            if (!started)
+            {
+                SendResponse(
+                    "Flashbang ignored: not in a map",
+                    "!!Flashbang can only be used while you are playing a song.");
+                return false;
+            }
+
+            SendResponse(
+                $"Flashbang triggered (requested by {ctx?.SenderName ?? "Unknown"})",
+                "!!FLASHBANG! All lights boosted for a moment.");
+            return true; // success → cooldown applies
+        }
+
 
 
         private bool HandleFasterCommand(object ctxObj, string fullCommand)

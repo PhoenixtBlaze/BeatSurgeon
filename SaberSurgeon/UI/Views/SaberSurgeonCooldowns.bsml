@@ -128,6 +128,18 @@
 						integer-only="true"
 						apply-on-change="true" />
 			</horizontal>
+			<!-- Flashbang -->
+			<horizontal spacing="2" pad="0">
+				<text text="!flashbang" align="Left" font-size="4" pref-width="15" />
+				<increment-setting
+					text=""
+					value="flashbang_cd_seconds"
+					min="0"
+					max="300"
+					increment="5"
+					integer-only="true"
+					apply-on-change="true" />
+			</horizontal>
 			<!-- Optional: BSR -->
 			<text text="!bsr never use cooldowns."
                   align="Center"

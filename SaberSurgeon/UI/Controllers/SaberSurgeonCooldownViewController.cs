@@ -144,5 +144,17 @@ namespace SaberSurgeon.UI.Controllers
             }
         }
 
+        [UIValue("flashbang_cd_seconds")]
+        public int FlashbangCooldownSeconds
+        {
+            get => (int)CommandHandler.FlashbangCooldownSeconds;
+            set
+            {
+                CommandHandler.FlashbangCooldownSeconds = Mathf.Clamp(value, 0, 300);
+                NotifyPropertyChanged(nameof(FlashbangCooldownSeconds));
+            }
+        }
+
+
     }
 }

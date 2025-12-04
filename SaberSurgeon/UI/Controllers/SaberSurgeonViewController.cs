@@ -107,6 +107,12 @@ namespace SaberSurgeon.UI.Controllers
         private static readonly Sprite SlowerOnSprite =
             LoadEmbeddedSprite("SaberSurgeon.Assets.SlowerSongGB.png");
 
+        // Flashbang icons (off = Flashbang, on = FlashbangGB)
+        private static readonly Sprite FlashbangOffSprite =
+            LoadEmbeddedSprite("SaberSurgeon.Assets.Flashbang.png");
+        private static readonly Sprite FlashbangOnSprite =
+            LoadEmbeddedSprite("SaberSurgeon.Assets.FlashbangGB.png");
+
 
 
         // === Play time slider ===
@@ -138,6 +144,14 @@ namespace SaberSurgeon.UI.Controllers
                 UpdateRainbowButtonVisual();
             }
         }
+
+        [UIComponent("rainbowbutton")]
+        private Button rainbowButton;
+
+        [UIComponent("rainbowicon")]
+        private Image rainbowIcon;
+
+        private Image rainbowButtonImage;
 
 
         // Menu toggle bound to CommandHandler.DisappearingEnabled
@@ -271,15 +285,30 @@ namespace SaberSurgeon.UI.Controllers
         private Image slowerButtonImage;
 
 
+        [UIValue("flashbang_enabled")]
+        public bool FlashbangEnabled
+        {
+            get => CommandHandler.FlashbangEnabled;
+            set
+            {
+                CommandHandler.FlashbangEnabled = value;
+                NotifyPropertyChanged(nameof(FlashbangEnabled));
+                UpdateFlashbangButtonVisual();
+            }
+        }
+
+        [UIComponent("flashbangbutton")]
+        private Button flashbangButton;
+
+        [UIComponent("flashbangicon")]
+        private Image flashbangIcon;
+
+        private Image flashbangButtonImage;
+
+
 
         // === UI components from BSML ===
-        [UIComponent("rainbowbutton")]
-        private Button rainbowButton;
 
-        [UIComponent("rainbowicon")]
-        private Image rainbowIcon;
-
-        private Image rainbowButtonImage;
 
         // Colors for OFF/ON states to mimic modifier highlight
         private readonly Color offColor = new Color(0.2f, 0.2f, 0.2f, 1f);
@@ -401,6 +430,21 @@ namespace SaberSurgeon.UI.Controllers
                     rt.anchoredPosition = Vector2.zero;
                     rt.sizeDelta = new Vector2(12f, 12f);
                 }
+                if (flashbangButton != null)
+                {
+                    BeatSaberUI.SetButtonText(flashbangButton, string.Empty);
+                    flashbangButtonImage = flashbangButton.GetComponent<Image>();
+                }
+
+                if (flashbangIcon != null)
+                {
+                    var rt = flashbangIcon.rectTransform;
+                    rt.anchorMin = new Vector2(0.5f, 0.5f);
+                    rt.anchorMax = new Vector2(0.5f, 0.5f);
+                    rt.anchoredPosition = Vector2.zero;
+                    rt.sizeDelta = new Vector2(12f, 12f);
+                }
+
 
             }
 
@@ -412,8 +456,30 @@ namespace SaberSurgeon.UI.Controllers
             UpdateFasterButtonVisual();
             UpdateSuperFastButtonVisual();
             UpdateSlowerButtonVisual();
+            UpdateFlashbangButtonVisual();
+
         }
 
+
+        private void UpdateFlashbangButtonVisual()
+        {
+            if (flashbangIcon != null)
+            {
+                var sprite = FlashbangEnabled ? FlashbangOnSprite : FlashbangOffSprite;
+                if (sprite != null)
+                    flashbangIcon.sprite = sprite;
+            }
+
+            if (flashbangButtonImage != null)
+                flashbangButtonImage.color = FlashbangEnabled ? onColor : offColor;
+        }
+
+        [UIAction("OnFlashbangButtonClicked")]
+        private void OnFlashbangButtonClicked()
+        {
+            FlashbangEnabled = !FlashbangEnabled;
+            Plugin.Log.Info($"SaberSurgeon: Flashbang command enabled = {FlashbangEnabled}");
+        }
 
 
         private void UpdateSlowerButtonVisual()
