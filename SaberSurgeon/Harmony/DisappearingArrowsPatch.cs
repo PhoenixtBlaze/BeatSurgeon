@@ -1,8 +1,7 @@
-﻿// File: SaberSurgeon/Harmony/DisappearingArrowsPatch.cs
-using System;
-using System.Reflection;
+﻿using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
+using SaberSurgeon.Gameplay;
 
 namespace SaberSurgeon.HarmonyPatches
 {
@@ -14,54 +13,39 @@ namespace SaberSurgeon.HarmonyPatches
         private static void Postfix(ColorNoteVisuals __instance)
         {
             // Only affect notes while our DA effect is active
-            if (!Gameplay.DisappearingArrowsManager.DisappearingActive)
+            if (!DisappearingArrowsManager.DisappearingActive)
                 return;
 
             var type = typeof(ColorNoteVisuals);
 
-            // Private fields on ColorNoteVisuals
+            // We need the underlying NoteController to get noteData.time
             var noteControllerField = AccessTools.Field(type, "_noteController");
-            var arrowField = AccessTools.Field(type, "_arrowMeshRenderers");
-
-            if (noteControllerField == null || arrowField == null)
+            if (noteControllerField == null)
             {
-                Plugin.Log.Warn("DisappearingArrowsPatch: Failed to reflect required fields.");
+                Plugin.Log.Warn("DisappearingArrowsPatch: Failed to reflect _noteController field.");
                 return;
             }
 
-            var noteController = noteControllerField.GetValue(__instance);
-            if (noteController == null)
+            var noteController = noteControllerField.GetValue(__instance) as NoteControllerBase;
+            if (noteController == null || noteController.noteData == null)
                 return;
 
-            // Get noteData via reflection: noteController.noteData
-            var ncType = noteController.GetType();
-            var noteProp = ncType.GetProperty("noteData",
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            var noteData = noteProp?.GetValue(noteController);
-            if (noteData == null)
-                return;
+            var noteData = noteController.noteData;
 
-            // noteData.cutDirection, compare to enum value "Any"
-            var ndType = noteData.GetType();
-            var cutDirProp = ndType.GetProperty("cutDirection",
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-            var cutDirValue = cutDirProp?.GetValue(noteData);
-            if (cutDirValue == null)
-                return;
+            // We now affect both directional and dot notes, so no cutDirection/Any check
 
-            // If this is an Any‑direction (dot) note, leave it alone
-            var anyEnum = Enum.Parse(cutDirValue.GetType(), "Any");
-            if (cutDirValue.Equals(anyEnum))
+            var gameNote = __instance.GetComponentInParent<GameNoteController>();
+            if (gameNote == null)
+            {
+                Plugin.Log.Warn("DisappearingArrowsPatch: No GameNoteController parent found");
                 return;
+            }
 
-            // Directional note: hide arrow meshes, don't touch circles
-            var arrowRenderers = arrowField.GetValue(__instance) as MeshRenderer[];
-            if (arrowRenderers == null)
-                return;
+            var controller = gameNote.gameObject.GetComponent<DisappearingArrowsVisualController>();
+            if (controller == null)
+                controller = gameNote.gameObject.AddComponent<DisappearingArrowsVisualController>();
 
-            foreach (var mr in arrowRenderers)
-                if (mr != null)
-                    mr.enabled = false;
+            controller.Initialize(gameNote, noteData.time);
         }
     }
 }

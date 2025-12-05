@@ -21,7 +21,8 @@ namespace SaberSurgeon.HarmonyPatches
 
         private static void Postfix(ColorNoteVisuals __instance, NoteControllerBase noteController)
         {
-            if (!BombManager.BombArmed)
+            // Only create bombs while the bomb window is active
+            if (!BombManager.IsBombWindowActive)
                 return;
 
             var noteData = noteController?.noteData;
@@ -218,14 +219,20 @@ namespace SaberSurgeon.HarmonyPatches
                 Plugin.Log.Info($"BombNotePatch: Sphere bomb visual created and colored");
             }
 
-            // FIX: START WATCHDOG (this was completely missing!)
+            //START WATCHDOG
             var bombNode = gameNote.transform.Find("SaberSurgeon_BombVisual");
             if (bombNode != null)
             {
                 var watchdog = gameNote.gameObject.AddComponent<RendererWatchdog>();
-                watchdog.Init(gameNote.transform, 10.0f, bombNode);
-                Plugin.Log.Info("BombNotePatch: Watchdog started for 10s (ignoring SaberSurgeon_BombVisual)");
+
+                // Use the bomb command cooldown as the watchdog duration
+                float seconds = SaberSurgeon.Chat.CommandHandler.BombCooldownSeconds;
+                if (seconds <= 0f) seconds = 10.0f; // sane fallback
+
+                watchdog.Init(gameNote.transform, seconds, bombNode);
+                Plugin.Log.Info($"BombNotePatch: Watchdog started for {seconds:F1}s (ignoring SaberSurgeon_BombVisual)");
             }
+
             else
             {
                 Plugin.Log.Warn("BombNotePatch: bombNode not found after creation, watchdog not started");
@@ -272,6 +279,9 @@ namespace SaberSurgeon.HarmonyPatches
 
             // Spawn flying username text
             SpawnFlyingUsername(bomber, cutPoint);
+
+            //stop all bomb watchdogs so pooled notes stop looking like bombs
+            BombManager.Instance.StopAllBombWatchdogs();
         }
 
         private static void EnsureRefs()

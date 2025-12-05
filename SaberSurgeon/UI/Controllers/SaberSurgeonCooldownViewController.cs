@@ -26,6 +26,9 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.GlobalCooldownEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.GlobalCooldownEnabled = value;
+
                 NotifyPropertyChanged(nameof(GlobalCooldownEnabled));
             }
         }
@@ -36,7 +39,11 @@ namespace SaberSurgeon.UI.Controllers
             get => CommandHandler.GlobalCooldownSeconds;
             set
             {
-                CommandHandler.GlobalCooldownSeconds = Mathf.Clamp(value, 0f, 300f);
+                float clamped = Mathf.Clamp(value, 0f, 300f);
+                CommandHandler.GlobalCooldownSeconds = clamped;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.GlobalCooldownSeconds = clamped;
+
                 NotifyPropertyChanged(nameof(GlobalCooldownSeconds));
             }
         }
@@ -48,10 +55,12 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.PerCommandCooldownsEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.PerCommandCooldownsEnabled = value;
+
                 NotifyPropertyChanged(nameof(PerCommandCooldownsEnabled));
             }
         }
-
 
         [UIValue("faster_cd_seconds")]
         public float FasterCooldownSeconds
@@ -59,11 +68,14 @@ namespace SaberSurgeon.UI.Controllers
             get => CommandHandler.FasterCooldownSeconds;
             set
             {
-                CommandHandler.FasterCooldownSeconds = Mathf.Clamp(value, 0f, 300f);
+                float clamped = Mathf.Clamp(value, 0f, 300f);
+                CommandHandler.FasterCooldownSeconds = clamped;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.FasterCooldownSeconds = clamped;
+
                 NotifyPropertyChanged(nameof(FasterCooldownSeconds));
             }
         }
-
 
         [UIValue("rainbow_cd_seconds")]
         public float RainbowCooldownSeconds
@@ -71,7 +83,11 @@ namespace SaberSurgeon.UI.Controllers
             get => CommandHandler.RainbowCooldownSeconds;
             set
             {
-                CommandHandler.RainbowCooldownSeconds = Mathf.Clamp(value, 0f, 300f);
+                float clamped = Mathf.Clamp(value, 0f, 300f);
+                CommandHandler.RainbowCooldownSeconds = clamped;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.RainbowCooldownSeconds = clamped;
+
                 NotifyPropertyChanged(nameof(RainbowCooldownSeconds));
             }
         }
@@ -82,7 +98,11 @@ namespace SaberSurgeon.UI.Controllers
             get => CommandHandler.GhostCooldownSeconds;
             set
             {
-                CommandHandler.GhostCooldownSeconds = Mathf.Clamp(value, 0f, 300f);
+                float clamped = Mathf.Clamp(value, 0f, 300f);
+                CommandHandler.GhostCooldownSeconds = clamped;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.GhostCooldownSeconds = clamped;
+
                 NotifyPropertyChanged(nameof(GhostCooldownSeconds));
             }
         }
@@ -93,7 +113,11 @@ namespace SaberSurgeon.UI.Controllers
             get => CommandHandler.DisappearCooldownSeconds;
             set
             {
-                CommandHandler.DisappearCooldownSeconds = Mathf.Clamp(value, 0f, 300f);
+                float clamped = Mathf.Clamp(value, 0f, 300f);
+                CommandHandler.DisappearCooldownSeconds = clamped;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.DisappearCooldownSeconds = clamped;
+
                 NotifyPropertyChanged(nameof(DisappearCooldownSeconds));
             }
         }
@@ -104,12 +128,14 @@ namespace SaberSurgeon.UI.Controllers
             get => CommandHandler.BombCooldownSeconds;
             set
             {
-                CommandHandler.BombCooldownSeconds = Mathf.Clamp(value, 0f, 300f);
+                float clamped = Mathf.Clamp(value, 0f, 300f);
+                CommandHandler.BombCooldownSeconds = clamped;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.BombCooldownSeconds = clamped;
+
                 NotifyPropertyChanged(nameof(BombCooldownSeconds));
             }
         }
-
-
 
         [UIValue("superfast_cd_seconds")]
         public float SuperFastCooldownSeconds
@@ -117,7 +143,11 @@ namespace SaberSurgeon.UI.Controllers
             get => CommandHandler.SuperFastCooldownSeconds;
             set
             {
-                CommandHandler.SuperFastCooldownSeconds = Mathf.Clamp(value, 0f, 300f);
+                float clamped = Mathf.Clamp(value, 0f, 300f);
+                CommandHandler.SuperFastCooldownSeconds = clamped;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.SuperFastCooldownSeconds = clamped;
+
                 NotifyPropertyChanged(nameof(SuperFastCooldownSeconds));
             }
         }
@@ -128,7 +158,11 @@ namespace SaberSurgeon.UI.Controllers
             get => CommandHandler.SlowerCooldownSeconds;
             set
             {
-                CommandHandler.SlowerCooldownSeconds = Mathf.Clamp(value, 0f, 300f);
+                float clamped = Mathf.Clamp(value, 0f, 300f);
+                CommandHandler.SlowerCooldownSeconds = clamped;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.SlowerCooldownSeconds = clamped;
+
                 NotifyPropertyChanged(nameof(SlowerCooldownSeconds));
             }
         }
@@ -140,6 +174,9 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.SpeedExclusiveEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.SpeedExclusiveEnabled = value;
+
                 NotifyPropertyChanged(nameof(SpeedExclusiveEnabled));
             }
         }
@@ -150,10 +187,15 @@ namespace SaberSurgeon.UI.Controllers
             get => (int)CommandHandler.FlashbangCooldownSeconds;
             set
             {
-                CommandHandler.FlashbangCooldownSeconds = Mathf.Clamp(value, 0, 300);
+                int clamped = Mathf.Clamp(value, 0, 300);
+                CommandHandler.FlashbangCooldownSeconds = clamped;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.FlashbangCooldownSeconds = clamped;
+
                 NotifyPropertyChanged(nameof(FlashbangCooldownSeconds));
             }
         }
+
 
 
     }

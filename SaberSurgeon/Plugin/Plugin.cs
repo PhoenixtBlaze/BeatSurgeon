@@ -6,10 +6,15 @@ using IPA;
 using IPA.Config.Stores;
 using IPA.Logging;
 using SaberSurgeon.Chat;
+using System.Collections;
 using SaberSurgeon.UI.FlowCoordinators;
 using System;
 using System.Linq;
 using UnityEngine;
+using BS_Utils.Utilities;
+using SaberSurgeon.Gameplay;
+
+
 
 namespace SaberSurgeon
 {
@@ -18,7 +23,15 @@ namespace SaberSurgeon
     {
         internal static Plugin Instance { get; private set; }
         internal static IPA.Logging.Logger Log { get; private set; }
+
+        // Raw BSIPA config object (kept for compatibility if ever need it)
         internal static IPA.Config.Config Configuration { get; private set; }
+
+        // Strongly-typed settings wrapper backed by Configuration
+
+        internal static PluginConfig Settings { get; private set; }
+
+        private bool _menuButtonRegisteredThisMenu = false;
 
         private MenuButton _menuButton;
         private SaberSurgeonFlowCoordinator _flowCoordinator;
@@ -28,7 +41,8 @@ namespace SaberSurgeon
         {
             Log = logger;
             Instance = this;
-            Configuration = config;
+            Settings = config.Generated<PluginConfig>();
+            PluginConfig.Instance = Settings;
             Log.Info("SaberSurgeon: Init");
 
         }
@@ -39,7 +53,8 @@ namespace SaberSurgeon
 
 
             Log.Info("SaberSurgeon: OnApplicationStart");
-            MainMenuAwaiter.MainMenuInitializing += OnMainMenuInitializing;
+            BSEvents.menuSceneActive += OnMenuSceneActive;
+            
 
             // Find the AudioTimeSyncController once when gameplay scene loads
             var audio = Resources.FindObjectsOfTypeAll<AudioTimeSyncController>()
@@ -70,31 +85,52 @@ namespace SaberSurgeon
 
         }
 
-        private void OnMainMenuInitializing()
+
+        private void OnMenuSceneActive()
         {
-            try
-            {
-                Log.Info("SaberSurgeon: MainMenuInitializing");
+            Log.Info("SaberSurgeon : menuSceneActive");
+            _menuButtonRegisteredThisMenu = false;
 
-                if (MenuButtons.Instance == null)
+            // Run a small coroutine on the game’s main thread
+            CoroutineHost.Instance.StartCoroutine(RegisterMenuButtonWhenReady());
+        }
+
+        private IEnumerator RegisterMenuButtonWhenReady()
+        {
+            // Try once per frame until MenuButtons is ready or we succeed
+            while (!_menuButtonRegisteredThisMenu)
+            {
+                // Wait one frame to give Zenject / BSML time to finish installing
+                yield return null;
+
+                try
                 {
-                    Log.Warn("MenuButtons.Instance is null");
-                    return;
-                }
+                    // If BSML isn't fully initialized, this may throw – we just loop again
+                    if (MenuButtons.Instance == null)
+                        continue;
 
-                _menuButton = new MenuButton("Saber Surgeon", "Open SaberSurgeon settings", ShowFlow);
-                MenuButtons.Instance.RegisterButton(_menuButton);
-                Log.Info("SaberSurgeon: Menu button registered");
-            }
-            catch (Exception ex)
-            {
-                Log.Critical($"SaberSurgeon: Exception in OnMainMenuInitializing : {ex}");
-            }
-            finally
-            {
-                MainMenuAwaiter.MainMenuInitializing -= OnMainMenuInitializing;
+                    if (_menuButton == null)
+                        _menuButton = new MenuButton("Saber Surgeon", "Open SaberSurgeon settings", ShowFlow);
+
+                    MenuButtons.Instance.RegisterButton(_menuButton);
+                    _menuButtonRegisteredThisMenu = true;
+
+                    Log.Info("SaberSurgeon: Menu button registered (delayed)");
+                }
+                catch (System.InvalidOperationException ex)
+                {
+                    // "Tried getting MenuButtons too early!" – ignore and try again next frame
+                    Log.Debug($"SaberSurgeon: MenuButtons not ready yet: {ex.Message}");
+                }
+                catch (System.Exception ex)
+                {
+                    // Any unexpected error: log and stop trying this menu
+                    Log.Error($"SaberSurgeon: Unexpected error registering menu button: {ex}");
+                    yield break;
+                }
             }
         }
+
 
         private void ShowFlow()
         {
@@ -162,6 +198,8 @@ namespace SaberSurgeon
 
             try
             {
+                BSEvents.menuSceneActive -= OnMenuSceneActive;
+
                 CommandHandler.Instance.Shutdown();
                 ChatManager.GetInstance().Shutdown();
                 Gameplay.GameplayManager.GetInstance().Shutdown();
@@ -184,7 +222,7 @@ namespace SaberSurgeon
                 Log.Warn($"SaberSurgeon: Error unregistering menu button: {ex}");
             }
 
-            MainMenuAwaiter.MainMenuInitializing -= OnMainMenuInitializing;
+            
         }
     }
 }

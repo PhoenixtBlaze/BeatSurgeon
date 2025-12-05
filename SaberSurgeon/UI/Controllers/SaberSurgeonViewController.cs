@@ -140,6 +140,8 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.RainbowEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.RainbowEnabled = value;
                 NotifyPropertyChanged(nameof(RainbowEnabled));
                 UpdateRainbowButtonVisual();
             }
@@ -162,6 +164,8 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.DisappearEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.DisappearEnabled = value;
                 NotifyPropertyChanged(nameof(DisappearingEnabled));
                 UpdateDAButtonVisual();
             }
@@ -186,6 +190,8 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.GhostEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.GhostEnabled = value;
                 NotifyPropertyChanged(nameof(GhostEnabled));
                 UpdateGhostButtonVisual();
             }
@@ -208,6 +214,8 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.BombEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.BombEnabled = value;
                 NotifyPropertyChanged(nameof(BombEnabled));
                 UpdateBombButtonVisual();
             }
@@ -228,6 +236,8 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.FasterEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.FasterEnabled = value;
                 NotifyPropertyChanged(nameof(FasterEnabled));
                 UpdateFasterButtonVisual();
             }
@@ -250,6 +260,8 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.SuperFastEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.SuperFastEnabled = value;
                 NotifyPropertyChanged(nameof(SuperFastEnabled));
                 UpdateSuperFastButtonVisual();
             }
@@ -271,6 +283,8 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.SlowerEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.SlowerEnabled = value;
                 NotifyPropertyChanged(nameof(SlowerEnabled));
                 UpdateSlowerButtonVisual();
             }
@@ -292,6 +306,8 @@ namespace SaberSurgeon.UI.Controllers
             set
             {
                 CommandHandler.FlashbangEnabled = value;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.FlashbangEnabled = value;
                 NotifyPropertyChanged(nameof(FlashbangEnabled));
                 UpdateFlashbangButtonVisual();
             }

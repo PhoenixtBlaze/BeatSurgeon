@@ -248,6 +248,7 @@
     <Compile Include="Gameplay\BombManager.cs" />
     <Compile Include="Gameplay\CoroutineHost.cs" />
     <Compile Include="Gameplay\DisappearingArrowsManager.cs" />
+    <Compile Include="Gameplay\DisappearingArrowsVisualController.cs" />
     <Compile Include="Gameplay\FasterSongManager.cs" />
     <Compile Include="Gameplay\FlashbangManager.cs" />
     <Compile Include="Gameplay\GameplayManager.cs" />
@@ -263,6 +264,7 @@
     <Compile Include="Harmony\FasterSongPatch.cs" />
     <Compile Include="Harmony\GhostNotesPatch.cs" />
     <Compile Include="Harmony\RainbowNotePatch.cs" />
+    <Compile Include="PluginConfig.cs" />
     <Compile Include="Plugin\Plugin.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="UI\Controllers\SaberSurgeonCooldownViewController.cs" />

@@ -106,6 +106,40 @@ namespace SaberSurgeon.Chat
             {
                 Plugin.Log.Info("CommandHandler: Initializing...");
                 RegisterCommands();
+
+                var cfg = Plugin.Settings ?? new PluginConfig();
+
+                // Global switches
+                GlobalCooldownEnabled = cfg.GlobalCooldownEnabled;
+                PerCommandCooldownsEnabled = cfg.PerCommandCooldownsEnabled;
+                GlobalCooldownSeconds = cfg.GlobalCooldownSeconds;
+
+                // Toggles
+                RainbowEnabled = cfg.RainbowEnabled;
+                DisappearEnabled = cfg.DisappearEnabled;
+                GhostEnabled = cfg.GhostEnabled;
+                BombEnabled = cfg.BombEnabled;
+                FasterEnabled = cfg.FasterEnabled;
+                SuperFastEnabled = cfg.SuperFastEnabled;
+                SlowerEnabled = cfg.SlowerEnabled;
+                FlashbangEnabled = cfg.FlashbangEnabled;
+                SpeedExclusiveEnabled = cfg.SpeedExclusiveEnabled;
+
+                // Cooldowns
+                RainbowCooldownEnabled = cfg.RainbowCooldownSeconds > 0f; // if you want a flag
+                DisappearCooldownEnabled = cfg.DisappearCooldownSeconds > 0f;
+                GhostCooldownEnabled = cfg.GhostCooldownSeconds > 0f;
+                BombCooldownEnabled = cfg.BombCooldownSeconds > 0f;
+
+                RainbowCooldownSeconds = cfg.RainbowCooldownSeconds;
+                DisappearCooldownSeconds = cfg.DisappearCooldownSeconds;
+                GhostCooldownSeconds = cfg.GhostCooldownSeconds;
+                BombCooldownSeconds = cfg.BombCooldownSeconds;
+                FasterCooldownSeconds = cfg.FasterCooldownSeconds;
+                SuperFastCooldownSeconds = cfg.SuperFastCooldownSeconds;
+                SlowerCooldownSeconds = cfg.SlowerCooldownSeconds;
+                FlashbangCooldownSeconds = cfg.FlashbangCooldownSeconds;
+
                 _isInitialized = true;
                 Plugin.Log.Info($"CommandHandler: Ready! ({_commands.Count} commands registered)");
             }
@@ -253,7 +287,7 @@ namespace SaberSurgeon.Chat
             var ctx = ctxObj as ChatContext;
 
             // Same privilege gating as !rainbow
-            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            if (ctx == null) //(ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
             {
                 SendResponse(
                     "NoteColor denied: not privileged",
@@ -431,7 +465,7 @@ namespace SaberSurgeon.Chat
             var ctx = ctxObj as ChatContext;
 
             // Optional privilege gating: subs/mods/broadcaster only (same as !bomb / !rainbow)
-            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            if (ctx == null) //(ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
             {
                 SendResponse(
                     "Flashbang denied: not privileged",
@@ -469,7 +503,7 @@ namespace SaberSurgeon.Chat
 
             var ctx = ctxObj as ChatContext;
 
-            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            if (ctx == null) //(ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
             {
                 SendResponse(
                     "Faster denied: not privileged",
@@ -518,7 +552,7 @@ namespace SaberSurgeon.Chat
 
             var ctx = ctxObj as ChatContext;
 
-            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            if (ctx == null) //(ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
             {
                 SendResponse(
                     "SuperFast denied: not privileged",
@@ -567,7 +601,7 @@ namespace SaberSurgeon.Chat
 
             var ctx = ctxObj as ChatContext;
 
-            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            if (ctx == null) //(ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
             {
                 SendResponse(
                     "Slower denied: not privileged",
@@ -618,7 +652,7 @@ namespace SaberSurgeon.Chat
             var ctx = ctxObj as ChatContext;
 
             // Optional privilege gating: subs/mods/broadcaster only
-            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            if (ctx == null) //(ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
             {
                 SendResponse(
                     "Bomb denied: not privileged",
@@ -628,7 +662,7 @@ namespace SaberSurgeon.Chat
 
             string name = ctx?.SenderName ?? "Unknown";
 
-            bool armed = Gameplay.BombManager.Instance.ArmBomb(name);
+            bool armed = Gameplay.BombManager.Instance.ArmBomb(name, BombCooldownSeconds);
             if (!armed)
             {
                 SendResponse(
@@ -659,7 +693,7 @@ namespace SaberSurgeon.Chat
             var ctx = ctxObj as ChatContext;
 
             // Optional privilege gating
-            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            if (ctx == null) //(ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
             {
                 SendResponse(
                     "DisappearingArrows denied: not privileged",
@@ -708,7 +742,7 @@ namespace SaberSurgeon.Chat
             var ctx = ctxObj as ChatContext;
 
             // Optional privilege gating
-            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            if (ctx == null) //(ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
             {
                 SendResponse(
                     "Ghost denied: not privileged",
@@ -753,7 +787,7 @@ namespace SaberSurgeon.Chat
             Plugin.Log.Info("!bsr     - Queue a map by code");
 
             ChatManager.GetInstance().SendChatMessage(
-                "Commands: !surgeon !help !test !ping !bsr de>");
+                "!! Avialable Saber Surgeon Commands: !bomb !rainbow !ghost !faster !ghost !slower !flashbang + more to come");
 
             // Help always succeeds
             return true;
@@ -763,7 +797,7 @@ namespace SaberSurgeon.Chat
         {
             SendResponse(
                 $"Test command executed: {fullCommand}",
-                $"!!Test successful: {fullCommand}");
+                null);
 
             return true;
         }
@@ -772,7 +806,7 @@ namespace SaberSurgeon.Chat
         {
             var ctx = ctxObj as ChatContext;
 
-            if (ctx != null && !(ctx.IsModerator || ctx.IsSubscriber || ctx.IsBroadcaster))
+            if (ctx == null) //(ctx != null && !(ctx.IsModerator || ctx.IsSubscriber || ctx.IsBroadcaster))
             {
                 SendResponse(
                     "Ping denied: not privileged",
@@ -800,7 +834,7 @@ namespace SaberSurgeon.Chat
             var ctx = ctxObj as ChatContext;
 
             // Optional: privilege gating
-            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            if (ctx == null) //(ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
             {
                 SendResponse(
                     "Rainbow denied: not privileged",
