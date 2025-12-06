@@ -140,7 +140,7 @@ namespace SaberSurgeon.Chat
                     _broadcastMessageMethod = broadcastMethod;
                 }
 
-                // Subscribe to add_Discrete_OnTextMessageReceived
+                // Subscribe to add_Discrete_OnTextMessageReceived 
                 var addTextMessageMethod = methods.FirstOrDefault(m => m.Name == "add_Discrete_OnTextMessageReceived");
                 if (addTextMessageMethod != null)
                 {

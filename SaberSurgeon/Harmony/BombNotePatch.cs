@@ -282,6 +282,8 @@ namespace SaberSurgeon.HarmonyPatches
 
             //stop all bomb watchdogs so pooled notes stop looking like bombs
             BombManager.Instance.StopAllBombWatchdogs();
+            // Also remove bomb visuals and restore original note appearance
+            BombManager.Instance.ClearBombVisuals();
         }
 
         private static void EnsureRefs()
@@ -426,6 +428,9 @@ namespace SaberSurgeon.HarmonyPatches
             // Start animation coroutine
             CoroutineHost.Instance.StartCoroutine(AnimateFlyingText(textGo, cutPoint));
         }
+
+
+
 
         private static IEnumerator AnimateFlyingText(GameObject textGo, Vector3 startPos)
         {

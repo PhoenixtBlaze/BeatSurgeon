@@ -91,12 +91,21 @@ namespace SaberSurgeon.Gameplay
             if (noteData == null)
                 return;
 
-            if (!_bombNotes.ContainsKey(noteData))
-            {
-                _bombNotes[noteData] = CurrentBomberName;
-                Plugin.Log.Info(
-                    $"BombManager: Marked note as bomb for {CurrentBomberName} at t={noteData.time:F3}");
-            }
+            // Only allow marking while actually armed and not yet consumed
+            if (!BombArmed || BombConsumed)
+                return;
+
+            // Already have a bomb assigned for this arm window → ignore additional notes
+            if (_bombNotes.Count > 0)
+                return;
+
+            _bombNotes[noteData] = CurrentBomberName;
+
+            // Close the arm window so no further notes in this time span become bombs
+            BombArmed = false;
+
+            Plugin.Log.Info(
+                $"BombManager: Marked FIRST note as bomb for {CurrentBomberName} at t={noteData.time:F3}");
         }
 
         /// <summary>
@@ -144,6 +153,45 @@ namespace SaberSurgeon.Gameplay
 
 
         /// <summary>Optional cleanup if you ever want to reset between sessions.</summary>
+        /// 
+        public void ClearBombVisuals()
+        {
+            // Find all active GameNoteController instances
+            var notes = Resources.FindObjectsOfTypeAll<GameNoteController>();
+            foreach (var note in notes)
+            {
+                if (note == null) continue;
+
+                var t = note.transform;
+
+                // Remove our bomb visual child if present
+                var bombVisual = t.Find("SaberSurgeon_BombVisual");
+                if (bombVisual != null)
+                {
+                    Destroy(bombVisual.gameObject);
+                }
+
+                // Restore the original note renderers
+                var noteCube = t.Find("NoteCube");
+                if (noteCube != null)
+                {
+                    var cubeMr = noteCube.GetComponent<MeshRenderer>();
+                    if (cubeMr != null)
+                        cubeMr.enabled = true;
+
+                    var circle = noteCube.Find("NoteCircleGlow");
+                    if (circle != null)
+                    {
+                        var circleMr = circle.GetComponent<MeshRenderer>();
+                        if (circleMr != null)
+                            circleMr.enabled = true;
+                    }
+                }
+            }
+
+            Plugin.Log.Info("BombManager: Cleared all bomb visuals and restored note renderers");
+        }
+
         public void Shutdown()
         {
             BombArmed = false;

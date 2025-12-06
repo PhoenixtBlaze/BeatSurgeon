@@ -8,10 +8,12 @@ namespace SaberSurgeon.Gameplay
         private class Entry { public MeshRenderer mr; public bool lastEnabled; }
         private readonly List<Entry> _entries = new List<Entry>();
         private float _endTime;
+        private Transform _root;
         private Transform _ignoreRoot;
 
         public void Init(Transform root, float seconds, Transform ignoreRoot = null)
         {
+            _root = root;
             _ignoreRoot = ignoreRoot;
             _entries.Clear();
 
