@@ -41,22 +41,80 @@
 			<!-- Per-command cooldown sliders (always visible, logic decides how they're used) -->
 			<text text="Per-command cooldowns (seconds)" align="Center" font-size="4" />
 
-			<!-- Rainbow -->
-			<horizontal spacing="2" pad="0">
-				<text text="!rainbow" align="Left" font-size="4" pref-width="15" />
+
+			<!-- Bomb -->
+			<horizontal spacing="1" pad="0" pref-width="100">
+				<text text="Bomb"
+					  align="Left"
+					  font-size="4"
+					  pref-width="15" />
+
+				<!-- Editable text field -->
+				<string-setting
+					text=""
+					value="bomb_command"
+					max-length="8"
+					apply-on-change="true"
+					pref-width="8"
+					hover-hint="command to use for Bombs" />
+
+				<!-- Increment for the numeric value -->
 				<increment-setting
-                    text=""
-                    value="rainbow_cd_seconds"
-                    min="0"
-                    max="300"
-                    increment="5"
-                    integer-only="true"
-                    apply-on-change="true" />
+					text=""
+					value="bomb_cd_seconds"
+					min="1"
+					max="300"
+					increment="5"
+					pref-width="45"
+					integer-only="true"
+					apply-on-change="true" />
+
+				<!-- Button after slider -->
+				<button text="Edit Visuals"
+						on-click="OnBombEditVisualsClicked"
+						pref-width="18"
+						pref-height="8"
+						hover-hint="Coming Soon...."/>
+			</horizontal>
+
+
+			<!-- Rainbow -->
+			<horizontal spacing="2" pad="0" pref-width="100">
+				<text text="Rainbow Notes"
+					  align="Left"
+					  font-size="4"
+					  pref-width="15" />
+
+				<!-- Editable text field -->
+				<!--string-setting
+					text=""
+					value="rainbow_command"
+					max-length="20"
+					apply-on-change="true"
+					pref-width="15"
+					hover-hint="command to use for RGB/Rainbow notes" /-->
+
+				<!-- Increment for the numeric value -->
+				<increment-setting
+					text=""
+					value="rainbow_cd_seconds"
+					min="1"
+					max="300"
+					increment="5"
+					pref-width="45"
+					integer-only="true"
+					apply-on-change="true" />
+
+				<!-- Button after slider -->
+				<!--button text="Edit Visuals"
+						on-click="OnRainbowEditVisualsClicked"
+						pref-width="18"
+						pref-height="8" /-->
 			</horizontal>
 
 			<!-- Ghost -->
 			<horizontal spacing="2" pad="0">
-				<text text="!ghost" align="Left" font-size="4" pref-width="15" />
+				<text text="Ghost Notes" align="Left" font-size="4" pref-width="15" />
 				<increment-setting
                     text=""
                     value="ghost_cd_seconds"
@@ -69,7 +127,7 @@
 
 			<!-- Disappear -->
 			<horizontal spacing="2" pad="0">
-				<text text="!disappear" align="Left" font-size="4" pref-width="15" />
+				<text text="Disappearing Arrows" align="Left" font-size="4" pref-width="15" />
 				<increment-setting
                     text=""
                     value="disappear_cd_seconds"
@@ -80,21 +138,9 @@
                     apply-on-change="true" />
 			</horizontal>
 
-			<!-- Bomb -->
-			<horizontal spacing="2" pad="0">
-				<text text="!bomb" align="Left" font-size="4" pref-width="15" />
-				<increment-setting
-                    text=""
-                    value="bomb_cd_seconds"
-                    min="0"
-                    max="300"
-                    increment="5"
-                    integer-only="true"
-                    apply-on-change="true" />
-			</horizontal>
 			<!-- Faster -->
 			<horizontal spacing="2" pad="0">
-				<text text="!faster" align="Left" font-size="4" pref-width="15" />
+				<text text="Faster Song" align="Left" font-size="4" pref-width="15" />
 				<increment-setting
 					text=""
 					value="faster_cd_seconds"
@@ -106,7 +152,7 @@
 			</horizontal>
 			<!-- SuperFast -->
 			<horizontal spacing="2" pad="0">
-				<text text="!superfast" align="Left" font-size="4" pref-width="15" />
+				<text text="SuperFast Song" align="Left" font-size="4" pref-width="15" />
 				<increment-setting
 					text=""
 					value="superfast_cd_seconds"
@@ -118,7 +164,7 @@
 			</horizontal>
 			<!-- Slower -->
 			<horizontal spacing="2" pad="0">
-				<text text="!slower" align="Left" font-size="4" pref-width="15" />
+				<text text="Slower Song" align="Left" font-size="4" pref-width="15" />
 				<increment-setting
 						text=""
 						value="slower_cd_seconds"
@@ -130,7 +176,7 @@
 			</horizontal>
 			<!-- Flashbang -->
 			<horizontal spacing="2" pad="0">
-				<text text="!flashbang" align="Left" font-size="4" pref-width="15" />
+				<text text="Flashbang" align="Left" font-size="4" pref-width="15" />
 				<increment-setting
 					text=""
 					value="flashbang_cd_seconds"

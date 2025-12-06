@@ -77,6 +77,67 @@ namespace SaberSurgeon.UI.Controllers
             }
         }
 
+
+        [UIValue("bomb_cd_seconds")]
+        public float BombCooldownSeconds
+        {
+            get => CommandHandler.BombCooldownSeconds;
+            set
+            {
+                float clamped = Mathf.Clamp(value, 0f, 300f);
+                CommandHandler.BombCooldownSeconds = clamped;
+                if (Plugin.Settings != null)
+                    Plugin.Settings.BombCooldownSeconds = clamped;
+
+                NotifyPropertyChanged(nameof(BombCooldownSeconds));
+            }
+        }
+
+
+        [UIValue("bomb_command")]
+        public string BombCommand
+        {
+            get
+            {
+                // Show with leading '!'
+                string name = CommandHandler.BombCommandName;
+                if (string.IsNullOrWhiteSpace(name))
+                    name = "bomb";
+                return "!" + name;
+            }
+            set
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                    return;
+
+                // Strip spaces and leading '!'
+                string cleaned = value.Trim();
+                if (cleaned.StartsWith("!"))
+                    cleaned = cleaned.Substring(1);
+
+                cleaned = cleaned.ToLowerInvariant();
+
+                if (string.IsNullOrWhiteSpace(cleaned))
+                    return;
+
+                // Update runtime behavior
+                CommandHandler.BombCommandName = cleaned;
+
+                // Persist to config
+                if (Plugin.Settings != null)
+                    Plugin.Settings.BombCommandName = cleaned;
+
+                NotifyPropertyChanged(nameof(BombCommand));
+            }
+        }
+
+        [UIAction("OnBombEditVisualsClicked")]
+        private void OnBombEditVisualsClicked() { /* open bomb visuals UI */ }
+
+
+
+
+
         [UIValue("rainbow_cd_seconds")]
         public float RainbowCooldownSeconds
         {
@@ -90,6 +151,36 @@ namespace SaberSurgeon.UI.Controllers
 
                 NotifyPropertyChanged(nameof(RainbowCooldownSeconds));
             }
+        }
+
+        // Text field backing the string-setting
+        [UIValue("rainbow_command")]
+        public string RainbowCommand
+        {
+            get => "!rainbow";          // default shown in the text box
+            set
+            {
+                // If you want it editable, validate and store somewhere:
+                // e.g. in Plugin.Settings.RainbowCommand
+                //if (string.IsNullOrWhiteSpace(value))
+                //    return;
+
+                // Example: keep it without leading '!' and force lowercase
+                //string cleaned = value.Trim();
+
+                // Store if you have a setting:
+                // Plugin.Settings.RainbowCommand = cleaned;
+
+                NotifyPropertyChanged(nameof(RainbowCommand));
+            }
+        }
+
+        // Button click handler
+        [UIAction("OnRainbowEditVisualsClicked")]
+        private void OnRainbowEditVisualsClicked()
+        {
+            // Open your visuals editor, or just log for now
+            Plugin.Log.Info("Rainbow Edit Visuals button clicked");
         }
 
         [UIValue("ghost_cd_seconds")]
@@ -122,20 +213,7 @@ namespace SaberSurgeon.UI.Controllers
             }
         }
 
-        [UIValue("bomb_cd_seconds")]
-        public float BombCooldownSeconds
-        {
-            get => CommandHandler.BombCooldownSeconds;
-            set
-            {
-                float clamped = Mathf.Clamp(value, 0f, 300f);
-                CommandHandler.BombCooldownSeconds = clamped;
-                if (Plugin.Settings != null)
-                    Plugin.Settings.BombCooldownSeconds = clamped;
-
-                NotifyPropertyChanged(nameof(BombCooldownSeconds));
-            }
-        }
+        
 
         [UIValue("superfast_cd_seconds")]
         public float SuperFastCooldownSeconds

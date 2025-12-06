@@ -106,16 +106,16 @@
 			</horizontal>
 
 			<!-- Play Time Slider -->
-			<slider-setting
+			<!--slider-setting
                 text="Play Time (minutes)"
                 value="playTime"
                 min="5"
                 max="120"
                 increment="1"
-                apply-on-change="true" />
+                apply-on-change="true" /-->
 
 			<!-- Start / Play Button -->
-			<button
+			<!--button
                 text="Start / Play"
                 on-click="OnStartPlayPressed"
                 font-size="8"
@@ -125,7 +125,7 @@
                 text-color="#FFFFFF"
                 hover-color="#4DA6FF"
                 outline-color="#FFFFFF"
-                outline-width="0.6" />
+                outline-width="0.6" /-->
 		</vertical>
 
 		

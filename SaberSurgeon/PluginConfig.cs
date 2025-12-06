@@ -7,6 +7,10 @@ namespace SaberSurgeon
     {
         public static PluginConfig Instance { get; set; }
 
+        //Commands
+        public virtual string BombCommandName { get; set; } = "bomb";
+
+
         // Command toggles
         public virtual bool RainbowEnabled { get; set; } = true;
         public virtual bool DisappearEnabled { get; set; } = true;
@@ -32,5 +36,6 @@ namespace SaberSurgeon
         public virtual float FlashbangCooldownSeconds { get; set; } = 60f;
 
         public virtual bool SpeedExclusiveEnabled { get; set; } = true;
+
     }
 }
