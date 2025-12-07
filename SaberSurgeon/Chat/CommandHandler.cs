@@ -459,7 +459,9 @@ namespace SaberSurgeon.Chat
 
             SendResponse(
                 $"Surgeon command executed by {ctx?.SenderName ?? "Unknown"}",
-                null);
+                "!!Avialable SaberSurgeon Commands: !bomb !rainbow !disappear !ghost !faster !superfast !slower !flashbang");
+
+            //ChatManager.GetInstance().SendChatMessage( "!! Avialable SaberSurgeon Commands: !bomb !rainbow !disappear !ghost !faster !superfast !slower !flashbang");
 
             // This command always “does something”, so treat as success
             return true;
@@ -801,8 +803,7 @@ namespace SaberSurgeon.Chat
             Plugin.Log.Info("!ping    - Ping/Pong");
             Plugin.Log.Info("!bsr     - Queue a map by code");
 
-            ChatManager.GetInstance().SendChatMessage(
-                "!! Avialable Saber Surgeon Commands: !bomb !rainbow !ghost !faster !ghost !slower !flashbang + more to come");
+            //ChatManager.GetInstance().SendChatMessage( "!! Avialable SaberSurgeon Commands: !bomb !rainbow !disappear !ghost !faster !superfast !slower !flashbang");
 
             // Help always succeeds
             return true;
