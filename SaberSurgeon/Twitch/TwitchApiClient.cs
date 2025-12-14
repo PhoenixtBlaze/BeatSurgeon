@@ -23,7 +23,7 @@ namespace SaberSurgeon.Twitch
         public string SupportChannelId { get; private set; }
 
         private const string HelixUrl = "https://api.twitch.tv/helix";
-        private const string ClientId = "dyq6orcrvl9cxd8d1usx6rtczt3tfb";
+        //private const string ClientId = "dyq6orcrvl9cxd8d1usx6rtczt3tfb";
 
         public async Task FetchBroadcasterAndSupportInfo()
         {
@@ -32,7 +32,7 @@ namespace SaberSurgeon.Twitch
 
             using (var client = new HttpClient())
             {
-                client.DefaultRequestHeaders.Add("Client-Id", ClientId);
+                client.DefaultRequestHeaders.Add("Client-Id", TwitchAuthManager.Instance.ClientId);
                 client.DefaultRequestHeaders.Add("Authorization", "Bearer " + token);
 
                 // 1. Get Broadcaster Info
@@ -52,6 +52,8 @@ namespace SaberSurgeon.Twitch
                         Plugin.Log.Info($"TwitchAPI: Raw user data id={BroadcasterId}, login={BroadcasterName}");
 
                         Plugin.Settings.CachedBroadcasterId = BroadcasterId;
+                        Plugin.Settings.CachedBotUserId = BroadcasterId;
+                        Plugin.Settings.CachedBotUserLogin = BroadcasterName;
                         Plugin.Settings.CachedBroadcasterLogin = BroadcasterName;
                         Plugin.Log.Info("TwitchAPI: Logged in as " + BroadcasterName);
                     }

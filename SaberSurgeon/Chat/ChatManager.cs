@@ -1,10 +1,11 @@
-﻿using System;
+﻿using IPA.Loader;
+using SaberSurgeon.Twitch;
+using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using IPA.Loader;
 using UnityEngine;
-using SaberSurgeon.Twitch;
 
 namespace SaberSurgeon.Chat
 {
@@ -29,9 +30,22 @@ namespace SaberSurgeon.Chat
         private MethodInfo _broadcastMessageMethod;
 
         private ChatBackend _activeBackend = ChatBackend.None;
-        private TwitchEventClient _twitchClient; // new class, see below
+        
+        // new class, see below
+        private TwitchEventSubClient _eventSubClient;
 
         public ChatBackend ActiveBackend => _activeBackend;
+
+        public event Action<ChatContext> OnChatMessageReceived;
+        public event Action<string, int> OnSubscriptionReceived;
+        public event Action<string> OnFollowReceived;
+        public event Action<string, int> OnRaidReceived;
+
+        private readonly object _queueLock = new object();
+        private readonly Queue<ChatContext> _pendingMessages = new Queue<ChatContext>();
+
+
+        
 
         public static ChatManager GetInstance()
         {
@@ -59,24 +73,87 @@ namespace SaberSurgeon.Chat
 
         private IEnumerator InitializeBackendsCoroutine(PluginConfig cfg)
         {
-            // 1) Try Native Twitch backend first
-            if (!string.IsNullOrEmpty(cfg.EventServerUrl) && !string.IsNullOrEmpty(Plugin.Settings.CachedBroadcasterId))
-            {
-                _twitchClient = new TwitchEventClient(cfg.EventServerUrl, Plugin.Settings.CachedBroadcasterId);
-                yield return _twitchClient.ConnectCoroutine();
 
-                if (_twitchClient.IsConnected)
+            var auth = TwitchAuthManager.Instance;
+            // Wait up to ~10 seconds for refresh + identity
+            int tries = 0;
+            while (tries++ < 100)
+            {
+                bool ready = auth.IsAuthenticated
+                    && !string.IsNullOrEmpty(auth.BroadcasterId)
+                    && !string.IsNullOrEmpty(auth.BotUserId);
+
+                System.Threading.Tasks.Task<bool> ensureTask = null;
+
+                if (!ready)
                 {
-                    HookNativeEvents(_twitchClient);
+                    try
+                    {
+                        ensureTask = auth.EnsureReadyAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Log.Warn("ChatManager: EnsureReadyAsync start failed: " + ex.Message);
+                    }
+                }
+
+                if (ensureTask != null)
+                {
+                    while (!ensureTask.IsCompleted)
+                        yield return null;
+
+                    // If it faulted, treat as not-ready and retry
+                    if (ensureTask.Status == System.Threading.Tasks.TaskStatus.RanToCompletion)
+                        ready = ensureTask.Result;
+                    else
+                        ready = false;
+                }
+
+                if (ready)
+                    break;
+
+                yield return new WaitForSeconds(0.1f);
+            }
+
+            string userAccessToken = auth.GetAccessToken();
+            string clientId = auth.ClientId;
+            string broadcasterId = auth.BroadcasterId;
+            string botUserId = auth.BotUserId;
+
+            // Try EventSub WebSocket first (direct to Twitch, no backend server)
+            if (!string.IsNullOrEmpty(userAccessToken)
+                && !string.IsNullOrEmpty(clientId)
+                && !string.IsNullOrEmpty(broadcasterId)
+                && !string.IsNullOrEmpty(botUserId))
+            {
+                Plugin.Log.Info("ChatManager: Initializing Twitch EventSub WebSocket...");
+
+                _eventSubClient = new TwitchEventSubClient(
+                    userAccessToken,
+                    clientId,
+                    broadcasterId,
+                    botUserId
+                );
+
+                // NOTE: your TwitchEventSubClient events must match these signatures (see next section)
+                _eventSubClient.OnChatMessage += ctx => EnqueueChatMessage(ctx);
+                _eventSubClient.OnFollow += user => OnFollowReceived?.Invoke(user);
+                _eventSubClient.OnSubscription += (user, tier) => OnSubscriptionReceived?.Invoke(user, tier);
+                _eventSubClient.OnRaid += (raider, viewers) => OnRaidReceived?.Invoke(raider, viewers);
+
+                yield return StartCoroutine(_eventSubClient.ConnectCoroutine());
+
+                if (_eventSubClient.IsConnected)
+                {
                     _activeBackend = ChatBackend.NativeTwitch;
                     _isInitialized = true;
-                    cfg.BackendStatus = "NativeTwitch";
-                    Plugin.Log.Info("ChatManager: Using Native Twitch backend");
+                    cfg.BackendStatus = "EventSub WebSocket";
                     yield break;
                 }
 
-                Plugin.Log.Warn("ChatManager: Native Twitch backend not connected, trying ChatPlex fallback if allowed.");
+                Plugin.Log.Warn("ChatManager: EventSub WebSocket failed, falling back to ChatPlex");
             }
+
 
             // 2) Fallback to ChatPlex
             if (Plugin.Settings.AllowChatPlexFallback)
@@ -255,32 +332,34 @@ namespace SaberSurgeon.Chat
             }
         }
 
-        private void HookNativeEvents(TwitchEventClient client)
+        private void HookNativeEvents(TwitchEventSubClient client)
         {
             client.OnChatMessage += ctx =>
             {
                 Plugin.Log.Info($"NATIVE CHAT: {ctx.SenderName}: {ctx.MessageText}");
-                DispatchChatMessage(ctx);
+                EnqueueChatMessage(ctx);
             };
 
             client.OnFollow += user =>
             {
                 Plugin.Log.Info($"Follow: {user}");
-                // hook into whatever gameplay / overlay logic you want
+                OnFollowReceived?.Invoke(user);
             };
 
             client.OnSubscription += (user, tier) =>
             {
                 Plugin.Log.Info($"Sub: {user} Tier={tier}");
-                // e.g. bump SupporterState and enable extra commands
+                OnSubscriptionReceived?.Invoke(user, tier);
             };
 
             client.OnRaid += (raider, viewers) =>
             {
                 Plugin.Log.Info($"Raid: {raider} ({viewers} viewers)");
-                // e.g. fire a big bomb storm or flashbang effect
+                OnRaidReceived?.Invoke(raider, viewers);
             };
         }
+
+
 
 
         private void DispatchChatMessage(ChatContext ctx)
@@ -288,10 +367,14 @@ namespace SaberSurgeon.Chat
             if (ctx == null || string.IsNullOrEmpty(ctx.MessageText))
                 return;
 
-            // Central entry point for all chat backends
+            // Notify overlay / any other listeners
+            OnChatMessageReceived?.Invoke(ctx);
+
+            // Existing command logic
             if (ctx.MessageText.StartsWith("!") && !ctx.MessageText.StartsWith("!!"))
                 CommandHandler.Instance.ProcessCommand(ctx.MessageText, ctx);
         }
+
 
 
 
@@ -309,14 +392,16 @@ namespace SaberSurgeon.Chat
                 }
 
                 // Prefer native Twitch if it's the active backend
-                if (_activeBackend == ChatBackend.NativeTwitch
-                    && _twitchClient != null
-                    && _twitchClient.IsConnected)
+                if (_activeBackend == ChatBackend.NativeTwitch && _eventSubClient != null && _eventSubClient.IsConnected)
                 {
-                    _twitchClient.SendChatMessage(message);
-                    Plugin.Log.Info($"ChatManager: Sent to native Twitch backend: {message}");
+                    _ = System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        bool ok = await _eventSubClient.SendChatMessageAsync(message);
+                        Plugin.Log.Info("ChatManager: Sent via Helix chat API ok=" + ok);
+                    });
                     return;
                 }
+
 
                 // Fallback → ChatPlex BroadcastMessage
                 if (_broadcastMessageMethod == null)
@@ -449,6 +534,41 @@ namespace SaberSurgeon.Chat
                 return null;
             }
         }
+
+
+
+        private void EnqueueChatMessage(ChatContext ctx)
+        {
+            if (ctx == null)
+                return;
+
+            lock (_queueLock)
+            {
+                _pendingMessages.Enqueue(ctx);
+            }
+        }
+
+        private void Update()
+        {
+            // Process queued messages on the main thread
+            while (true)
+            {
+                ChatContext ctx = null;
+
+                lock (_queueLock)
+                {
+                    if (_pendingMessages.Count == 0)
+                        break;
+
+                    ctx = _pendingMessages.Dequeue();
+                }
+
+                if (ctx != null)
+                    DispatchChatMessage(ctx); // This is now safely on main thread
+            }
+        }
+
+
 
         public void Shutdown()
         {

@@ -8,9 +8,15 @@ namespace SaberSurgeon.HarmonyPatches
     [HarmonyPatch(typeof(MenuTransitionsHelper))]
     internal static class EndlessHarmonyPatch
     {
+
+        private const float ChainFadeDurationSeconds = 0.6f; // try 0.4–1.0
+
         // Intercept the standard-level finish handler that normally pops back to menu.
+
         // Signature from your 1.40.8 decompile:
+
         // private void HandleMainGameSceneDidFinish(StandardLevelScenesTransitionSetupDataSO, LevelCompletionResults)
+
         [HarmonyPrefix]
         [HarmonyPatch("HandleMainGameSceneDidFinish")]
         private static bool Prefix(
@@ -19,6 +25,8 @@ namespace SaberSurgeon.HarmonyPatches
             LevelCompletionResults levelCompletionResults)
         {
             var gm = Gameplay.GameplayManager.GetInstance();
+            // Replace gameplay scenes with a fade instead of popping to menu.
+            float fade = ChainFadeDurationSeconds;
 
             // Only chain if endless is still running, time remains, and user didn't quit to menu.
             if (!gm.IsPlaying() ||
@@ -96,7 +104,8 @@ namespace SaberSurgeon.HarmonyPatches
                 );
 
                 // Replace gameplay scenes with a fade instead of popping to menu.
-                scenesMgr.ReplaceScenes(standardLevelScenesTransitionSetupData, null, 0.1f);
+                Plugin.Log.Info($"EndlessHarmonyPatch: Chaining to next map with fade={fade:0.00}s");
+                scenesMgr.ReplaceScenes(standardLevelScenesTransitionSetupData, null, fade);
 
                 // Skip original handler (prevents PopScenes-to-menu).
                 return false;

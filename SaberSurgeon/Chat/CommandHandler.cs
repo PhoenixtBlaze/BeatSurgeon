@@ -72,6 +72,10 @@ namespace SaberSurgeon.Chat
         public static float FlashbangCooldownSeconds { get; set; } = 60f;
 
 
+        public static bool SongRequestsEnabled { get; set; } = true;
+        public static bool RequestAllowSpecificDifficulty { get; set; } = true;
+        public static bool RequestAllowSpecificTime { get; set; } = true;
+
 
 
 
@@ -80,10 +84,10 @@ namespace SaberSurgeon.Chat
         private static readonly HashSet<string> NoCooldownCommands =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                "help",
+                
                 "surgeon",
-                "ping",
-                "bsr"
+                "bsr",
+                "sr"
                         // add "test" or others here
             };
 
@@ -113,6 +117,10 @@ namespace SaberSurgeon.Chat
                 var cfg = Plugin.Settings ?? new PluginConfig();
 
                 BombCommandName = cfg.BombCommandName;
+
+                SongRequestsEnabled = cfg.SongRequestsEnabled;
+                RequestAllowSpecificDifficulty = cfg.RequestAllowSpecificDifficulty;
+                RequestAllowSpecificTime = cfg.RequestAllowSpecificTime;
 
                 // Global switches
                 GlobalCooldownEnabled = cfg.GlobalCooldownEnabled;
@@ -157,9 +165,6 @@ namespace SaberSurgeon.Chat
         private void RegisterCommands()
         {
             RegisterCommand("surgeon", HandleSurgeonCommand);
-            RegisterCommand("help", HandleHelpCommand);
-            RegisterCommand("test", HandleTestCommand);
-            RegisterCommand("ping", HandlePingCommand);
             RegisterCommand("bsr", HandleBsrCommand);
             RegisterCommand("rainbow", HandleRainbowCommand);
             RegisterCommand("ghost", HandleGhostCommand);
@@ -171,6 +176,8 @@ namespace SaberSurgeon.Chat
             RegisterCommand("notecolor", HandleNoteColorCommand);
             RegisterCommand("notecolour", HandleNoteColorCommand);
             RegisterCommand("flashbang", HandleFlashbangCommand);
+            RegisterCommand("sr", HandleSrCommand);
+            RegisterCommand("bsr", HandleSrCommand);
 
         }
 
@@ -450,7 +457,8 @@ namespace SaberSurgeon.Chat
         private void SendResponse(string logMessage, string chatMessage)
         {
             Plugin.Log.Info(logMessage);
-            ChatManager.GetInstance().SendChatMessage(chatMessage);
+            if (!string.IsNullOrWhiteSpace(chatMessage))
+                ChatManager.GetInstance().SendChatMessage(chatMessage);
         }
 
         // ===== Command handlers =====
@@ -459,15 +467,65 @@ namespace SaberSurgeon.Chat
         {
             var ctx = ctxObj as ChatContext;
 
-            SendResponse(
-                $"Surgeon command executed by {ctx?.SenderName ?? "Unknown"}",
-                "!!Avialable SaberSurgeon Commands: !bomb !rainbow !disappear !ghost !faster !superfast !slower !flashbang");
+            string msg = BuildSurgeonStatusMessage();
 
-            //ChatManager.GetInstance().SendChatMessage( "!! Avialable SaberSurgeon Commands: !bomb !rainbow !disappear !ghost !faster !superfast !slower !flashbang");
+            Plugin.Log.Info($"Surgeon command executed by {ctx?.SenderName ?? "Unknown"}");
+            ChatManager.GetInstance().SendChatMessage(msg);
 
-            // This command always “does something”, so treat as success
             return true;
         }
+
+        private string BuildSurgeonStatusMessage()
+        {
+            var enabled = new List<string>();
+
+            // Bomb + alias support (the only alias currently implemented)
+            if (BombEnabled)
+            {
+                string alias = (BombCommandName ?? "bomb").Trim();
+                if (string.IsNullOrWhiteSpace(alias)) alias = "bomb";
+
+                // Show both canonical + alias if alias differs
+                if (!alias.Equals("bomb", StringComparison.OrdinalIgnoreCase))
+                    enabled.Add($"!bomb (alias !{alias})");
+                else
+                    enabled.Add("!bomb");
+            }
+
+            // Rainbow + NoteColor share the same toggle in your code
+            if (RainbowEnabled)
+            {
+                enabled.Add("!rainbow");
+                enabled.Add("!notecolor");
+            }
+
+            if (DisappearEnabled) enabled.Add("!disappear");
+            if (GhostEnabled) enabled.Add("!ghost");
+            if (FasterEnabled) enabled.Add("!faster");
+            if (SuperFastEnabled) enabled.Add("!superfast");
+            if (SlowerEnabled) enabled.Add("!slower");
+            if (FlashbangEnabled) enabled.Add("!flashbang");
+
+            string commandsPart = enabled.Count > 0
+                ? string.Join(" | ", enabled)
+                : "(no commands enabled in menu)";
+
+            string noteColorHelp = "";
+            if (RainbowEnabled)
+            {
+                // Keep it compact so it fits in one chat line
+                noteColorHelp =
+                    " || NoteColor: !notecolor <left> <right> (names or hex). " +
+                    "Examples: !notecolor red blue, !notecolor #FF0000 #0000FF, or !notecolor rainbow rainbow";
+            }
+
+            string backend = ChatManager.GetInstance()?.ActiveBackend.ToString() ?? "Unknown";
+            string version = typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "unknown";
+
+            return $"!SaberSurgeon v{version} | Enabled Commands: {commandsPart} | {noteColorHelp}";
+        }
+
+
 
 
         private bool HandleFlashbangCommand(object ctxObj, string fullCommand)
@@ -796,46 +854,9 @@ namespace SaberSurgeon.Chat
 
 
 
-        private bool HandleHelpCommand(object ctxObj, string fullCommand)
-        {
-            Plugin.Log.Info("Available Commands:");
-            Plugin.Log.Info("!surgeon - Surgeon status / info");
-            Plugin.Log.Info("!help    - Show this message");
-            Plugin.Log.Info("!test    - Test command");
-            Plugin.Log.Info("!ping    - Ping/Pong");
-            Plugin.Log.Info("!bsr     - Queue a map by code");
+        
 
-            //ChatManager.GetInstance().SendChatMessage( "!! Avialable SaberSurgeon Commands: !bomb !rainbow !disappear !ghost !faster !superfast !slower !flashbang");
-
-            // Help always succeeds
-            return true;
-        }
-
-        private bool HandleTestCommand(object ctxObj, string fullCommand)
-        {
-            SendResponse(
-                $"Test command executed: {fullCommand}",
-                null);
-
-            return true;
-        }
-
-        private bool HandlePingCommand(object ctxObj, string fullCommand)
-        {
-            var ctx = ctxObj as ChatContext;
-
-            if (ctx != null && !(ctx.IsModerator || ctx.IsSubscriber || ctx.IsBroadcaster))
-            {
-                SendResponse(
-                    "Ping denied: not privileged",
-                    "!!You must be a sub or mod to use this command.");
-
-                return false; // no cooldown
-            }
-
-            SendResponse("PONG!", "Pong!");
-            return true; // success → cooldown applies
-        }
+       
 
 
         private bool HandleRainbowCommand(object ctxObj, string fullCommand)
@@ -877,6 +898,152 @@ namespace SaberSurgeon.Chat
         }
 
 
+        private bool HandleSrCommand(object ctxObj, string fullCommand)
+        {
+            if (!SongRequestsEnabled)
+            {
+                SendResponse("SR command disabled via menu", "!!Song requests are disabled.");
+                return false;
+            }
+
+            var ctx = ctxObj as ChatContext;
+            if (ctx == null)
+                return false;
+
+            var parts = fullCommand.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+            {
+                SendResponse("SR bad syntax", "!!Usage: !sr <bsrCode> [diff] [time or range]");
+                return false;
+            }
+
+            string code = parts[1].Trim();
+            BeatmapDifficulty? diff = null;
+            float? start = null;
+            float? length = null;
+            float? Switchafter = null;
+
+            for (int i = 2; i < parts.Length; i++)
+            {
+                string arg = parts[i].Trim();
+
+                if (RequestAllowSpecificDifficulty && diff == null && TryParseDifficulty(arg, out var parsedDiff))
+                {
+                    diff = parsedDiff;
+                    continue;
+                }
+
+                if (RequestAllowSpecificTime && start == null && TryParseTimeOrRange(arg, out var s, out var len))
+                {
+                    start = s;
+                    length = len;
+                    if (len == null) { Switchafter = s; }
+                    continue;
+                }
+            }
+
+            string reject;
+            bool ok = Gameplay.GameplayManager.GetInstance().TryQueueSongRequest(
+                code,
+                ctx.SenderName,
+                diff,
+                start,
+                Switchafter,
+                length,
+                out reject);
+
+            if (!ok)
+            {
+                SendResponse($"SR rejected: {reject}", $"!!Request rejected: {reject}");
+                return false;
+            }
+
+            SendResponse($"SR queued: {code} by {ctx.SenderName}", $"!!@{ctx.SenderName} queued: {code}");
+            return true;
+        }
+
+        private bool TryParseDifficulty(string s, out BeatmapDifficulty diff)
+        {
+            diff = BeatmapDifficulty.Normal;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+
+            s = s.Trim().ToLowerInvariant();
+            switch (s)
+            {
+                case "easy":
+                case "eas": diff = BeatmapDifficulty.Easy; return true;
+
+                case "normal":
+                case "norm":
+                case "n": diff = BeatmapDifficulty.Normal; return true;
+
+                case "hard":
+                case "h": diff = BeatmapDifficulty.Hard; return true;
+
+                case "expert":
+                case "ex":
+                case "x": diff = BeatmapDifficulty.Expert; return true;
+
+                case "expertplus":
+                case "expert+":
+                case "ex+":
+                case "xp":
+                case "e+": diff = BeatmapDifficulty.ExpertPlus; return true;
+            }
+
+            return false;
+        }
+
+        private bool TryParseTimeOrRange(string s, out float startSeconds, out float? lengthSeconds)
+        {
+            startSeconds = 0f;
+            lengthSeconds = null;
+
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            s = s.Trim();
+
+            // Range: "m:ss-m:ss"
+            int dash = s.IndexOf('-');
+            if (dash > 0)
+            {
+                var a = s.Substring(0, dash);
+                var b = s.Substring(dash + 1);
+                if (!TryParseTime(a, out float start)) return false;
+                if (!TryParseTime(b, out float end)) return false;
+                if (end <= start) return false;
+
+                startSeconds = start;
+                lengthSeconds = end - start;
+                return true;
+            }
+
+            // Single time: "m:ss"
+            if (TryParseTime(s, out float single))
+            {
+                startSeconds = single;
+                lengthSeconds = null;
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryParseTime(string s, out float seconds)
+        {
+            seconds = 0f;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+
+            // Accept "m:ss" or "mm:ss"
+            var parts = s.Split(':');
+            if (parts.Length != 2) return false;
+
+            if (!int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int m)) return false;
+            if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int sec)) return false;
+            if (m < 0 || sec < 0 || sec >= 60) return false;
+
+            seconds = (m * 60) + sec;
+            return true;
+        }
 
         private bool HandleBsrCommand(object ctxObj, string fullCommand)
         {

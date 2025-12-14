@@ -384,10 +384,8 @@ namespace SaberSurgeon.HarmonyPatches
             var textGo = new GameObject("BombUsername_CurvedText");
             textGo.transform.position = cutPoint + Vector3.up * 0.5f;
 
-            // Copy the curved text component
             var curvedText = textGo.AddComponent<CurvedTextMeshPro>();
 
-            // Get font from prefab
             if (_flyingTextPrefab.font != null)
                 curvedText.font = _flyingTextPrefab.font;
 
@@ -398,8 +396,18 @@ namespace SaberSurgeon.HarmonyPatches
             curvedText.outlineWidth = 0.2f;
             curvedText.outlineColor = Color.black;
 
+            // Apply width/height scaling
+            float height = Plugin.Settings?.BombTextHeight ?? 1.0f;
+            float width = Plugin.Settings?.BombTextWidth ?? 1.0f;
+            height = Mathf.Clamp(height, 0.5f, 5f);
+            width = Mathf.Clamp(width, 0.5f, 5f);
+
+            // X = width, Y/Z = height, so you can stretch horizontally vs vertically
+            textGo.transform.localScale = new Vector3(width, height, height);
+
             // Start animation coroutine
             CoroutineHost.Instance.StartCoroutine(AnimateFlyingText(textGo, cutPoint));
+
         }
 
         private static void SpawnSimpleFlyingText(string username, Vector3 cutPoint)
@@ -438,7 +446,11 @@ namespace SaberSurgeon.HarmonyPatches
             float elapsed = 0f;
 
             // Find note spawn position (forward from player)
-            Vector3 targetPos = startPos + Camera.main.transform.forward * 10f + Vector3.up * 2f;
+            float spawnDistance = Plugin.Settings?.BombSpawnDistance ?? 10.0f;
+            spawnDistance = Mathf.Clamp(spawnDistance, 2f, 20f);
+
+            Vector3 forward = Camera.main != null ? Camera.main.transform.forward : Vector3.forward;
+            Vector3 targetPos = startPos + forward * spawnDistance + Vector3.up * 2f;
 
             var tmp = textGo.GetComponent<TextMeshPro>();
             Color startColor = tmp != null ? tmp.color : Color.yellow;
@@ -459,7 +471,7 @@ namespace SaberSurgeon.HarmonyPatches
                     tmp.color = c;
                 }
 
-                // Scale up slightly then down
+                // Scale up slightly then down (will be multiplied by width/height below)
                 float scale = Mathf.Sin(t * Mathf.PI) * 0.3f + 1f;
                 textGo.transform.localScale = Vector3.one * scale;
 
@@ -468,5 +480,6 @@ namespace SaberSurgeon.HarmonyPatches
 
             UnityEngine.Object.Destroy(textGo);
         }
+
     }
 }

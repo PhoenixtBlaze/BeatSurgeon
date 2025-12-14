@@ -1,12 +1,17 @@
 ﻿using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.ViewControllers;
+using HMUI; // for ModalView
 using SaberSurgeon.Chat;
-using UnityEngine;
-using UnityEngine.UI;
+using SaberSurgeon.Twitch;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Reflection;
 using TMPro;
-using System.IO;
+using UnityEngine;
+using UnityEngine.UI;
 
 
 namespace SaberSurgeon.UI.Controllers
@@ -131,8 +136,138 @@ namespace SaberSurgeon.UI.Controllers
             }
         }
 
+        protected override void DidActivate(bool firstActivation, bool addedToHierarchy, bool screenSystemEnabling)
+        {
+            base.DidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
+
+            UpdateBombVisualsButtonVisibility();
+        }
+
+        private void UpdateBombVisualsButtonVisibility()
+        {
+            if (_bombEditButton != null)
+            {
+                bool allowed = ShowBombVisualsButton;
+                _bombEditButton.gameObject.SetActive(allowed);
+            }
+        }
+
+
+
+        [UIComponent("bomb-visuals-modal")]
+        private ModalView _bombVisualsModal;
+
+        [UIComponent("bomb-edit-button")]
+        private UnityEngine.UI.Button _bombEditButton;
+
+
+        [UIValue("show_bomb_visuals_button")]
+        public bool ShowBombVisualsButton
+        {
+            get
+            {
+                // 1. Must be authenticated with your backend
+                bool backendConnected = TwitchAuthManager.Instance.IsAuthenticated;
+
+                // 2. Must be at least Tier1 supporter to your channel
+                bool isSupporter =
+                    SupporterState.CurrentTier != SupporterTier.None ||
+                    (Plugin.Settings?.CachedSupporterTier ?? 0) > 0;
+
+                return backendConnected && isSupporter;
+            }
+        }
+
+
         [UIAction("OnBombEditVisualsClicked")]
-        private void OnBombEditVisualsClicked() { /* open bomb visuals UI */ }
+        private void OnBombEditVisualsClicked()
+        {
+            if (!ShowBombVisualsButton)
+            {
+                Plugin.Log.Warn("Bomb visuals clicked while not authorized (no backend or no sub).");
+                return;
+            }
+
+            if (_bombVisualsModal != null)
+            { 
+                _bombVisualsModal.Show(true);
+            }
+            else
+            {
+                Plugin.Log.Warn("Bomb visuals modal was null when trying to show it.");
+            }
+        }
+
+        [UIValue("bomb_text_height")]
+        public float BombTextHeight
+        {
+            get => Plugin.Settings?.BombTextHeight ?? 1.0f;
+            set
+            {
+                float clamped = Mathf.Clamp(value, 0.5f, 5f);
+                if (Plugin.Settings != null)
+                    Plugin.Settings.BombTextHeight = clamped;
+                NotifyPropertyChanged(nameof(BombTextHeight));
+            }
+        }
+
+        [UIValue("bomb_text_width")]
+        public float BombTextWidth
+        {
+            get => Plugin.Settings?.BombTextWidth ?? 1.0f;
+            set
+            {
+                float clamped = Mathf.Clamp(value, 0.5f, 5f);
+                if (Plugin.Settings != null)
+                    Plugin.Settings.BombTextWidth = clamped;
+                NotifyPropertyChanged(nameof(BombTextWidth));
+            }
+        }
+
+        [UIValue("bomb_spawn_distance")]
+        public float BombSpawnDistance
+        {
+            get => Plugin.Settings?.BombSpawnDistance ?? 10.0f;
+            set
+            {
+                float clamped = Mathf.Clamp(value, 2f, 20f);
+                if (Plugin.Settings != null)
+                    Plugin.Settings.BombSpawnDistance = clamped;
+                NotifyPropertyChanged(nameof(BombSpawnDistance));
+            }
+        }
+
+
+        // Dropdown options for bomb font
+        [UIValue("bomb_font_options")]
+        private List<object> BombFontOptions { get; } = new object[]
+        {
+        "Default"
+        }.ToList();
+
+        // Currently selected font
+        [UIValue("bomb_font_selected")]
+        public string BombFontSelected
+        {
+            get => Plugin.Settings?.BombFontType ?? "Default";
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.BombFontType = value;
+                NotifyPropertyChanged(nameof(BombFontSelected));
+            }
+        }
+
+
+
+        [UIAction("CloseBombVisuals")]
+        private void CloseBombVisuals()
+        {
+            if (_bombVisualsModal != null)
+            {
+                _bombVisualsModal.Hide(true);
+            }
+        }
 
 
 
@@ -182,6 +317,8 @@ namespace SaberSurgeon.UI.Controllers
             // Open your visuals editor, or just log for now
             Plugin.Log.Info("Rainbow Edit Visuals button clicked");
         }
+
+
 
         [UIValue("ghost_cd_seconds")]
         public float GhostCooldownSeconds

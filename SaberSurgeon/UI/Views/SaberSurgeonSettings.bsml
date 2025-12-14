@@ -127,9 +127,9 @@
 				</modifier-container>
 			</tab>
 
-			<!-- TAB 2: Other -->
+			<!-- TAB 2: Other  -->
 			<tab tab-name="Twitch + Endless" tags="saber-surgeon-tabs">
-
+			<scroll-view>
 				<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
 
 					<!-- Twitch Status Display (Read Only) -->
@@ -149,7 +149,7 @@
 						    pref-height="8"
                             hover-hint="Opens browser to link your Twitch account"/>
 					</horizontal>
-					<horizontal spacing="5" pad="2">
+					<horizontal horizontal-fit="PreferredSize" spacing="2">
 						<!-- Play Time Slider -->
 						<slider-setting
 								text="Play Time (minutes)"
@@ -158,6 +158,33 @@
 								max="120"
 								increment="1"
 								apply-on-change="true" />
+					</horizontal>
+					<horizontal horizontal-fit="PreferredSize" spacing="3" >
+						<toggle-setting text="Enable song requests (!sr / !bsr)"
+										value="songRequestsEnabled"
+										apply-on-change="true" />
+					</horizontal>
+					<horizontal horizontal-fit="PreferredSize" spacing="3">
+						<toggle-setting text="Allow difficulty suffix (ex, e+, hard, etc.)"
+										value="requestAllowSpecificDifficulty"
+										apply-on-change="true" />
+					</horizontal>
+					<horizontal horizontal-fit="PreferredSize" spacing="3">
+						<toggle-setting text="Allow time / range (1:20 or 1:20-2:10)"
+										value="requestAllowSpecificTime"
+										apply-on-change="true" />
+					</horizontal>
+					<horizontal horizontal-fit="PreferredSize" spacing="3">
+						<slider-setting text="Queue size limit"
+										value="queueSizeLimit"
+										min="1" max="50" increment="1"
+										apply-on-change="true" />
+					</horizontal>
+					<horizontal horizontal-fit="PreferredSize" spacing="3">
+						<slider-setting text="Requeue block size"
+										value="requeueLimit"
+										min="0" max="50" increment="1"
+										apply-on-change="true" />
 					</horizontal>
 					<horizontal>
 						<!-- Start / Play Button -->
@@ -173,8 +200,8 @@
 								outline-color="#FFFFFF"
 								outline-width="0.6" />
 					</horizontal>
-					
 				</modifier-container>
+			</scroll-view>
 			</tab>
 
 		</horizontal>

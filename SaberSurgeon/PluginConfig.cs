@@ -17,6 +17,10 @@ namespace SaberSurgeon
         public virtual bool DisappearEnabled { get; set; } = true;
         public virtual bool GhostEnabled { get; set; } = true;
         public virtual bool BombEnabled { get; set; } = true;
+        public virtual float BombTextHeight { get; set; } = 1.0f;     // vertical scale
+        public virtual float BombTextWidth { get; set; } = 1.0f;      // horizontal scale
+        public virtual float BombSpawnDistance { get; set; } = 10.0f; // units forward from player
+        public virtual string BombFontType { get; set; } = "Default"; // dropdown selection
         public virtual bool FasterEnabled { get; set; } = false;
         public virtual bool SuperFastEnabled { get; set; } = false;
         public virtual bool SlowerEnabled { get; set; } = true;
@@ -63,5 +67,38 @@ namespace SaberSurgeon
         // WebSocket endpoint for your server (no channel_id here; added in TwitchEventClient)
         public virtual string EventServerUrl { get; set; } =
         "ws://phoenixblaze0.duckdns.org:42069/ws";
+
+        // Cached bot identity (for EventSub conditions like moderator_user_id / user_id)
+        public virtual string CachedBotUserId { get; set; } = "";
+        public virtual string CachedBotUserLogin { get; set; } = "";
+
+        // Optional toggle so you can disable autoconnect from settings later
+        public virtual bool AutoConnectTwitch { get; set; } = true;
+
+
+
+        // --- Endless / Song Requests ---
+
+        /// Master toggle for chat song requests (!sr / !bsr).
+        public virtual bool SongRequestsEnabled { get; set; } = true;
+
+        /// Allow requesters to specify difficulty (e.g. "ex", "e+", "expert+", "hard").
+        public virtual bool RequestAllowSpecificDifficulty { get; set; } = true;
+
+        /// Allow requesters to specify time/range (e.g. "1:20" or "1:20-2:10").
+        public virtual bool RequestAllowSpecificTime { get; set; } = true;
+
+        /// Max number of pending requests in the queue. If exceeded, new requests are rejected.
+        public virtual int QueueSizeLimit { get; set; } = 20;
+
+        /// Prevent the same song being requested again too soon (simple “history window” size).
+        /// 0 disables requeue blocking.
+        public virtual int RequeueLimit { get; set; } = 10;
+
+        /// Optional: allow old command name.
+        public virtual bool BsrCommandAliasEnabled { get; set; } = true;
+
+
+
     }
 }

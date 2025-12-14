@@ -35,6 +35,8 @@ namespace SaberSurgeon
 
         private MenuButton _menuButton;
         private SaberSurgeonFlowCoordinator _flowCoordinator;
+        private SaberSurgeon.UI.FloatingChatOverlay _floatingChatOverlay;
+
 
         [Init]
         public void Init(IPA.Logging.Logger logger, IPA.Config.Config config)
@@ -69,6 +71,7 @@ namespace SaberSurgeon
             // 2) Then chat manager (so it can see CachedBroadcasterId if available)
             InitializeChatIntegration();
 
+            
             // 3) Gameplay manager
             InitializeGameplayManager();
 
@@ -116,7 +119,11 @@ namespace SaberSurgeon
                     MenuButtons.Instance.RegisterButton(_menuButton);
                     _menuButtonRegisteredThisMenu = true;
 
-                    Log.Info("SaberSurgeon: Menu button registered (delayed)");
+                    Log.Info("SaberSurgeon: Menu button registered + (delayed)");
+
+                    // Create floating chat overlay once, when BSML is definitely ready
+                    if (_floatingChatOverlay == null)
+                        _floatingChatOverlay = SaberSurgeon.UI.FloatingChatOverlay.Create();
                 }
                 catch (System.InvalidOperationException ex)
                 {

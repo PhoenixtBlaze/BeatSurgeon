@@ -471,7 +471,7 @@ namespace SaberSurgeon.UI.Controllers
             }
 
             // Apply correct sprite & color for current state
-            
+
             UpdateRainbowButtonVisual();
             UpdateGhostButtonVisual();
             UpdateBombButtonVisual();
@@ -773,5 +773,67 @@ namespace SaberSurgeon.UI.Controllers
                     $"Saber Surgeon started! Playing for {PlayTime} minutes. Request songs with !bsr <code>");
             }
         }
+
+
+        // --- Song Request Settings ---
+
+        [UIValue("songRequestsEnabled")]
+        public bool SongRequestsEnabled
+        {
+            get => Plugin.Settings?.SongRequestsEnabled ?? true;
+            set
+            {
+                if (Plugin.Settings != null) Plugin.Settings.SongRequestsEnabled = value;
+                NotifyPropertyChanged(nameof(SongRequestsEnabled));
+            }
+        }
+
+        [UIValue("requestAllowSpecificDifficulty")]
+        public bool RequestAllowSpecificDifficulty
+        {
+            get => Plugin.Settings?.RequestAllowSpecificDifficulty ?? true;
+            set
+            {
+                if (Plugin.Settings != null) Plugin.Settings.RequestAllowSpecificDifficulty = value;
+                NotifyPropertyChanged(nameof(RequestAllowSpecificDifficulty));
+            }
+        }
+
+        [UIValue("requestAllowSpecificTime")]
+        public bool RequestAllowSpecificTime
+        {
+            get => Plugin.Settings?.RequestAllowSpecificTime ?? true;
+            set
+            {
+                if (Plugin.Settings != null) Plugin.Settings.RequestAllowSpecificTime = value;
+                NotifyPropertyChanged(nameof(RequestAllowSpecificTime));
+            }
+        }
+
+        // BSML slider-setting works best with float, so wrap int settings as float in UI.
+
+        [UIValue("queueSizeLimit")]
+        public float QueueSizeLimit
+        {
+            get => Plugin.Settings?.QueueSizeLimit ?? 20;
+            set
+            {
+                if (Plugin.Settings != null) Plugin.Settings.QueueSizeLimit = Mathf.RoundToInt(value);
+                NotifyPropertyChanged(nameof(QueueSizeLimit));
+            }
+        }
+
+        [UIValue("requeueLimit")]
+        public float RequeueLimit
+        {
+            get => Plugin.Settings?.RequeueLimit ?? 10;
+            set
+            {
+                if (Plugin.Settings != null) Plugin.Settings.RequeueLimit = Mathf.RoundToInt(value);
+                NotifyPropertyChanged(nameof(RequeueLimit));
+            }
+        }
     }
+
 }
+

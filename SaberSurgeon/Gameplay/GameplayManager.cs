@@ -1,11 +1,12 @@
-﻿using System;
+﻿using SongCore;
+using SongCore.Utilities;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using SongCore;
-using SongCore.Utilities;
 using Zenject;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.ToolTip;
 
 
 namespace SaberSurgeon.Gameplay
@@ -35,17 +36,56 @@ namespace SaberSurgeon.Gameplay
         private float _remainingTime = 0f;
         private float _totalTime = 0f;
         private int _lastLoggedWholeMinutes = -1;
-        private List<BeatmapLevel> _availableLevels = new List<BeatmapLevel>();
-        private List<string> _playedLevelIds = new List<string>();
-        private Queue<SongRequest> _requestQueue = new Queue<SongRequest>();
+        private readonly List<BeatmapLevel> _availableLevels = new List<BeatmapLevel>();
+        private readonly List<string> _playedLevelIds = new List<string>();
+
+        private readonly Queue<SongRequest> _requestQueue = new Queue<SongRequest>();
+
+        // “recently requested/played” window for requeue blocking
+        private readonly Queue<string> _recentRequestOrPlayHistory = new Queue<string>();
+
         private bool _isLoadingSong = false;
 
         // Track why the last level ended
         private LevelCompletionResults.LevelEndAction _lastLevelEndAction = LevelCompletionResults.LevelEndAction.None;
 
+        private InLevelQueueProcessor _inLevelQueueProcessor;
+
+        // Track the currently-started request (if the current song came from queue)
+        private SongRequest _currentSongRequest;
+
+        public float? SwitchAfterSeconds { get; set; }  // e.g., 60 means "switch in 60s of current song"
 
 
-        // A reasonable “default with No Fail on” set of modifiers
+
+
+        // ---- Download/pending-request state ----
+        private sealed class PendingDownload
+        {
+            public SongRequest Request;
+            public bool DownloadStarted;
+            public bool HashFetchStarted;
+            public string Hash;                 // 40-hex BeatSaver hash (lowercase)
+            public string ResolvedLevelId;      // once installed + loaded
+            public DateTime FirstSeenUtc;
+            public DateTime LastDownloadAttemptUtc;
+            public string LastError;
+        }
+
+        private readonly Dictionary<string, PendingDownload> _pendingDownloads =
+            new Dictionary<string, PendingDownload>(StringComparer.OrdinalIgnoreCase);
+
+        private Coroutine _downloadPollerCoroutine;
+        private float _nextSongCoreRefreshTime;
+
+        // Pull hash from BeatSaver JSON without taking a JSON dependency.
+        private static readonly System.Text.RegularExpressions.Regex HashRegex =
+            new System.Text.RegularExpressions.Regex("\"hash\"\\s*:\\s*\"([0-9a-fA-F]{40})\"",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+
+
+        // A “default with No Fail on” set of modifiers
         private static GameplayModifiers CreateDefaultNoFailModifiers()
         {
             return new GameplayModifiers(
@@ -63,7 +103,7 @@ namespace SaberSurgeon.Gameplay
                 false,                                     // strictAngles
                 false,                                     // proMode
                 false,                                     // smallCubes
-                false                                      // zenMode (or last bool in your version)
+                false                                      // zenMode (or last bool)
             );
         }
 
@@ -78,6 +118,13 @@ namespace SaberSurgeon.Gameplay
                 _persistentGO = new GameObject("SaberSurgeon_GameplayManager_GO");
                 DontDestroyOnLoad(_persistentGO);
                 _instance = _persistentGO.AddComponent<GameplayManager>();
+                // Create the in-level tick processor once and keep it alive across scenes
+                var qp = _persistentGO.GetComponent<InLevelQueueProcessor>();
+                if (qp == null)
+                    qp = _persistentGO.AddComponent<InLevelQueueProcessor>();
+
+                _instance._inLevelQueueProcessor = qp;
+                _instance._inLevelQueueProcessor.Initialize(_instance);
                 Plugin.Log.Info("GameplayManager: Created new instance");
             }
             return _instance;
@@ -122,6 +169,10 @@ namespace SaberSurgeon.Gameplay
                 return;
             }
 
+            _inLevelQueueProcessor?.StartProcessing();
+            _downloadPollerCoroutine = StartCoroutine(DownloadPoller());
+
+
             Plugin.Log.Info($"GameplayManager: Found {_availableLevels.Count} custom songs");
 
             // Start gameplay loop
@@ -148,81 +199,274 @@ namespace SaberSurgeon.Gameplay
                 StopCoroutine(_timerCoroutine);
                 _timerCoroutine = null;
             }
+            if (_downloadPollerCoroutine != null)
+            {
+                StopCoroutine(_downloadPollerCoroutine);
+                _downloadPollerCoroutine = null;
+            }
 
+            _pendingDownloads.Clear();
             _playedLevelIds.Clear();
             _requestQueue.Clear();
+            _inLevelQueueProcessor?.StopProcessing();
+            _currentSongRequest = null;
+
         }
 
 
-        
+
         public bool TryPrepareNextChain(
-            out BeatmapLevel nextLevel,
-            out BeatmapKey nextKey,
-            out GameplayModifiers modifiers,
-            out PlayerSpecificSettings playerSettings,
-            out ColorScheme color,
-            out EnvironmentsListModel envs)
+        out BeatmapLevel nextLevel,
+        out BeatmapKey nextKey,
+        out GameplayModifiers modifiers,
+        out PlayerSpecificSettings playerSettings,
+        out ColorScheme color,
+        out EnvironmentsListModel envs)
         {
             nextLevel = null;
             nextKey = default;
+
             modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
             playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
             color = _capturedColorScheme;
-            envs = _environmentsListModel; // may be null; Init accepts it [matches signature]
+            envs = _environmentsListModel;
 
-            // Prefer queued request, otherwise random non-repeating
-            BeatmapLevel level = null;
-            if (_requestQueue.Count > 0)
+            if (!_isPlaying)
+                return false;
+
+            // Keep pulling requests until we find one that is playable NOW.
+            // If a request isn't installed, start download once and keep it pending.
+            int safety = _requestQueue.Count; // avoid infinite loops in case queue is mutated
+            while (safety-- > 0 && _requestQueue.Count > 0)
             {
                 var req = _requestQueue.Dequeue();
-                level = FindLevelByBsr(req.BsrCode);
+                if (req == null) continue;
+
+                if (TryResolveRequestToLevel(req, out var resolvedLevel))
+                {
+                    _currentSongRequest = req;
+                    return BuildKeyForLevel(req, resolvedLevel, out nextLevel, out nextKey);
+                }
+
+                // Not installed yet -> start download once, keep it pending, and re-enqueue.
+                EnsureDownloadStarted(req);
+                _requestQueue.Enqueue(req);
             }
-            if (level == null)
-                level = GetRandomLevel();
-            if (level == null)
+
+            // No request playable right now -> random fallback.
+            _currentSongRequest = null;
+            var random = GetRandomLevel();
+            if (random == null)
                 return false;
 
-            // Standard characteristic + random available difficulty
-            var standard = Resources.FindObjectsOfTypeAll<BeatmapCharacteristicSO>()
-                .FirstOrDefault(x => x.serializedName == "Standard");
-            if (standard == null)
+            return BuildKeyForLevel(null, random, out nextLevel, out nextKey);
+        }
+
+        private bool BuildKeyForLevel(SongRequest req, BeatmapLevel level, out BeatmapLevel nextLevel, out BeatmapKey nextKey)
+        {
+            nextLevel = null;
+            nextKey = default;
+
+            var standardCharacteristic =
+                Resources.FindObjectsOfTypeAll<BeatmapCharacteristicSO>()
+                    .FirstOrDefault(x => x.serializedName == "Standard");
+
+            if (standardCharacteristic == null)
                 return false;
 
-            var diffs = level.GetDifficulties(standard)?.ToArray();
+            var diffs = level.GetDifficulties(standardCharacteristic)?.ToArray();
             if (diffs == null || diffs.Length == 0)
                 return false;
 
-            var diff = diffs[UnityEngine.Random.Range(0, diffs.Length)];
+            var selectedDiff = diffs[UnityEngine.Random.Range(0, diffs.Length)];
+            if (req?.RequestedDifficulty.HasValue == true && diffs.Contains(req.RequestedDifficulty.Value))
+                selectedDiff = req.RequestedDifficulty.Value;
 
             _playedLevelIds.Add(level.levelID);
+
             nextLevel = level;
-            nextKey = new BeatmapKey(level.levelID, standard, diff);
+            nextKey = new BeatmapKey(level.levelID, standardCharacteristic, selectedDiff);
             return true;
+        }
+
+        private bool TryResolveRequestToLevel(SongRequest req, out BeatmapLevel level)
+        {
+            level = null;
+            if (req == null) return false;
+
+            string key = NormalizeKey(req.BsrCode);
+
+            // If we already resolved it via hash->levelID, grab it directly.
+            if (_pendingDownloads.TryGetValue(key, out var pd) &&
+                !string.IsNullOrWhiteSpace(pd.ResolvedLevelId) &&
+                SongCore.Loader.CustomLevels.TryGetValue(pd.ResolvedLevelId, out var found) &&
+                found != null)
+            {
+                level = found;
+                return true;
+            }
+
+            // If the user pasted a 40-hex hash instead of a BSR key, support it:
+            if (key.Length == 40 && key.All(Uri.IsHexDigit))
+            {
+                return TryFindLevelByHash(key, out level);
+            }
+
+            // No reliable way to match BeatSaver key to levelID without fetching its hash,
+            // so at this point we return false and rely on download+poll to resolve later.
+            return false;
+        }
+
+        private void EnsureDownloadStarted(SongRequest req)
+        {
+            string key = NormalizeKey(req.BsrCode);
+            if (string.IsNullOrWhiteSpace(key)) return;
+
+            if (!_pendingDownloads.TryGetValue(key, out var pd))
+            {
+                pd = new PendingDownload
+                {
+                    Request = req,
+                    FirstSeenUtc = DateTime.UtcNow
+                };
+                _pendingDownloads[key] = pd;
+            }
+
+            if (pd.DownloadStarted)
+                return;
+
+            // Start download (once).
+            pd.LastDownloadAttemptUtc = DateTime.UtcNow;
+
+            // Try BeatSaverDownloader bridge first. [file:149]
+            if (SaberSurgeon.Integrations.BeatSaverDownloaderBridge.TryDownloadByKey(key, out var reason))
+            {
+                pd.DownloadStarted = true;
+                pd.LastError = null;
+
+                // Also start fetching the hash so we can resolve via SongCore.Collections.levelIDsForHash. [file:146]
+                if (!pd.HashFetchStarted)
+                {
+                    pd.HashFetchStarted = true;
+                    StartCoroutine(FetchBeatSaverHashCoroutine(key, pd));
+                }
+
+                return;
+            }
+
+            pd.LastError = reason;
+            Plugin.Log.Warn($"GameplayManager: Download start failed for {key}: {reason}");
+        }
+
+        private IEnumerator FetchBeatSaverHashCoroutine(string key, PendingDownload pd)
+        {
+            // If you later implement a built-in downloader, you can reuse this hash.
+            string url = $"https://api.beatsaver.com/maps/id/{key}";
+
+            using (var req = UnityEngine.Networking.UnityWebRequest.Get(url))
+            {
+                req.timeout = 10;
+                yield return req.SendWebRequest();
+
+                if (req.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
+                {
+                    pd.LastError = $"BeatSaver hash lookup failed: {req.error}";
+                    yield break;
+                }
+
+                var text = req.downloadHandler.text ?? string.Empty;
+                var m = HashRegex.Match(text);
+                if (!m.Success)
+                {
+                    pd.LastError = "BeatSaver hash lookup failed: hash not found in response.";
+                    yield break;
+                }
+
+                pd.Hash = m.Groups[1].Value.ToLowerInvariant();
+
+                // If it already exists locally, resolve immediately.
+                if (TryFindLevelByHash(pd.Hash, out var level))
+                    pd.ResolvedLevelId = level.levelID;
+            }
         }
 
 
         /// <summary>
         /// Queue a song request from chat (BSR code)
         /// </summary>
-        public void QueueSongRequest(string bsrCode, string requesterName)
+        public bool TryQueueSongRequest(
+        string bsrCode,
+        string requesterName,
+        BeatmapDifficulty? requestedDifficulty,
+        float? startTimeSeconds,
+        float? switchAfterSeconds,
+        float? segmentLengthSeconds,
+        out string rejectReason)
         {
+            rejectReason = null;
+
             if (!_isPlaying)
             {
-                Plugin.Log.Warn("GameplayManager: Not in gameplay mode, ignoring request");
-                return;
+                rejectReason = "Endless mode is not running.";
+                return false;
             }
 
-            Plugin.Log.Info($"GameplayManager: Queueing song request {bsrCode} from {requesterName}");
+            var cfg = Plugin.Settings;
+            if (cfg != null && !cfg.SongRequestsEnabled)
+            {
+                rejectReason = "Song requests are disabled.";
+                return false;
+            }
 
-            var request = new SongRequest
+            bsrCode = (bsrCode ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(bsrCode))
+            {
+                rejectReason = "Missing BSR code.";
+                return false;
+            }
+
+            int sizeLimit = cfg?.QueueSizeLimit ?? 20;
+            if (sizeLimit > 0 && _requestQueue.Count >= sizeLimit)
+            {
+                rejectReason = "Request queue is full.";
+                return false;
+            }
+
+            int requeueLimit = cfg?.RequeueLimit ?? 10;
+            if (requeueLimit > 0 &&
+                _recentRequestOrPlayHistory.Contains(bsrCode, StringComparer.OrdinalIgnoreCase))
+            {
+                rejectReason = "That song was requested/played too recently.";
+                return false;
+            }
+
+            var req = new SongRequest
             {
                 BsrCode = bsrCode,
-                RequesterName = requesterName,
-                RequestTime = DateTime.UtcNow
+                RequesterName = string.IsNullOrWhiteSpace(requesterName) ? "Unknown" : requesterName,
+                RequestTime = DateTime.UtcNow,
+
+                RequestedDifficulty = requestedDifficulty,
+                StartTimeSeconds = startTimeSeconds,
+                SegmentLengthSeconds = segmentLengthSeconds,
+
+                
+                SwitchAfterSeconds = switchAfterSeconds
             };
 
-            _requestQueue.Enqueue(request);
+            _requestQueue.Enqueue(req);
+
+            if (requeueLimit > 0)
+            {
+                _recentRequestOrPlayHistory.Enqueue(bsrCode);
+                while (_recentRequestOrPlayHistory.Count > requeueLimit)
+                    _recentRequestOrPlayHistory.Dequeue();
+            }
+
+            Plugin.Log.Info($"GameplayManager: Queued request {bsrCode} by {req.RequesterName}");
+            return true;
         }
+
 
         public void SetDependencies(MenuTransitionsHelper menuTransitionsHelper,
                             EnvironmentsListModel environmentsListModel)
@@ -298,6 +542,7 @@ namespace SaberSurgeon.Gameplay
                 if (_requestQueue.Count > 0 && !_isLoadingSong)
                 {
                     var request = _requestQueue.Dequeue();
+                    _currentSongRequest = request;
                     Plugin.Log.Info($"GameplayManager: Processing request {request.BsrCode}");
 
                     // Try to find the song in loaded levels
@@ -316,6 +561,7 @@ namespace SaberSurgeon.Gameplay
                 // If no request or request not found, pick random song
                 if (nextLevel == null)
                 {
+                    _currentSongRequest = null;
                     nextLevel = GetRandomLevel();
                 }
 
@@ -359,6 +605,74 @@ namespace SaberSurgeon.Gameplay
             }
         }
 
+        private IEnumerator DownloadPoller()
+        {
+            _nextSongCoreRefreshTime = 0f;
+
+            while (_isPlaying)
+            {
+                // Only refresh periodically; refresh is expensive.
+                if (_pendingDownloads.Count > 0 && Time.unscaledTime >= _nextSongCoreRefreshTime)
+                {
+                    _nextSongCoreRefreshTime = Time.unscaledTime + 5f;
+
+                    // Refresh SongCore’s loaded song list in-game.
+                    SongCore.Loader.Instance.RefreshSongs(false); // important: makes new installs visible [file:152]
+                    LoadAvailableSongs(); // rebuild your cached list from Loader.CustomLevels [file:147]
+                }
+
+                // Try to resolve any pending downloads into real BeatmapLevels.
+                foreach (var kvp in _pendingDownloads.ToList())
+                {
+                    var pd = kvp.Value;
+                    if (pd == null) continue;
+
+                    if (!string.IsNullOrWhiteSpace(pd.ResolvedLevelId))
+                        continue;
+
+                    if (!string.IsNullOrWhiteSpace(pd.Hash) && TryFindLevelByHash(pd.Hash, out var level))
+                    {
+                        pd.ResolvedLevelId = level.levelID;
+                        pd.LastError = null;
+
+                        // Optional: chat announce once installed
+                        // Chat.ChatManager.GetInstance().SendChatMessage($"Downloaded & ready: {pd.Request.BsrCode}");
+                    }
+                }
+
+                yield return new WaitForSecondsRealtime(1f);
+            }
+        }
+
+        private static string NormalizeKey(string key)
+        {
+            return (key ?? string.Empty).Trim().TrimStart('!').ToLowerInvariant();
+        }
+
+        private bool TryFindLevelByHash(string hashLower, out BeatmapLevel level)
+        {
+            level = null;
+            if (string.IsNullOrWhiteSpace(hashLower)) return false;
+
+            // SongCore can map hash -> levelID(s). [file:146]
+            var ids = SongCore.Collections.levelIDsForHash(hashLower);
+            if (ids == null || ids.Count == 0) return false;
+
+            foreach (var id in ids)
+            {
+                if (SongCore.Loader.CustomLevels != null &&
+                    SongCore.Loader.CustomLevels.TryGetValue(id, out var found) &&
+                    found != null)
+                {
+                    level = found;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+
         /// <summary>
         /// Play a specific level
         /// </summary>
@@ -366,6 +680,10 @@ namespace SaberSurgeon.Gameplay
         {
             _isLoadingSong = true;
             _lastLevelEndAction = LevelCompletionResults.LevelEndAction.None;
+
+            // If current song was a request with a segment length, arm the in-level switch timer.
+            // (If null, switching is disabled for this segment.)
+            _inLevelQueueProcessor?.ArmForCurrentSegment(_currentSongRequest?.SegmentLengthSeconds);
 
             Plugin.Log.Info($"GameplayManager: Playing level: {level.songName}");
 
@@ -621,14 +939,15 @@ namespace SaberSurgeon.Gameplay
         }
 
 
-        /// <summary>
-        /// Represents a song request from chat
-        /// </summary>
-        public class SongRequest
+        public bool TryDequeueQueuedRequest(out SongRequest request)
         {
-            public string BsrCode { get; set; }
-            public string RequesterName { get; set; }
-            public DateTime RequestTime { get; set; }
+            request = null;
+            if (_requestQueue == null || _requestQueue.Count == 0)
+                return false;
+
+            request = _requestQueue.Dequeue();
+            return request != null;
         }
+
     }
 }

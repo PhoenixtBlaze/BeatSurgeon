@@ -1,0 +1,15 @@
+<bg>
+	<vertical pad="2" spacing="1" pref-width="60">
+		<text text="Chat" align="Center" font-size="4" />
+
+		<!-- Scrollable list of chat rows -->
+		<scroll-view pref-height="35">
+			<vertical id="chat-container"
+                      spacing="0.5"
+                      child-control-height="true"
+                      child-force-expand-width="true">
+				<!-- Rows will be added here from code -->
+			</vertical>
+		</scroll-view>
+	</vertical>
+</bg>
