@@ -62,6 +62,9 @@ namespace SaberSurgeon.Twitch
             DateTime.UtcNow.Ticks < Plugin.Settings.TokenExpiryTicks;
 
 
+        
+        private CancellationTokenSource _loginCts;
+        private volatile bool _loginInProgress;
 
         private bool HasRefreshToken => !string.IsNullOrEmpty(_refreshToken);
 
@@ -119,18 +122,26 @@ namespace SaberSurgeon.Twitch
         /// </summary>
         public async Task InitiateLogin()
         {
+            if (_loginInProgress)
+            {
+                Plugin.Settings.BackendStatus = "Login already in progress";
+                return;
+            }
+
+            _loginInProgress = true;
+            _loginCts?.Cancel();
+            _loginCts = new CancellationTokenSource();
+
             try
             {
                 string state = Guid.NewGuid().ToString("N");
-                Plugin.Log.Info($"TwitchAuth: Opening backend login with state={state}");
                 Plugin.Settings.BackendStatus = "Opening browser...";
-
                 string loginUrl = $"{BackendBaseUrl}/login?state={Uri.EscapeDataString(state)}";
                 Application.OpenURL(loginUrl);
 
-                await PollForBackendToken(state);
+                Plugin.Settings.BackendStatus = "Waiting for authorization...";
+                await PollForBackendToken(state, _loginCts.Token);
 
-                // Token received — now resolve identity and supporter tier
                 await EnsureIdentityAsync();
                 await TwitchApiClient.Instance.FetchBroadcasterAndSupportInfo();
 
@@ -138,95 +149,105 @@ namespace SaberSurgeon.Twitch
                 OnTokensUpdated?.Invoke();
                 OnIdentityUpdated?.Invoke();
             }
+            catch (OperationCanceledException)
+            {
+                Plugin.Settings.BackendStatus = "Login cancelled";
+            }
             catch (Exception ex)
             {
                 Plugin.Log.Error("TwitchAuth: InitiateLogin failed: " + ex.Message);
                 Plugin.Settings.BackendStatus = "Login failed";
             }
+            finally
+            {
+                _loginInProgress = false;
+            }
         }
+
 
         /// <summary>
         /// Poll backend /token?state=... until it returns JSON with access_token/refresh_token.
         /// Backend should also return expires_in when possible (your new server.js does).
         /// </summary>
-        private async Task PollForBackendToken(string state)
+        private async Task PollForBackendToken(string state, CancellationToken ct)
         {
             if (string.IsNullOrEmpty(state))
                 return;
 
-            Plugin.Settings.BackendStatus = "Waiting for authorization...";
+            // Optional: ensure requests don't hang forever
+            _http.Timeout = TimeSpan.FromSeconds(10);
 
-            try
+            int attempts = 0;
+            const int maxAttempts = 90;
+
+            while (attempts++ < maxAttempts)
             {
-                int attempts = 0; // up to ~3 minutes
-                while (attempts < 90)
+                ct.ThrowIfCancellationRequested();
+
+                string url = $"{BackendBaseUrl}/token?state={Uri.EscapeDataString(state)}";
+                HttpResponseMessage resp;
+
+                try
                 {
-                    attempts++;
+                    resp = await _http.GetAsync(url, ct);
+                }
+                catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // HTTP timeout; treat as retryable
+                    await Task.Delay(2000, ct);
+                    continue;
+                }
 
-                    string url = $"{BackendBaseUrl}/token?state={Uri.EscapeDataString(state)}";
-                    HttpResponseMessage resp = await _http.GetAsync(url);
-                    string jsonText = await resp.Content.ReadAsStringAsync();
+                string jsonText = await resp.Content.ReadAsStringAsync();
 
-                    if (resp.IsSuccessStatusCode)
+                if (resp.IsSuccessStatusCode)
+                {
+                    var json = JObject.Parse(jsonText);
+
+                    string access = json["access_token"]?.ToString();
+                    string refresh = json["refresh_token"]?.ToString();
+                    int expiresIn = json["expires_in"]?.Value<int>() ?? 0;
+
+                    if (string.IsNullOrEmpty(access) || string.IsNullOrEmpty(refresh))
                     {
-                        var json = JObject.Parse(jsonText);
-
-                        string access = json["access_token"]?.ToString();
-                        string refresh = json["refresh_token"]?.ToString();
-                        int expiresIn = json["expires_in"]?.Value<int?>() ?? 0;
-
-                        if (string.IsNullOrEmpty(access) || string.IsNullOrEmpty(refresh))
-                        {
-                            Plugin.Log.Error("TwitchAuth: Backend /token missing access_token or refresh_token");
-                            Plugin.Settings.BackendStatus = "Token error";
-                            return;
-                        }
-
-                        await _tokenLock.WaitAsync();
-                        try
-                        {
-                            _accessToken = access;
-                            _refreshToken = refresh;
-
-                            // If backend gave expires_in, use it; otherwise fall back to 4 hours.
-                            if (expiresIn > 0)
-                                Plugin.Settings.TokenExpiryTicks = DateTime.UtcNow.AddSeconds(expiresIn).Ticks;
-                            else
-                                Plugin.Settings.TokenExpiryTicks = DateTime.UtcNow.AddHours(4).Ticks;
-
-                            SaveTokens();
-                        }
-                        finally
-                        {
-                            _tokenLock.Release();
-                        }
-
-                        Plugin.Log.Info("TwitchAuth: Tokens received, IsAuthenticated=" + IsAuthenticated);
-                        Plugin.Settings.BackendStatus = "Connected";
+                        Plugin.Settings.BackendStatus = "Token error";
                         return;
                     }
 
-                    // 404 means pending
-                    if (resp.StatusCode == HttpStatusCode.NotFound)
+                    await _tokenLock.WaitAsync(ct);
+                    try
                     {
-                        await Task.Delay(2000);
-                        continue;
+                        _accessToken = access;
+                        _refreshToken = refresh;
+
+                        Plugin.Settings.TokenExpiryTicks =
+                            (expiresIn > 0 ? DateTime.UtcNow.AddSeconds(expiresIn) : DateTime.UtcNow.AddHours(4)).Ticks;
+
+                        SaveTokens();
+                    }
+                    finally
+                    {
+                        _tokenLock.Release();
                     }
 
-                    Plugin.Log.Error($"TwitchAuth: Backend /token HTTP {(int)resp.StatusCode}: {jsonText}");
-                    Plugin.Settings.BackendStatus = "Token error";
                     return;
                 }
 
-                Plugin.Log.Warn("TwitchAuth: /token polling timed out");
-                Plugin.Settings.BackendStatus = "Login timeout";
+                if (resp.StatusCode == HttpStatusCode.NotFound)
+                {
+                    // pending
+                    await Task.Delay(2000, ct);
+                    continue;
+                }
+
+                Plugin.Log.Error($"TwitchAuth: Backend /token HTTP {(int)resp.StatusCode}: {jsonText}");
+                Plugin.Settings.BackendStatus = "Token error";
+                return;
             }
-            catch (Exception ex)
-            {
-                Plugin.Log.Error("TwitchAuth: PollForBackendToken exception: " + ex.Message);
-                Plugin.Settings.BackendStatus = "Login error";
-            }
+
+            Plugin.Settings.BackendStatus = "Login timeout";
         }
+
 
         /// <summary>
         /// Ensures we have a valid token (refresh if within 5 minutes of expiry).
@@ -330,8 +351,21 @@ namespace SaberSurgeon.Twitch
             }
         }
 
+        public void CancelLogin()
+        {
+            try
+            {
+                _loginCts?.Cancel();
+            }
+            catch { /* ignored */ }
+
+            _loginInProgress = false;
+            Plugin.Settings.BackendStatus = "Login cancelled";
+        }
+
+
         /// <summary>
-        /// For manual wiring (e.g., if you want a separate bot user id later).
+        /// For manual wiring (e.g., if want a separate bot user id later).
         /// </summary>
         public void SetIds(string broadcasterId, string botUserId)
         {
