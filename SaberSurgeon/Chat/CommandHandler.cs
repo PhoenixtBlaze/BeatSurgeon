@@ -1,6 +1,8 @@
-﻿using System;
+﻿using SaberSurgeon.Gameplay;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using UnityEngine;
 
 namespace SaberSurgeon.Chat
@@ -922,14 +924,23 @@ namespace SaberSurgeon.Chat
             }
 
             string code = parts[1].Trim();
+
             BeatmapDifficulty? diff = null;
             float? start = null;
             float? length = null;
-            float? Switchafter = null;
+            float? switchAfter = null;
 
+            // Parse extra args: diff / time / now
             for (int i = 2; i < parts.Length; i++)
             {
                 string arg = parts[i].Trim();
+
+                // "now" means: switch ASAP when this request becomes playable
+                if (arg.Equals("now", StringComparison.OrdinalIgnoreCase))
+                {
+                    switchAfter = 0f;
+                    continue;
+                }
 
                 if (RequestAllowSpecificDifficulty && diff == null && TryParseDifficulty(arg, out var parsedDiff))
                 {
@@ -941,7 +952,11 @@ namespace SaberSurgeon.Chat
                 {
                     start = s;
                     length = len;
-                    if (len == null) { Switchafter = s; }
+
+                    // Your existing behavior: a single time "m:ss" sets SwitchAfterSeconds
+                    if (len == null && switchAfter == null)
+                        switchAfter = s;
+
                     continue;
                 }
             }
@@ -952,9 +967,10 @@ namespace SaberSurgeon.Chat
                 ctx.SenderName,
                 diff,
                 start,
-                Switchafter,
+                switchAfter,
                 length,
-                out reject);
+                out reject
+            );
 
             if (!ok)
             {
@@ -964,6 +980,7 @@ namespace SaberSurgeon.Chat
 
             SendResponse($"SR queued: {code} by {ctx.SenderName}", $"!!@{ctx.SenderName} queued: {code}");
             return true;
+
         }
 
         private bool TryParseDifficulty(string s, out BeatmapDifficulty diff)

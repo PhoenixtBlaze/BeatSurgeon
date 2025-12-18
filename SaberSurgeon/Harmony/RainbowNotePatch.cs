@@ -10,17 +10,33 @@ namespace SaberSurgeon.HarmonyPatches
     {
         private static readonly Type TargetType = typeof(ColorNoteVisuals);
 
+        /// <summary>
+        /// Try to find a field by any of the provided names using reflection directly
+        /// (bypasses Harmony warnings for fields that don't exist).
+        /// </summary>
+        private static FieldInfo TryGetField(Type t, params string[] names)
+        {
+            const BindingFlags flags =
+                BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+
+            foreach (var n in names)
+            {
+                var f = t.GetField(n, flags);
+                if (f != null)
+                    return f;
+            }
+            return null;
+        }
+
+        // Initialize fields via custom TryGetField to avoid Harmony warnings
         private static readonly FieldInfo MpbField =
-            AccessTools.Field(TargetType, "materialPropertyBlockControllers")
-            ?? AccessTools.Field(TargetType, "_materialPropertyBlockControllers");
+            TryGetField(TargetType, "materialPropertyBlockControllers", "_materialPropertyBlockControllers");
 
         private static readonly FieldInfo DefaultAlphaField =
-            AccessTools.Field(TargetType, "defaultColorAlpha")
-            ?? AccessTools.Field(TargetType, "_defaultColorAlpha");
+            TryGetField(TargetType, "defaultColorAlpha", "_defaultColorAlpha");
 
         private static readonly FieldInfo ColorIdField =
-            AccessTools.Field(TargetType, "colorId")
-            ?? AccessTools.Field(TargetType, "_colorId");
+            TryGetField(TargetType, "colorId", "_colorId");
 
         [HarmonyPostfix]
         [HarmonyPatch("HandleNoteControllerDidInit")]
@@ -41,7 +57,13 @@ namespace SaberSurgeon.HarmonyPatches
                 return;
 
             float defaultAlpha = (float)DefaultAlphaField.GetValue(__instance);
-            int colorId = (int)ColorIdField.GetValue(null); // static
+
+            // Handle both static and instance colorId field (version compatibility)
+            int colorId;
+            if (ColorIdField.IsStatic)
+                colorId = (int)ColorIdField.GetValue(null);
+            else
+                colorId = (int)ColorIdField.GetValue(__instance);
 
             Color finalColor;
 
@@ -52,7 +74,8 @@ namespace SaberSurgeon.HarmonyPatches
             else
             {
                 var data = noteController?.noteData;
-                if (data == null) return;
+                if (data == null)
+                    return;
 
                 // ColorA = left (saberA), ColorB = right (saberB)
                 finalColor = (data.colorType == ColorType.ColorA)
@@ -62,18 +85,23 @@ namespace SaberSurgeon.HarmonyPatches
 
             foreach (var ctrlObj in controllersObj)
             {
-                if (ctrlObj == null) continue;
+                if (ctrlObj == null)
+                    continue;
 
                 var ctrlType = ctrlObj.GetType();
+
                 var mpbProp = ctrlType.GetProperty("materialPropertyBlock",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
                 var applyMethod = ctrlType.GetMethod("ApplyChanges",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
 
-                if (mpbProp == null || applyMethod == null) continue;
+                if (mpbProp == null || applyMethod == null)
+                    continue;
 
                 var mpb = mpbProp.GetValue(ctrlObj) as MaterialPropertyBlock;
-                if (mpb == null) continue;
+                if (mpb == null)
+                    continue;
 
                 mpb.SetColor(colorId, finalColor.ColorWithAlpha(defaultAlpha));
                 applyMethod.Invoke(ctrlObj, null);

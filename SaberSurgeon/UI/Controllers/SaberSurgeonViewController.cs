@@ -684,6 +684,12 @@ namespace SaberSurgeon.UI.Controllers
                 $"UI: RefreshTwitchStatusText IsAuthenticated={TwitchAuthManager.Instance.IsAuthenticated}, " +
                 $"Tier={Plugin.Settings.CachedSupporterTier}");
 
+            if (Plugin.Settings?.TwitchReauthRequired == true)
+            {
+                TwitchStatusText = "<color=#FFFF44>Please Reauthorize</color>";
+                return;
+            }
+
             if (!IsTwitchConnected())
             {
                 TwitchStatusText = "<color=#FF4444>Not connected</color>";

@@ -1,9 +1,11 @@
 ﻿using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.ViewControllers;
 using SaberSurgeon.Chat;
+using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.UI;
 
 namespace SaberSurgeon.UI.Controllers
@@ -13,6 +15,14 @@ namespace SaberSurgeon.UI.Controllers
     {
         private const int MaxRows = 50;
 
+        private bool _isGraphicsDeviceStable = true;
+
+        private void ValidateGraphicsDevice()
+        {
+            _isGraphicsDeviceStable = SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null;
+        }
+
+
         [UIComponent("chat-container")]
         private Transform _chatContainer;
 
@@ -20,6 +30,8 @@ namespace SaberSurgeon.UI.Controllers
 
         protected override void DidActivate(bool firstActivation, bool addedToHierarchy, bool screenSystemEnabling)
         {
+            
+
             base.DidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
 
             if (firstActivation)
@@ -127,6 +139,10 @@ namespace SaberSurgeon.UI.Controllers
             var iconRT = iconGO.GetComponent<RectTransform>();
             iconRT.sizeDelta = new Vector2(2.5f, 2.5f);
 
+
+
+
+
             // 2) Name + badges (text for now)
             var nameGO = new GameObject("Name");
             nameGO.transform.SetParent(rowGO.transform, false);
@@ -140,7 +156,30 @@ namespace SaberSurgeon.UI.Controllers
             else if (ctx.IsSubscriber) badgePrefix += "[Sub] ";
             else if (ctx.IsVip) badgePrefix += "[VIP] ";
 
+
+            // BEFORE (line where nameText.text is set):
             nameText.text = isSystem ? "" : $"{badgePrefix}{ctx.SenderName}";
+
+            // AFTER - Add this wrapper:
+            try
+            {
+                ValidateGraphicsDevice();
+                if (!_isGraphicsDeviceStable)
+                {
+                    Plugin.Log.Warn("ChatOverlay: Graphics device not ready, deferring text update");
+                    return;
+                }
+                nameText.text = isSystem ? "" : $"{badgePrefix}{ctx.SenderName}";
+            }
+            catch (NullReferenceException ex)
+            {
+                Plugin.Log.Error($"ChatOverlay: TMPro error setting name text: {ex.Message}");
+                return; // Skip this row
+            }
+
+
+
+            
             nameText.color = Color.white;
 
             // 3) Message text (with emotes as plain text for now)
@@ -149,7 +188,17 @@ namespace SaberSurgeon.UI.Controllers
             var msgText = msgGO.AddComponent<TextMeshProUGUI>();
             msgText.fontSize = 2.8f;
             msgText.enableWordWrapping = true;
-            msgText.text = ctx.MessageText;
+
+
+            try
+            {
+                msgText.text = ctx.MessageText;
+            }
+            catch (NullReferenceException ex)
+            {
+                Plugin.Log.Error($"ChatOverlay: TMPro error setting message text: {ex.Message}");
+            }
+
             msgText.color = isSystem ? Color.cyan : Color.white;
 
             _rows.Enqueue(rowGO);

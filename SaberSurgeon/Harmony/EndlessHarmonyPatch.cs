@@ -1,103 +1,82 @@
-﻿using System;
+﻿using HarmonyLib;
+using System;
 using System.Linq;
-using HarmonyLib;
+using System.Reflection;
 using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.EventSystems;
 
 namespace SaberSurgeon.HarmonyPatches
 {
-    [HarmonyPatch(typeof(MenuTransitionsHelper))]
-    internal static class EndlessHarmonyPatch
-    {
-        private const float ChainFadeDurationSeconds = 0.6f;
 
-        // ---------- PlayFirstSubmitLater pause-gate state ----------
+    // ==============================================================================================
+    // PATCH 1: PlayFirstSubmitLater
+    // Blocks the "Finish" event so ScoreSaber/BeatLeader never hear about the map ending until we say so.
+    // ==============================================================================================
+    [HarmonyPatch(typeof(StandardLevelScenesTransitionSetupDataSO), "Finish")]
+    internal static class PlayFirstSubmitLaterPatch
+    {
         private static bool _pauseGateActive;
         private static bool _bypassPauseGateCall;
 
-        private static MenuTransitionsHelper _pendingHelper;
+        private static Action _continueDelegate;
+        private static Action _resumeFinishedDelegate;
+        private static Action _menuDelegate;
+        private static Action _restartDelegate;
+
         private static StandardLevelScenesTransitionSetupDataSO _pendingSetup;
         private static LevelCompletionResults _pendingResults;
-        private static bool _usedFallbackMenuOnly;
-
-
         private static PauseMenuManager _pauseMenuManager;
 
         private static bool ShouldPauseGate(LevelCompletionResults results)
         {
+            if (results == null) return false;
+
             var s = Plugin.Settings;
             if (s == null) return false;
-            if (!s.PlayFirstSubmitLaterEnabled) return false;
-            if (!s.AutoPauseOnMapEnd) return false;
+            if (!s.PlayFirstSubmitLaterEnabled || !s.AutoPauseOnMapEnd) return false;
 
-            // Endless mode takes priority
             var gm = Gameplay.GameplayManager.GetInstance();
-            if (gm != null && gm.IsPlaying() && gm.GetRemainingTime() > 0f)
-                return false;
+            // If Endless Mode is running and actively chaining, we DO NOT pause-gate.
+            // Endless mode handles its own transitions.
+            if (gm != null && gm.IsPlaying() && gm.GetRemainingTime() > 0f) return false;
 
-            // Avoid interfering with explicit Quit/Restart flows
-            if (results.levelEndAction == LevelCompletionResults.LevelEndAction.Quit) return false;
-            if (results.levelEndAction == LevelCompletionResults.LevelEndAction.Restart) return false;
+            if (results.levelEndAction == LevelCompletionResults.LevelEndAction.Quit ||
+                results.levelEndAction == LevelCompletionResults.LevelEndAction.Restart ||
+                results.levelEndStateType == LevelCompletionResults.LevelEndStateType.Failed)
+            {
+                return false;
+            }
 
             return true;
         }
 
-        private static void ClearPauseGate()
+        private static void CleanupPauseListeners()
         {
-            _pauseGateActive = false;
-            _pendingHelper = null;
-            _pendingSetup = null;
-            _pendingResults = null;
-
             if (_pauseMenuManager != null)
             {
-                
-                _pauseMenuManager.didPressContinueButtonEvent -= HandleContinuePressed;
-                _pauseMenuManager.didFinishResumeAnimationEvent -= HandleResumeFinished;
-                _pauseMenuManager.didPressMenuButtonEvent -= HandleAbort;
-                _pauseMenuManager.didPressRestartButtonEvent -= HandleAbort;
-                _pauseMenuManager = null;
+                if (_continueDelegate != null) _pauseMenuManager.didPressContinueButtonEvent -= _continueDelegate;
+                if (_resumeFinishedDelegate != null) _pauseMenuManager.didFinishResumeAnimationEvent -= _resumeFinishedDelegate;
+                if (_menuDelegate != null) _pauseMenuManager.didPressMenuButtonEvent -= _menuDelegate;
+                if (_restartDelegate != null) _pauseMenuManager.didPressRestartButtonEvent -= _restartDelegate;
             }
+            _continueDelegate = _resumeFinishedDelegate = _menuDelegate = _restartDelegate = null;
+            _pauseMenuManager = null;
         }
 
-
-        private static void HandleContinuePressed()
+        private static void ClearPauseGate()
         {
-            // If this was a real PauseController pause, let the normal resume animation happen
-            // and we’ll proceed in HandleResumeFinished().
-            if (!_usedFallbackMenuOnly)
-                return;
-
-            // Fallback UI-only pause: do NOT run resume animation (avoids SliceDetails NRE).
-            try
-            {
-                _bypassPauseGateCall = true;
-
-                var method = AccessTools.Method(
-                    typeof(MenuTransitionsHelper),
-                    "HandleMainGameSceneDidFinish",
-                    new[] { typeof(StandardLevelScenesTransitionSetupDataSO), typeof(LevelCompletionResults) });
-
-                method?.Invoke(_pendingHelper, new object[] { _pendingSetup, _pendingResults });
-            }
-            finally
-            {
-                _bypassPauseGateCall = false;
-                ClearPauseGate();
-            }
+            CleanupPauseListeners();
+            _pauseGateActive = false;
+            _pendingSetup = null;
+            _pendingResults = null;
         }
 
-
-
-        private static void HandleAbort()
-        {
-            // Player chose Menu/Restart: do nothing special.
-            ClearPauseGate();
-        }
+        private static void HandleContinuePressed() { }
 
         private static void HandleResumeFinished()
         {
-            // Continue was pressed, resume animation finished -> now go to results.
-            if (_pendingHelper == null || _pendingSetup == null)
+            if (_pendingSetup == null)
             {
                 ClearPauseGate();
                 return;
@@ -106,14 +85,8 @@ namespace SaberSurgeon.HarmonyPatches
             try
             {
                 _bypassPauseGateCall = true;
-
-                // Call original finish method after resume animation.
-                var method = AccessTools.Method(
-                    typeof(MenuTransitionsHelper),
-                    "HandleMainGameSceneDidFinish",
-                    new[] { typeof(StandardLevelScenesTransitionSetupDataSO), typeof(LevelCompletionResults) });
-
-                method?.Invoke(_pendingHelper, new object[] { _pendingSetup, _pendingResults });
+                // Re-call Finish(). This time bypass is true, so it falls through to original code.
+                _pendingSetup.Finish(_pendingResults);
             }
             finally
             {
@@ -122,152 +95,204 @@ namespace SaberSurgeon.HarmonyPatches
             }
         }
 
-        // Intercept the standard-level finish handler.
-        [HarmonyPrefix]
-        [HarmonyPatch("HandleMainGameSceneDidFinish")]
-        private static bool Prefix(
-            MenuTransitionsHelper __instance,
-            StandardLevelScenesTransitionSetupDataSO standardLevelScenesTransitionSetupData,
-            LevelCompletionResults levelCompletionResults)
+        private static void HandleAbort()
         {
-            // 1) PlayFirstSubmitLater pause gate MUST run FIRST
-            if (!_bypassPauseGateCall && !_pauseGateActive && ShouldPauseGate(levelCompletionResults))
+            // If aborted, we just leave the pause gate active/cleared and let the game handle the Menu/Restart action
+            // normally triggered by the PauseMenu itself.
+            ClearPauseGate();
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPriority(Priority.High)]
+        private static bool Prefix(StandardLevelScenesTransitionSetupDataSO __instance, LevelCompletionResults levelCompletionResults)
+        {
+            try
             {
-                _pauseGateActive = true;
+                if (__instance == null || levelCompletionResults == null) return true;
+                if (_bypassPauseGateCall) return true;
 
-                _pendingHelper = __instance;
-                _pendingSetup = standardLevelScenesTransitionSetupData;
-                _pendingResults = levelCompletionResults;
-
-                // Hook pause menu: wait for resume animation finish
-                _pauseMenuManager = Resources.FindObjectsOfTypeAll<PauseMenuManager>().FirstOrDefault();
-                if (_pauseMenuManager != null)
+                if (!_pauseGateActive && ShouldPauseGate(levelCompletionResults))
                 {
-                    _pauseMenuManager.didPressContinueButtonEvent += HandleContinuePressed;
-                    _pauseMenuManager.didFinishResumeAnimationEvent += HandleResumeFinished;
-                    _pauseMenuManager.didPressMenuButtonEvent += HandleAbort;
-                    _pauseMenuManager.didPressRestartButtonEvent += HandleAbort;
+                    _pauseGateActive = true;
+                    _pendingSetup = __instance;
+                    _pendingResults = levelCompletionResults;
+
+                    CleanupPauseListeners();
+
+                    var freshManager = Resources.FindObjectsOfTypeAll<PauseMenuManager>().FirstOrDefault();
+                    var pauseController = Resources.FindObjectsOfTypeAll<PauseController>().FirstOrDefault();
+
+                    if (freshManager != null && pauseController != null)
+                    {
+                        _pauseMenuManager = freshManager;
+                        _continueDelegate = HandleContinuePressed;
+                        _resumeFinishedDelegate = HandleResumeFinished;
+                        _menuDelegate = HandleAbort;
+                        _restartDelegate = HandleAbort;
+
+                        _pauseMenuManager.didPressContinueButtonEvent += _continueDelegate;
+                        _pauseMenuManager.didFinishResumeAnimationEvent += _resumeFinishedDelegate;
+                        _pauseMenuManager.didPressMenuButtonEvent += _menuDelegate;
+                        _pauseMenuManager.didPressRestartButtonEvent += _restartDelegate;
+
+                        pauseController.Pause();
+                        _pauseMenuManager.ShowMenu();
+                        Plugin.Log.Info("PlayFirstSubmitLater: Blocked score submission. Paused.");
+
+                        var continueButton = _pauseMenuManager.transform.Find("Wrapper/Container/Buttons/ContinueButton")?.GetComponent<Button>();
+                        if (continueButton && EventSystem.current != null)
+                            EventSystem.current.SetSelectedGameObject(continueButton.gameObject);
+                    }
+                    else
+                    {
+                        ClearPauseGate();
+                        return true;
+                    }
+
+                    return false; // STOP execution.
                 }
 
-                // Real pause path: PauseController.Pause() pauses game + shows menu correctly
-                var pauseController = Resources.FindObjectsOfTypeAll<PauseController>().FirstOrDefault();
-                if (pauseController != null)
-                {
-                    Plugin.Log.Info("PlayFirstSubmitLater: Pausing at map end (before results).");
-                    pauseController.Pause();
-                    // If PauseController actually paused, it would have enabled + shown the menu.
-                    
-                    _usedFallbackMenuOnly = false; // assume real pause attempted
-                    Plugin.Log.Info($"PlayFirstSubmitLater: pauseMenu enabled={_pauseMenuManager != null && _pauseMenuManager.enabled}, active={_pauseMenuManager != null && _pauseMenuManager.gameObject.activeInHierarchy}");
-
-                }
-
-                // If PauseController couldn't pause (common at end-of-level), at least show the pause menu UI
-                if (_pauseMenuManager == null)
-                    _pauseMenuManager = Resources.FindObjectsOfTypeAll<PauseMenuManager>().FirstOrDefault();
-
-                if (_pauseMenuManager != null && !_pauseMenuManager.isActiveAndEnabled)
-                {
-                    // It’s often disabled until shown; ShowMenu() enables it internally. 
-                    Plugin.Log.Info("PlayFirstSubmitLater: PauseMenuManager found (was disabled), calling ShowMenu fallback.");
-                    _pauseMenuManager.ShowMenu(); // UI fallback 
-                }
-                else if (_pauseMenuManager != null)
-                {
-                    _usedFallbackMenuOnly = true;
-                    Plugin.Log.Info("PlayFirstSubmitLater: Using fallback (UI-only) pause menu.");
-                    _pauseMenuManager.ShowMenu(); // UI fallback 
-                }
-                else
-                {
-                    Plugin.Log.Warn("PlayFirstSubmitLater: PauseMenuManager not found, letting results continue.");
-                    ClearPauseGate();
-                    return true;
-                }
-
-                return false; // always block results until player interacts
-
-
-                // Fail-open if PauseController isn't found
-                Plugin.Log.Warn("PlayFirstSubmitLater: PauseController not found, letting results continue.");
-                ClearPauseGate();
                 return true;
             }
-
-            // 2) Existing Endless-mode chaining logic (unchanged idea)
-            var gm = Gameplay.GameplayManager.GetInstance();
-            float fade = ChainFadeDurationSeconds;
-
-            // Only chain if endless is still running, time remains, and user didn't quit.
-            if (gm == null ||
-                !gm.IsPlaying() ||
-                gm.GetRemainingTime() <= 0f ||
-                levelCompletionResults.levelEndAction == LevelCompletionResults.LevelEndAction.Quit)
+            catch (Exception ex)
             {
-                return true; // run original
+                Plugin.Log.Error($"PlayFirstSubmitLater: Error in Prefix: {ex}");
+                return true;
+            }
+        }
+    }
+
+
+    // ==============================================================================================
+    // PATCH 2: Endless Mode Chaining
+    // Handles replacing scenes for endless mode when the level is "officially" finished.
+    // ==============================================================================================
+    [HarmonyPatch(typeof(MenuTransitionsHelper), "HandleMainGameSceneDidFinish")]
+    internal static class EndlessHarmonyPatch
+    {
+        private const float ChainFadeDurationSeconds = 1.0f;
+
+        [HarmonyPrefix]
+        [HarmonyPriority(Priority.High)]
+        private static bool Prefix(MenuTransitionsHelper __instance, StandardLevelScenesTransitionSetupDataSO standardLevelScenesTransitionSetupData, LevelCompletionResults levelCompletionResults)
+        {
+            var gm = Gameplay.GameplayManager.GetInstance();
+            if (gm == null || !gm.IsPlaying() || gm.GetRemainingTime() <= 0f) return true;
+
+            // If we failed or quit, don't chain
+            if (levelCompletionResults.levelEndAction == LevelCompletionResults.LevelEndAction.Quit ||
+                levelCompletionResults.levelEndAction == LevelCompletionResults.LevelEndAction.Restart ||
+                levelCompletionResults.levelEndStateType == LevelCompletionResults.LevelEndStateType.Failed)
+            {
+                return true;
             }
 
             try
             {
-                // Let finished callback run so GameplayManager updates.
+                // We manually fire the finish callback so other mods (that hook this) know the level is done.
+                // Note: PlayFirstSubmitLater above might have delayed this call, but now we are here.
                 var finishedCBField = AccessTools.Field(typeof(MenuTransitionsHelper), "_standardLevelFinishedCallback");
-                var finishedCB = (Action<StandardLevelScenesTransitionSetupDataSO, LevelCompletionResults>)finishedCBField.GetValue(__instance);
-                finishedCB?.Invoke(standardLevelScenesTransitionSetupData, levelCompletionResults);
+                var finishedCB = finishedCBField.GetValue(__instance);
+                (finishedCB as Delegate)?.DynamicInvoke(standardLevelScenesTransitionSetupData, levelCompletionResults);
 
-                if (!gm.TryPrepareNextChain(
-                        out BeatmapLevel nextLevel,
-                        out BeatmapKey nextKey,
-                        out GameplayModifiers modifiers,
-                        out PlayerSpecificSettings playerSettings,
-                        out ColorScheme color,
-                        out EnvironmentsListModel envs))
+                if (!gm.TryPrepareNextChain(out var nextLevel, out var nextKey, out var modifiers, out var playerSettings, out var color, out var envs))
                 {
-                    Plugin.Log.Warn("EndlessHarmonyPatch: No next level available; allowing normal transition.");
                     return true;
                 }
 
-                // Pull required private services/fields from MenuTransitionsHelper
-                var audioLoader = (AudioClipAsyncLoader)AccessTools.Field(typeof(MenuTransitionsHelper), "_audioClipAsyncLoader").GetValue(__instance);
-                var settingsMgr = (SettingsManager)AccessTools.Field(typeof(MenuTransitionsHelper), "_settingsManager").GetValue(__instance);
-                var dataLoader = (BeatmapDataLoader)AccessTools.Field(typeof(MenuTransitionsHelper), "_beatmapDataLoader").GetValue(__instance);
-                var entitlement = (BeatmapLevelsEntitlementModel)AccessTools.Field(typeof(MenuTransitionsHelper), "_beatmapLevelsEntitlementModel").GetValue(__instance);
-                var levelsModel = (BeatmapLevelsModel)AccessTools.Field(typeof(MenuTransitionsHelper), "_beatmapLevelsModel").GetValue(__instance);
-                var scenesMgr = (GameScenesManager)AccessTools.Field(typeof(MenuTransitionsHelper), "_gameScenesManager").GetValue(__instance);
-
-                // Re-init setup data for next map
-                standardLevelScenesTransitionSetupData.Init(
-                    gameMode: "Solo",
-                    beatmapKey: nextKey,
-                    beatmapLevel: nextLevel,
-                    overrideEnvironmentSettings: null,
-                    playerOverrideColorScheme: color,
-                    playerOverrideLightshowColors: false,
-                    beatmapOverrideColorScheme: null,
-                    gameplayModifiers: modifiers,
-                    playerSpecificSettings: playerSettings,
-                    practiceSettings: null,
-                    environmentsListModel: envs,
-                    audioClipAsyncLoader: audioLoader,
-                    settingsManager: settingsMgr,
-                    backButtonText: "Menu",
-                    useTestNoteCutSoundEffects: false,
-                    startPaused: false,
-                    beatmapLevelsModel: levelsModel,
-                    beatmapDataLoader: dataLoader,
-                    beatmapLevelsEntitlementModel: entitlement,
-                    recordingToolData: null
-                );
-
-                Plugin.Log.Info($"EndlessHarmonyPatch: Chaining to next map with fade={fade:0.00}s");
-                scenesMgr.ReplaceScenes(standardLevelScenesTransitionSetupData, null, fade);
-
-                return false; // skip original finish handling
+                ReplaceScenes(__instance, nextLevel, nextKey, modifiers, playerSettings, color, envs);
+                return false; // STOP the game from going to the menu/results screen
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error($"EndlessHarmonyPatch: Exception while chaining:\n{ex}");
-                return true; // fail-open
+                Plugin.Log.Error($"EndlessHarmonyPatch: Error chaining: {ex}");
+                return true;
             }
+        }
+
+        private static void ClearPreviousPauseState()
+        {
+            if (EventSystem.current != null) EventSystem.current.SetSelectedGameObject(null);
+        }
+
+        internal static void ReplaceScenes(MenuTransitionsHelper helper, BeatmapLevel nextLevel, BeatmapKey nextKey, GameplayModifiers modifiers, PlayerSpecificSettings playerSettings, ColorScheme color, EnvironmentsListModel envs, float fade = ChainFadeDurationSeconds)
+        {
+            // (Same implementation as before)
+            // ... Copy your ReplaceScenes implementation here ...
+            // For brevity, I am assuming you have the method body from previous steps.
+            // Just paste the method body from the previous "EndlessHarmonyPatch" here.
+            if (helper == null || nextLevel == null || envs == null) return;
+            ClearPreviousPauseState();
+
+            // Reflection helpers
+            FieldInfo FindField(Type t, params string[] names)
+            {
+                foreach (var n in names)
+                {
+                    var f = AccessTools.Field(t, n);
+                    if (f != null) return f;
+                }
+                return null;
+            }
+
+            T GetFieldValue<T>(object instance, params string[] names) where T : class
+            {
+                if (instance == null) return null;
+                var f = FindField(instance.GetType(), names);
+                return f?.GetValue(instance) as T;
+            }
+
+            var scenesMgr = GetFieldValue<GameScenesManager>(helper, "gameScenesManager", "_gameScenesManager");
+            var audioLoader = GetFieldValue<AudioClipAsyncLoader>(helper, "audioClipAsyncLoader", "_audioClipAsyncLoader");
+            var settingsMgr = GetFieldValue<SettingsManager>(helper, "settingsManager", "_settingsManager");
+            var dataLoader = GetFieldValue<BeatmapDataLoader>(helper, "beatmapDataLoader", "_beatmapDataLoader");
+            var entitlement = GetFieldValue<BeatmapLevelsEntitlementModel>(helper, "beatmapLevelsEntitlementModel", "_beatmapLevelsEntitlementModel");
+            var levelsModel = GetFieldValue<BeatmapLevelsModel>(helper, "beatmapLevelsModel", "_beatmapLevelsModel");
+
+            if (scenesMgr == null) return;
+
+            var existingSetup = GetFieldValue<StandardLevelScenesTransitionSetupDataSO>(
+                helper, "standardLevelScenesTransitionSetupData", "_standardLevelScenesTransitionSetupData");
+
+            if (existingSetup == null) return;
+
+            var stdGameplayInfoField = FindField(typeof(StandardLevelScenesTransitionSetupDataSO), "_standardGameplaySceneInfo", "standardGameplaySceneInfo");
+            var gameCoreInfoField = FindField(typeof(StandardLevelScenesTransitionSetupDataSO), "_gameCoreSceneInfo", "gameCoreSceneInfo");
+
+            if (stdGameplayInfoField == null || gameCoreInfoField == null) return;
+
+            var existingStdGameplayInfo = stdGameplayInfoField.GetValue(existingSetup) as SceneInfo;
+            var existingGameCoreInfo = gameCoreInfoField.GetValue(existingSetup) as SceneInfo;
+
+            var newSetup = ScriptableObject.CreateInstance<StandardLevelScenesTransitionSetupDataSO>();
+            stdGameplayInfoField.SetValue(newSetup, existingStdGameplayInfo);
+            gameCoreInfoField.SetValue(newSetup, existingGameCoreInfo);
+
+            newSetup.Init(
+                gameMode: "Solo",
+                beatmapKey: nextKey,
+                beatmapLevel: nextLevel,
+                overrideEnvironmentSettings: null,
+                playerOverrideColorScheme: color,
+                playerOverrideLightshowColors: false,
+                beatmapOverrideColorScheme: null,
+                gameplayModifiers: modifiers,
+                playerSpecificSettings: playerSettings,
+                practiceSettings: null,
+                environmentsListModel: envs,
+                audioClipAsyncLoader: audioLoader,
+                beatmapDataLoader: dataLoader,
+                settingsManager: settingsMgr,
+                backButtonText: "Menu",
+                beatmapLevelsModel: levelsModel,
+                beatmapLevelsEntitlementModel: entitlement,
+                useTestNoteCutSoundEffects: false,
+                startPaused: false,
+                recordingToolData: null
+            );
+
+            Plugin.Log.Info($"EndlessHarmonyPatch: Replacing scenes -> {nextLevel.songName}");
+            scenesMgr.ReplaceScenes(newSetup, null, fade);
         }
     }
 }

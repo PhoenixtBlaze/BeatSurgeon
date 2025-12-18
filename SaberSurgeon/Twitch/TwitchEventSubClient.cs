@@ -39,6 +39,13 @@ namespace SaberSurgeon.Twitch
         private bool _isConnecting;
         private bool _isConnected;
 
+        // Reconnect/backoff state
+        private int _reconnectAttempts = 0;
+        private const int MaxReconnectAttempts = 10;          // safety cap
+        private const int BaseReconnectDelaySeconds = 2;      // 2, 4, 8, ... up to 60
+        private bool _allowReconnect = true;                  // disabled on Shutdown()
+
+
         // Track subscription attempts so we don't spam
         private readonly HashSet<string> _subscribedTypes = new HashSet<string>();
 
@@ -92,6 +99,9 @@ namespace SaberSurgeon.Twitch
         {
             Shutdown(); // clean any prior state
 
+            _allowReconnect = true;
+            _reconnectAttempts = 0;
+
             _cts = new CancellationTokenSource();
             _ws = new ClientWebSocket();
 
@@ -100,14 +110,13 @@ namespace SaberSurgeon.Twitch
             _subscribedTypes.Clear();
 
             Plugin.Log.Info($"TwitchEventSubClient: Connecting to {EventSubWsUrl}");
-
             await _ws.ConnectAsync(new Uri(EventSubWsUrl), _cts.Token);
-
             _isConnected = true;
             Plugin.Log.Info("TwitchEventSubClient: WebSocket connected");
 
             _ = Task.Run(ListenLoopAsync);
         }
+
 
         private async Task ListenLoopAsync()
         {
@@ -150,22 +159,66 @@ namespace SaberSurgeon.Twitch
                 _isConnected = false;
                 Plugin.Log.Warn("TwitchEventSubClient: WebSocket disconnected");
 
-                // If Twitch told us to reconnect, do it
-                if (!string.IsNullOrEmpty(_reconnectUrl))
+                // If shutdown was requested, do NOT auto-reconnect
+                if (_allowReconnect)
                 {
-                    try
-                    {
-                        string url = _reconnectUrl;
-                        _reconnectUrl = null;
-                        await ReconnectAsync(url);
-                    }
-                    catch (Exception ex)
-                    {
-                        Plugin.Log.Error("TwitchEventSubClient: Reconnect failed: " + ex.Message);
-                    }
+                    // Prefer Twitch-provided reconnect URL; otherwise fall back to the default WS URL
+                    string targetUrl = !string.IsNullOrEmpty(_reconnectUrl)
+                        ? _reconnectUrl
+                        : EventSubWsUrl;
+
+                    _reconnectUrl = null;
+
+                    // Fire-and-forget backoff loop
+                    _ = Task.Run(() => ReconnectWithBackoffAsync(targetUrl));
                 }
             }
         }
+
+        private async Task ReconnectWithBackoffAsync(string url)
+        {
+            while (_allowReconnect)
+            {
+                if (_reconnectAttempts >= MaxReconnectAttempts)
+                {
+                    Plugin.Log.Error($"TwitchEventSubClient: Reconnect aborted after {_reconnectAttempts} attempts.");
+                    // At this point ChatManager will see IsConnected == false and keep using ChatPlex if that backend is active.
+                    return;
+                }
+
+                int delaySeconds = (int)Math.Min(
+                    BaseReconnectDelaySeconds * Math.Pow(2, _reconnectAttempts), // 2,4,8,16,32,64...
+                    60
+                );
+
+                if (_reconnectAttempts > 0)
+                {
+                    Plugin.Log.Warn(
+                        $"TwitchEventSubClient: Waiting {delaySeconds}s before reconnect attempt #{_reconnectAttempts + 1}..."
+                    );
+                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+                }
+
+                try
+                {
+                    await ReconnectAsync(url);
+                    _reconnectAttempts = 0;
+                    return; // success -> ListenLoopAsync will be started by ReconnectAsync
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancellation from outside – treat as intentional shutdown.
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _reconnectAttempts++;
+                    Plugin.Log.Error($"TwitchEventSubClient: Reconnect attempt failed: {ex.Message}");
+                    // Loop and try again with longer delay
+                }
+            }
+        }
+
 
         private void HandleWsMessage(string json)
         {
@@ -511,17 +564,18 @@ namespace SaberSurgeon.Twitch
 
         public void Shutdown()
         {
+            Plugin.Log.Info("TwitchEventSubClient: Shutdown requested");
+            _allowReconnect = false;
             _isConnected = false;
 
             try { _cts?.Cancel(); } catch { }
-
             try
             {
                 if (_ws != null)
                 {
                     try { _ws.Dispose(); } catch { }
-                    _ws = null;
                 }
+                _ws = null;
             }
             catch { }
 
@@ -532,5 +586,6 @@ namespace SaberSurgeon.Twitch
             _reconnectUrl = null;
             _subscribedTypes.Clear();
         }
+
     }
 }

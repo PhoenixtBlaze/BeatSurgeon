@@ -65,8 +65,7 @@ namespace SaberSurgeon
         public virtual string BackendStatus { get; set; } = "";     // For UI/debugging
 
         // WebSocket endpoint for your server (no channel_id here; added in TwitchEventClient)
-        public virtual string EventServerUrl { get; set; } =
-        "ws://phoenixblaze0.duckdns.org:42069/ws";
+        
 
         // Cached bot identity (for EventSub conditions like moderator_user_id / user_id)
         public virtual string CachedBotUserId { get; set; } = "";
@@ -74,6 +73,7 @@ namespace SaberSurgeon
 
         // Optional toggle so you can disable autoconnect from settings later
         public virtual bool AutoConnectTwitch { get; set; } = true;
+        public virtual bool TwitchReauthRequired { get; set; } = false;
 
 
 
@@ -102,7 +102,6 @@ namespace SaberSurgeon
         public virtual bool PlayFirstSubmitLaterEnabled { get; set; } = true;
         public virtual bool ScoreSubmissionEnabled { get; set; } = true;
         public virtual bool AutoPauseOnMapEnd { get; set; } = true;
-        
-        
+
     }
 }

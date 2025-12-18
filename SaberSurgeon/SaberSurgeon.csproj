@@ -10,7 +10,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>SaberSurgeon</RootNamespace>
     <AssemblyName>SaberSurgeon</AssemblyName>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>portable</DebugType>
@@ -20,6 +20,7 @@
     <!--<PathMap>$(AppOutputBase)=X:\$(AssemblyName)\</PathMap>-->
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <Optimize>false</Optimize>
@@ -46,6 +47,11 @@
       <HintPath>$(BeatSaberDir)\Libs\0Harmony.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
+    <Reference Include="AdditionalContentModel.Interfaces, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <Private>False</Private>
+      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\AdditionalContentModel.Interfaces.dll</HintPath>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
     <Reference Include="BeatmapCore, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
       <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BeatmapCore.dll</HintPath>
@@ -61,6 +67,11 @@
       <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BeatSaber.ViewSystem.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
+    <Reference Include="BeatSaberPlaylistsLib, Version=1.7.2.0, Culture=neutral, processorArchitecture=MSIL">
+      <Private>False</Private>
+      <HintPath>$(BeatSaberDir)\Libs\BeatSaberPlaylistsLib.dll</HintPath>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
     <Reference Include="BeatSaberPlus_Chat, Version=6.4.2.0, Culture=en, processorArchitecture=MSIL">
       <Private>False</Private>
       <HintPath>$(BeatSaberDir)\Plugins\BeatSaberPlus_Chat.dll</HintPath>
@@ -69,6 +80,11 @@
     <Reference Include="BeatSaverDownloader, Version=6.0.7.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
       <HintPath>$(BeatSaberDir)\Plugins\BeatSaverDownloader.dll</HintPath>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="BeatSaverSharp, Version=3.4.5.0, Culture=neutral, processorArchitecture=MSIL">
+      <Private>False</Private>
+      <HintPath>$(BeatSaberDir)\Libs\BeatSaverSharp.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BGLib.UnityExtension, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
@@ -129,6 +145,11 @@
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <Private>False</Private>
       <HintPath>$(BeatSaberDir)\Libs\Newtonsoft.Json.dll</HintPath>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="PlaylistManager, Version=1.7.3.0, Culture=neutral, processorArchitecture=MSIL">
+      <Private>False</Private>
+      <HintPath>$(BeatSaberDir)\Plugins\PlaylistManager.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="SongCore, Version=3.15.3.0, Culture=neutral, processorArchitecture=MSIL">
@@ -292,7 +313,9 @@
     <Compile Include="Harmony\FasterSongPatch.cs" />
     <Compile Include="Harmony\GhostNotesPatch.cs" />
     <Compile Include="Harmony\RainbowNotePatch.cs" />
-    <Compile Include="Integrations\BeatSaverDownloaderBridge.cs" />
+    <Compile Include="Integrations\BeatSaverClient.cs" />
+    <Compile Include="Integrations\EndlessPlaylistService.cs" />
+    <Compile Include="Integrations\SongInstaller.cs" />
     <Compile Include="PluginConfig.cs" />
     <Compile Include="Plugin\Plugin.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -300,11 +323,9 @@
     <Compile Include="Twitch\TwitchApiClient.cs" />
     <Compile Include="Twitch\TwitchAuthManager.cs" />
     <Compile Include="Twitch\TwitchEventSubClient.cs" />
-    <Compile Include="UI\Controllers\ChatOverlayViewController.cs" />
     <Compile Include="UI\Controllers\PlayFirstSubmitLaterViewController.cs" />
     <Compile Include="UI\Controllers\SaberSurgeonCooldownViewController.cs" />
     <Compile Include="UI\Controllers\SaberSurgeonViewController.cs" />
-    <Compile Include="UI\FloatingChatOverlay.cs" />
     <Compile Include="UI\FlowCoordinator\SaberSurgeonFlowCoordinator.cs" />
     <Compile Include="UI\Settings\PlayFirstSubmitLaterSettingsHost.cs" />
   </ItemGroup>
@@ -316,7 +337,6 @@
     <None Include="SaberSurgeon.csproj.user" Condition="Exists('SaberSurgeon.csproj.user')" />
     <EmbeddedResource Include="UI\Views\SaberSurgeonSettings.bsml" />
     <EmbeddedResource Include="UI\Views\SaberSurgeonCooldowns.bsml" />
-    <EmbeddedResource Include="UI\Views\FloatingChat.bsml" />
     <EmbeddedResource Include="UI\Views\PlayFirstSubmitLaterGameplaySetup.bsml" />
   </ItemGroup>
   <ItemGroup>
@@ -363,6 +383,7 @@
     <EmbeddedResource Include="Assets\FlashbangGB.png" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Assets\Endless.png" />
     <Content Include="server.js" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

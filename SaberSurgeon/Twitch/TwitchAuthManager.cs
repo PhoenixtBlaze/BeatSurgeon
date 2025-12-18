@@ -281,7 +281,7 @@ namespace SaberSurgeon.Twitch
                 else
                 {
                     Plugin.Log.Error("TwitchAuth: Refresh failed: " + responseString);
-                    Logout();
+                    MarkReauthRequired(responseString);
                     Plugin.Settings.BackendStatus = "Not connected (login required)";
                 }
                 
@@ -296,6 +296,29 @@ namespace SaberSurgeon.Twitch
                 _tokenLock.Release();
             }
         }
+
+
+        private void MarkReauthRequired(string reason)
+        {
+            Plugin.Log.Error($"TwitchAuth: Reauth required: {reason}");
+
+            _accessToken = null;
+            _refreshToken = null;
+            BroadcasterId = null;
+            BroadcasterLogin = null;
+            BotUserId = null;
+
+            Plugin.Settings.EncryptedAccessToken = string.Empty;
+            Plugin.Settings.EncryptedRefreshToken = string.Empty;
+            Plugin.Settings.TokenExpiryTicks = 0;
+
+            Plugin.Settings.TwitchReauthRequired = true;
+            Plugin.Settings.BackendStatus = "Please reauthorize";
+
+            OnTokensUpdated?.Invoke();
+            OnIdentityUpdated?.Invoke();
+        }
+
 
         /// <summary>
         /// Resolve the logged-in user's identity via Helix /users.

@@ -40,7 +40,7 @@ namespace SaberSurgeon
 
         private MenuButton _menuButton;
         private SaberSurgeonFlowCoordinator _flowCoordinator;
-        private SaberSurgeon.UI.FloatingChatOverlay _floatingChatOverlay;
+        //private SaberSurgeon.UI.FloatingChatOverlay _floatingChatOverlay;
 
 
         [Init]
@@ -179,9 +179,12 @@ namespace SaberSurgeon
 
                     Log.Info("SaberSurgeon: Menu button registered + (delayed)");
 
+                    /*
+                     
                     // Create floating chat overlay once, when BSML is definitely ready
                     if (_floatingChatOverlay == null)
-                        _floatingChatOverlay = SaberSurgeon.UI.FloatingChatOverlay.Create();
+                        _floatingChatOverlay = SaberSurgeon.UI.FloatingChatOverlay.Create(); 
+                    */
                 }
                 catch (System.InvalidOperationException ex)
                 {

@@ -1,13 +1,18 @@
-﻿using SaberSurgeon.Chat;
+﻿using IPA.Utilities;
+using SaberSurgeon.Chat;
 using SaberSurgeon.HarmonyPatches;
 using SaberSurgeon.Integrations;
 using SongCore;
 using SongCore.Utilities;
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Threading;
 using UnityEngine;
+using UnityEngine.Networking;
 using Zenject;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.ToolTip;
 
@@ -23,13 +28,16 @@ namespace SaberSurgeon.Gameplay
     /// </summary>
     public class GameplayManager : MonoBehaviour
     {
+        [Inject] private EnvironmentsListModel _environmentsListModel;
+
         private static GameplayManager _instance;
         private static GameObject _persistentGO;
 
         // Dependencies
         private MenuTransitionsHelper _menuTransitionsHelper;
-        //[Inject] private BeatmapLevelsModel _beatmapLevelsModel;
-        private EnvironmentsListModel _environmentsListModel;
+        [Inject] private BeatmapLevelsModel _beatmapLevelsModel;
+        private IBeatmapLevelData _preloadedLevelData;
+
         private GameplayModifiers _capturedModifiers;
         private PlayerSpecificSettings _capturedPlayerSettings;
         private ColorScheme _capturedColorScheme;
@@ -133,6 +141,19 @@ namespace SaberSurgeon.Gameplay
             return _instance;
         }
 
+
+        public bool PeekNextRequest(out SongRequest req)
+        {
+            req = null;
+            if (_requestQueue.Count > 0)
+            {
+                req = _requestQueue.Peek();
+                return true;
+            }
+            return false;
+        }
+
+
         /// <summary>
         /// Start the endless mode with specified duration in minutes
         /// </summary>
@@ -173,6 +194,9 @@ namespace SaberSurgeon.Gameplay
             }
 
             _inLevelQueueProcessor?.StartProcessing();
+            // *** NEW: Subscribe to mid-song switch events ***
+            _inLevelQueueProcessor.SwitchRequested += OnSwitchRequestedDuringPlay;
+            _inLevelQueueProcessor.PreloadRequested += OnPreloadRequested;
             _downloadPollerCoroutine = StartCoroutine(DownloadPoller());
 
 
@@ -182,6 +206,9 @@ namespace SaberSurgeon.Gameplay
             _gameplayCoroutine = StartCoroutine(GameplayLoop());
             _timerCoroutine = StartCoroutine(TimerCountdown());
         }
+
+
+
 
         /// <summary>
         /// Stop the endless mode
@@ -214,11 +241,41 @@ namespace SaberSurgeon.Gameplay
             _playedLevelIds.Clear();
             _requestQueue.Clear();
             _inLevelQueueProcessor?.StopProcessing();
+            _inLevelQueueProcessor.SwitchRequested -= OnSwitchRequestedDuringPlay; // cleanup
+            _inLevelQueueProcessor.PreloadRequested -= OnPreloadRequested;
+            _preloadedLevelData = null;
             _currentSongRequest = null;
+
 
             Plugin.Log.Info("GameplayManager: Endless Mode stopped");
         }
 
+
+        private async void OnPreloadRequested(SongRequest nextRequest)
+        {
+            if (nextRequest == null) return;
+
+            Plugin.Log.Info($"GameplayManager: Preloading assets for {nextRequest.BsrCode}...");
+
+            if (TryResolveRequestToLevel(nextRequest, out var level))
+            {
+                try
+                {
+                    // This forces the game to load the audio and map data into memory/cache.
+                    // When ReplaceScenes runs 5 seconds later, it will find this data instantly.
+                    var result = await _beatmapLevelsModel.LoadBeatmapLevelDataAsync(level.levelID,BeatmapLevelDataVersion.Original,CancellationToken.None);
+                    if (result.beatmapLevelData != null)
+                    {
+                        _preloadedLevelData = result.beatmapLevelData;
+                        Plugin.Log.Info($"GameplayManager: Preload success for {level.songName}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn($"GameplayManager: Preload failed: {ex.Message}");
+                }
+            }
+        }
 
 
         public bool TryPrepareNextChain(
@@ -303,14 +360,16 @@ namespace SaberSurgeon.Gameplay
             string key = NormalizeKey(req.BsrCode);
 
             // If we already resolved it via hash->levelID, grab it directly.
-            if (_pendingDownloads.TryGetValue(key, out var pd) &&
-                !string.IsNullOrWhiteSpace(pd.ResolvedLevelId) &&
-                SongCore.Loader.CustomLevels.TryGetValue(pd.ResolvedLevelId, out var found) &&
-                found != null)
+            if (_pendingDownloads.TryGetValue(key, out var pd) && !string.IsNullOrWhiteSpace(pd.ResolvedLevelId))
             {
-                level = found;
-                return true;
+                var found = SongCore.Loader.GetLevelById(pd.ResolvedLevelId);
+                if (found != null)
+                {
+                    level = found;
+                    return true;
+                }
             }
+
 
             // If the user pasted a 40-hex hash instead of a BSR key, support it:
             if (key.Length == 40 && key.All(Uri.IsHexDigit))
@@ -344,25 +403,127 @@ namespace SaberSurgeon.Gameplay
             // Start download (once).
             pd.LastDownloadAttemptUtc = DateTime.UtcNow;
 
-            // Try BeatSaverDownloader bridge first. [file:149]
-            // In the method that triggers downloads:
-            if (BeatSaverDownloaderBridge.TryDownloadByKey(key, out string error))
-            {
-                Plugin.Log.Info($"GameplayManager: Queued download for {key}");
-                // Send success message to chat
-                ChatManager.GetInstance().SendChatMessage($"!!Queued download: {key}");
-            }
-            else
-            {
-                Plugin.Log.Error($"GameplayManager: Download failed - {error}");
-                // Send failure message to chat
-                ChatManager.GetInstance().SendChatMessage($"!!Download failed: {error}");
-            }
+            pd.DownloadStarted = true;
+            pd.LastDownloadAttemptUtc = DateTime.UtcNow;
+            pd.LastError = null;
 
-
-            pd.LastError = error;
-            Plugin.Log.Warn($"GameplayManager: Download start failed for {key}: {error}");
+            StartCoroutine(DownloadInstallAndFinalizeCoroutine(key, pd));
         }
+
+        private IEnumerator DownloadInstallAndFinalizeCoroutine(string key, PendingDownload pd)
+        {
+            // 1) Fetch metadata
+            using (var metaReq = BeatSaverClient.GetMapMetadata(key))
+            {
+                metaReq.timeout = 15;
+                yield return metaReq.SendWebRequest();
+
+                if (metaReq.result != UnityWebRequest.Result.Success)
+                {
+                    pd.LastError = $"BeatSaver metadata failed: {metaReq.error}";
+                    Plugin.Log.Warn($"GameplayManager: {pd.LastError}");
+                    yield break;
+                }
+
+                var json = metaReq.downloadHandler.text;
+                if (!BeatSaverClient.TryParse(json, out var hashLower, out var downloadUrl, out var songName, out var levelAuthor))
+                {
+                    pd.LastError = "BeatSaver metadata parse failed (hash/downloadURL missing).";
+                    Plugin.Log.Warn($"GameplayManager: {pd.LastError}");
+                    yield break;
+                }
+
+                pd.Hash = hashLower;
+
+                // If already installed, skip download
+                if (TryFindLevelByHash(pd.Hash, out var already))
+                {
+                    pd.ResolvedLevelId = already.levelID;
+                    FinalizeDownloadedSong(pd, already);
+                    yield break;
+                }
+
+                // 2) Download zip
+                using (var zipReq = UnityWebRequest.Get(downloadUrl))
+                {
+                    Plugin.Log.Info($"GameplayManager: Starting download/install for {key}");
+                    zipReq.timeout = 60;
+                    zipReq.downloadHandler = new DownloadHandlerBuffer();
+                    yield return zipReq.SendWebRequest();
+
+                    if (zipReq.result != UnityWebRequest.Result.Success)
+                    {
+                        pd.LastError = $"Zip download failed: {zipReq.error}";
+                        Plugin.Log.Warn($"GameplayManager: {pd.LastError}");
+                        yield break;
+                    }
+
+                    var zipBytes = zipReq.downloadHandler.data;
+                    if (zipBytes == null || zipBytes.Length == 0)
+                    {
+                        pd.LastError = "Zip download returned empty data.";
+                        yield break;
+                    }
+
+                    // 3) Extract to CustomLevels
+                    string customSongsPath = Path.GetFullPath(Path.Combine(UnityEngine.Application.dataPath, "CustomLevels"));
+                    string folderName = $"{key} - {SongInstaller.Sanitize(songName)} - {SongInstaller.Sanitize(levelAuthor)}";
+                    string destDir = Path.Combine(customSongsPath, folderName);
+
+                    SongInstaller.SafeExtractZip(zipBytes, destDir);
+                    Plugin.Log.Info($"GameplayManager: Extracted to {destDir}, calling SongCore.Loader.LoadCustomLevel...");
+
+                    // Immediately load only this folder (no SongCore RefreshSongs needed).
+                    var loaded = SongCore.Loader.LoadCustomLevel(destDir);
+                    var loadResult = SongCore.Loader.LoadCustomLevel(destDir);
+                    Plugin.Log.Info($"GameplayManager: LoadCustomLevel result HasValue={loadResult.HasValue}");
+                    if (loaded.HasValue)
+                    {
+                        var (hash, beatmapLevel) = loaded.Value;
+                        pd.Hash = hash?.ToLowerInvariant();
+                        pd.ResolvedLevelId = beatmapLevel.levelID;
+                        pd.LastError = null;
+
+                        FinalizeDownloadedSong(pd, beatmapLevel);
+                        yield break;
+                    }
+
+                    // If it failed, keep your old fallback path (optional).
+                    pd.LastError = "Installed, but SongCore could not LoadCustomLevel from the extracted folder.";
+                    Plugin.Log.Warn($"GameplayManager: {pd.LastError}");
+
+                }
+            }
+
+            // 4) Refresh SongCore only AFTER install (no polling refresh loop)
+            
+            
+        }
+
+        private void FinalizeDownloadedSong(PendingDownload pd, BeatmapLevel level)
+        {
+            // 6) Add to playlist “Endless Mode”
+            try
+            {
+                var playlist = EndlessPlaylistService.GetOrCreate();
+                EndlessPlaylistService.AddLevel(playlist, level);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"GameplayManager: Failed to add to playlist: {ex.Message}");
+            }
+
+            // 7) If this request was meant to switch ASAP, arm a near-immediate switch
+            // If user didn’t specify, default to “switch asap once ready”.
+            bool shouldAutoSwitch =
+                pd.Request != null &&
+                (!pd.Request.SwitchAfterSeconds.HasValue || pd.Request.SwitchAfterSeconds.Value <= 0f);
+
+            if (shouldAutoSwitch)
+                _inLevelQueueProcessor?.ArmForCurrentSegment(0.1f);
+
+        }
+
 
         private IEnumerator FetchBeatSaverHashCoroutine(string key, PendingDownload pd)
         {
@@ -395,6 +556,59 @@ namespace SaberSurgeon.Gameplay
                     pd.ResolvedLevelId = level.levelID;
             }
         }
+
+
+        /// <summary>
+        /// Called by InLevelQueueProcessor when it's time to switch mid-song to a new request.
+        /// </summary>
+        private void OnSwitchRequestedDuringPlay(SongRequest nextRequest)
+        {
+            if (nextRequest == null || !_isPlaying)
+                return;
+
+            Plugin.Log.Info($"GameplayManager: Switch triggered for {nextRequest.BsrCode} by {nextRequest.RequesterName}");
+
+            // Resolve the request to an actual level
+            if (!TryResolveRequestToLevel(nextRequest, out var resolvedLevel))
+            {
+                Plugin.Log.Warn($"GameplayManager: Cannot switch — {nextRequest.BsrCode} still not playable");
+                ChatManager.GetInstance().SendChatMessage($"!!Switch failed — {nextRequest.BsrCode} not ready");
+                return;
+            }
+
+            // Build the beatmap key
+            if (!BuildKeyForLevel(nextRequest, resolvedLevel, out var nextLevel, out var nextKey))
+            {
+                Plugin.Log.Error($"GameplayManager: Failed to build key for {nextRequest.BsrCode}");
+                return;
+            }
+
+            // *** Trigger the chain transition (same as your Harmony patch does at song end) ***
+            var modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
+            var playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
+
+            Plugin.Log.Info($"GameplayManager: Executing mid-song chain to {nextLevel.songName}");
+            ChatManager.GetInstance().SendChatMessage($"!!Now playing: {nextLevel.songName} ({nextRequest.RequesterName})");
+
+            // Track the new request as current
+            _currentSongRequest = nextRequest;
+
+            // Arm for next switch if this request also has SwitchAfterSeconds
+            _inLevelQueueProcessor?.ArmForCurrentSegment(nextRequest.SwitchAfterSeconds);
+
+            // Use your existing chain mechanism from EndlessHarmonyPatch
+            EndlessHarmonyPatch.ReplaceScenes(
+                _menuTransitionsHelper,
+                nextLevel,
+                nextKey,
+                modifiers,
+                playerSettings,
+                _capturedColorScheme,
+                _environmentsListModel
+            );
+
+        }
+
 
 
         /// <summary>
@@ -461,6 +675,7 @@ namespace SaberSurgeon.Gameplay
             };
 
             _requestQueue.Enqueue(req);
+            EnsureDownloadStarted(req);
 
             if (requeueLimit > 0)
             {
@@ -639,10 +854,48 @@ namespace SaberSurgeon.Gameplay
                     if (!string.IsNullOrWhiteSpace(pd.Hash) && TryFindLevelByHash(pd.Hash, out var level))
                     {
                         pd.ResolvedLevelId = level.levelID;
+                        // Try to resolve any pending downloads into real BeatmapLevels.
+                        // Try to resolve any pending downloads into real BeatmapLevels.
+                        foreach (var entry in _pendingDownloads.ToList())
+                        {
+                            var key = entry.Key;
+                            var pending = entry.Value;
+                            if (pending == null)
+                                continue;
+
+                            // Already resolved → remove from dictionary so we stop refreshing for it.
+                            if (!string.IsNullOrWhiteSpace(pending.ResolvedLevelId))
+                            {
+                                _pendingDownloads.Remove(key);
+                                continue;
+                            }
+
+                            // If we have a hash and SongCore knows about it, map to levelID.
+                            if (!string.IsNullOrWhiteSpace(pending.Hash) &&
+                                TryFindLevelByHash(pending.Hash, out var resolvedLevel))
+                            {
+                                pending.ResolvedLevelId = resolvedLevel.levelID;
+                                pending.LastError = null;
+
+                                Plugin.Log.Info($"GameplayManager: Pending download {pending.Request?.BsrCode} resolved to {pending.ResolvedLevelId}");
+
+                                // Optional: auto-switch ASAP requests
+                                bool shouldAutoSwitch = (pending.Request?.SwitchAfterSeconds ?? -1f) == 0f;
+                                if (shouldAutoSwitch)
+                                {
+                                    Plugin.Log.Info($"GameplayManager: {pending.Request?.BsrCode} ready — arming immediate switch");
+                                    _inLevelQueueProcessor?.ArmForCurrentSegment(0.1f);
+                                }
+
+                                // Now that it's resolved, we no longer need to track it here.
+                                _pendingDownloads.Remove(key);
+                            }
+                        }
+
                         pd.LastError = null;
 
                         // Optional: chat announce once installed
-                        // Chat.ChatManager.GetInstance().SendChatMessage($"Downloaded & ready: {pd.Request.BsrCode}");
+                        Chat.ChatManager.GetInstance().SendChatMessage($"Downloaded & ready: {pd.Request.BsrCode}");
                     }
                 }
 
@@ -660,23 +913,14 @@ namespace SaberSurgeon.Gameplay
             level = null;
             if (string.IsNullOrWhiteSpace(hashLower)) return false;
 
-            // SongCore can map hash -> levelID(s). [file:146]
-            var ids = SongCore.Collections.levelIDsForHash(hashLower);
-            if (ids == null || ids.Count == 0) return false;
+            // SongCore handles hash->level internally (uses CustomLevelsById).
+            var found = SongCore.Loader.GetLevelByHash(hashLower);
+            if (found == null) return false;
 
-            foreach (var id in ids)
-            {
-                if (SongCore.Loader.CustomLevels != null &&
-                    SongCore.Loader.CustomLevels.TryGetValue(id, out var found) &&
-                    found != null)
-                {
-                    level = found;
-                    return true;
-                }
-            }
-
-            return false;
+            level = found;
+            return true;
         }
+
 
 
         /// <summary>
@@ -916,44 +1160,69 @@ namespace SaberSurgeon.Gameplay
 
         private bool EnsureDependencies()
         {
-            // Resolve MenuTransitionsHelper once
+            if (_menuTransitionsHelper == null)
+                _menuTransitionsHelper = Resources.FindObjectsOfTypeAll<MenuTransitionsHelper>().FirstOrDefault();
+
             if (_menuTransitionsHelper == null)
             {
-                _menuTransitionsHelper = Resources
-                    .FindObjectsOfTypeAll<MenuTransitionsHelper>()
-                    .FirstOrDefault();
-
-                if (_menuTransitionsHelper == null)
-                {
-                    Plugin.Log.Error("GameplayManager: Could not find MenuTransitionsHelper in scene");
-                    return false;
-                }
-
-                Plugin.Log.Info("GameplayManager: Resolved MenuTransitionsHelper");
+                Plugin.Log.Error("GameplayManager: Could not find MenuTransitionsHelper in scene");
+                return false;
             }
 
-            // Resolve EnvironmentsListModel once
+            // EnvironmentsListModel is NOT a UnityEngine.Object, so we must obtain it indirectly.
             if (_environmentsListModel == null)
             {
-                Plugin.Log.Warn(
-                    "GameplayManager: EnvironmentsListModel not resolved; " +
-                    "passing null to StartStandardLevel (game will use default environments)."
-                );
+                // Try getting it from the ProjectContext (standard Zenject way)
+                var container = ProjectContext.Instance.Container;
+                if (container.HasBinding<EnvironmentsListModel>())
+                {
+                    _environmentsListModel = container.Resolve<EnvironmentsListModel>();
+                }
+                else
+                {
+                    // Fallback: Use Reflection to steal it from SimpleLevelStarter if global resolve fails
+                    var sls = Resources.FindObjectsOfTypeAll<SimpleLevelStarter>().FirstOrDefault();
+                    if (sls != null)
+                    {
+                        var field = typeof(SimpleLevelStarter).GetField("environmentsListModel", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                        _environmentsListModel = (EnvironmentsListModel)field?.GetValue(sls);
+                    }
+                }
             }
+
+            if (_environmentsListModel == null)
+                Plugin.Log.Warn("GameplayManager: EnvironmentsListModel still null; mid-song switching/chaining may fail.");
 
             return true;
         }
 
 
+
+
         public bool TryDequeueQueuedRequest(out SongRequest request)
         {
             request = null;
-            if (_requestQueue == null || _requestQueue.Count == 0)
-                return false;
+            if (_requestQueue == null || _requestQueue.Count == 0) return false;
 
-            request = _requestQueue.Dequeue();
-            return request != null;
+            int safety = _requestQueue.Count;
+            while (safety-- > 0 && _requestQueue.Count > 0)
+            {
+                var candidate = _requestQueue.Dequeue();
+                if (candidate == null) continue;
+
+                if (TryResolveRequestToLevel(candidate, out _))
+                {
+                    request = candidate;
+                    return true;
+                }
+
+                // Not playable yet → keep it in the queue.
+                _requestQueue.Enqueue(candidate);
+            }
+
+            return false;
         }
+
 
     }
 }

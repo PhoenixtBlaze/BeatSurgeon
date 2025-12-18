@@ -22,6 +22,7 @@ namespace SaberSurgeon.Gameplay
 
         private bool _active;
         private bool _isExecutingSwitch;
+        private bool _preloadTriggered;
 
         // If set, we arm "switchAt" once audio becomes available in the gameplay scene.
         private float? _pendingSegmentLengthSeconds;
@@ -37,6 +38,7 @@ namespace SaberSurgeon.Gameplay
         /// (Later BeatmapSwitcher+seek will handle the actual switch.)
         /// </summary>
         public event Action<SongRequest> SwitchRequested;
+        public event Action<SongRequest> PreloadRequested;
 
         public void Initialize(GameplayManager gameplayManager)
         {
@@ -47,6 +49,7 @@ namespace SaberSurgeon.Gameplay
         {
             _active = true;
             _isExecutingSwitch = false;
+            _preloadTriggered = false;
             _pendingSegmentLengthSeconds = null;
             _switchAtSongTime = float.PositiveInfinity;
             _audioTimeSync = null;
@@ -68,13 +71,20 @@ namespace SaberSurgeon.Gameplay
         /// </summary>
         public void ArmForCurrentSegment(float? segmentLengthSeconds)
         {
+            // 1. Store the length we want to switch after.
             _pendingSegmentLengthSeconds = (segmentLengthSeconds.HasValue && segmentLengthSeconds.Value > 0f)
                 ? segmentLengthSeconds.Value
                 : (float?)null;
 
+            // 2. Reset the target time to Infinity. 
+            // Do NOT calculate it here; Update() will do it when _audioTimeSync is ready.
             _switchAtSongTime = float.PositiveInfinity;
+
+            // 3. Reset triggers
+            _preloadTriggered = false;
             _isExecutingSwitch = false;
         }
+
 
         private void Update()
         {
@@ -115,14 +125,28 @@ namespace SaberSurgeon.Gameplay
             _isExecutingSwitch = true;
 
             // We only switch when there is an actual queued request to switch into.
-            if (_gameplayManager.TryDequeueQueuedRequest(out var nextReq))
+            if (_gameplayManager.TryDequeueQueuedRequest(out var dequeueReq)) 
             {
-                SwitchRequested?.Invoke(nextReq);
+                SwitchRequested?.Invoke(dequeueReq);
             }
 
             // If nothing queued, re-arm for "never", and allow future re-arming.
             _switchAtSongTime = float.PositiveInfinity;
             _isExecutingSwitch = false;
+            // Trigger preload 5 seconds before the switch
+            if (!_preloadTriggered && !float.IsPositiveInfinity(_switchAtSongTime) && _audioTimeSync != null)
+            {
+                float timeUntilSwitch = _switchAtSongTime - _audioTimeSync.songTime;
+                if (timeUntilSwitch <= 5.0f && timeUntilSwitch > 0f)
+                {
+                    _preloadTriggered = true;
+                   
+                    if (_gameplayManager.PeekNextRequest(out var preloadReq)) // CHANGED NAME to be safe
+                    {
+                        PreloadRequested?.Invoke(preloadReq);
+                    }
+                }
+            }
         }
 
         private void ResolveAudio()

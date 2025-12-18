@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace SaberSurgeon.Chat
 {
@@ -26,6 +27,8 @@ namespace SaberSurgeon.Chat
         private int _retryCount = 0;
         private const int MAX_RETRIES = 60;
 
+        private bool _isGraphicsDeviceStable = true;
+
         private object _chatService;
         private MethodInfo _broadcastMessageMethod;
 
@@ -44,8 +47,20 @@ namespace SaberSurgeon.Chat
         private readonly object _queueLock = new object();
         private readonly Queue<ChatContext> _pendingMessages = new Queue<ChatContext>();
 
+        public bool ChatEnabled { get; set; } = true;
 
-        
+        private void UpdateGraphicsDeviceState()
+        {
+            bool deviceNowStable = SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null;
+
+            if (deviceNowStable != _isGraphicsDeviceStable)
+            {
+                _isGraphicsDeviceStable = deviceNowStable;
+                Plugin.Log.Warn($"ChatManager: Graphics device became {(deviceNowStable ? "stable" : "UNSTABLE")}");
+            }
+        }
+
+
 
         public static ChatManager GetInstance()
         {
@@ -61,6 +76,14 @@ namespace SaberSurgeon.Chat
 
         public void Initialize()
         {
+           
+
+            if (_isInitialized)
+            {
+                Plugin.Log.Warn("ChatManager: Already initialized!");
+                return;
+            }
+
             if (_isInitialized)
             {
                 Plugin.Log.Warn("ChatManager: Already initialized!");
@@ -550,32 +573,65 @@ namespace SaberSurgeon.Chat
 
         private void Update()
         {
+            UpdateGraphicsDeviceState();
+
             // Process queued messages on the main thread
             while (true)
             {
                 ChatContext ctx = null;
-
                 lock (_queueLock)
                 {
                     if (_pendingMessages.Count == 0)
                         break;
-
                     ctx = _pendingMessages.Dequeue();
                 }
 
-                if (ctx != null)
-                    DispatchChatMessage(ctx); // This is now safely on main thread
+                if (ctx != null && _isGraphicsDeviceStable)
+                {
+                    try
+                    {
+                        DispatchChatMessage(ctx);
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Log.Error($"ChatManager: Error dispatching message: {ex.Message}");
+                    }
+                }
+                else if (ctx != null && !_isGraphicsDeviceStable)
+                {
+                    // Re-queue for next frame
+                    lock (_queueLock)
+                    {
+                        _pendingMessages.Enqueue(ctx);
+                    }
+                }
             }
         }
+
 
 
 
         public void Shutdown()
         {
             Plugin.Log.Info("ChatManager: Shutting down...");
+            StopAllCoroutines();
+
+            try
+            {
+                _eventSubClient?.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("ChatManager: Error shutting down EventSub client: " + ex.Message);
+            }
+
+            _eventSubClient = null;
+            _activeBackend = ChatBackend.None;
+
             _isInitialized = false;
             _chatService = null;
             _broadcastMessageMethod = null;
         }
+
     }
 }
