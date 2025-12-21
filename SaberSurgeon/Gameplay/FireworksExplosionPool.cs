@@ -128,19 +128,25 @@ namespace SaberSurgeon.Gameplay
 
         private GameObject GetOrCreateInstance()
         {
-            if (_pool.Count > 0)
-                return _pool.Dequeue();
+            // FIX: Loop until we find a valid object or empty the queue
+            while (_pool.Count > 0)
+            {
+                var pooled = _pool.Dequeue();
+                // Check if the Unity object is still valid (not destroyed)
+                if (pooled != null)
+                {
+                    return pooled;
+                }
+            }
 
             var mat = GetOrInitializeParticleMaterial();
-
             var root = new GameObject("SaberSurgeonFireworksExplosion");
             root.SetActive(false);
-
             CreateParticleChild(root.transform, "Burst", mat);
             CreateParticleChild(root.transform, "Sparks", mat);
-
             return root;
         }
+
 
         private static void CreateParticleChild(Transform parent, string name, Material mat)
         {
