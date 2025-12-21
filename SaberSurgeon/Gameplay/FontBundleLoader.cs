@@ -96,7 +96,7 @@ namespace SaberSurgeon.Gameplay
             _fontOptions.Clear();
             _fontOptions.Add(DefaultSelectionValue);
 
-            // Find a safe shader from the game to fix Single Pass Instanced (Left Eye) issues
+            // Find a safe shader from the game to fix Single Pass Instanced issues
             _safeTmpShader = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(s => s.name.Contains("TextMeshPro/Distance Field")); // Standard TMP shader usually works if game loaded it
             if (_safeTmpShader == null) _safeTmpShader = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(s => s.name.Contains("Distance Field")); // Fallback
 
