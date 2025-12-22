@@ -4,6 +4,7 @@ using SaberSurgeon.HarmonyPatches;
 using SaberSurgeon.Integrations;
 using SongCore;
 using SongCore.Utilities;
+using UnityEngine.SceneManagement;
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
@@ -50,7 +51,8 @@ namespace SaberSurgeon.Gameplay
         private readonly List<BeatmapLevel> _availableLevels = new List<BeatmapLevel>();
         private readonly List<string> _playedLevelIds = new List<string>();
 
-        
+        private bool _isMultiplayerScene = false;
+
 
         // “recently requested/played” window for requeue blocking
         private readonly Queue<string> _recentRequestOrPlayHistory = new Queue<string>();
@@ -147,6 +149,11 @@ namespace SaberSurgeon.Gameplay
             return _requestQueue.TryPeek(out req);
         }
 
+        private void UpdateSceneState()
+        {
+            _isMultiplayerScene = SceneManager.GetActiveScene().name.Contains("Multiplayer");
+            // Or check: Resources.FindObjectsOfTypeAll<MultiplayerLocalActivePlayerFacade>().Length > 0;
+        }
 
         /// <summary>
         /// Start the endless mode with specified duration in minutes
@@ -201,6 +208,18 @@ namespace SaberSurgeon.Gameplay
             _timerCoroutine = StartCoroutine(TimerCountdown());
         }
 
+
+        private bool IsMultiplayerSession()
+        {
+            // Safe reflection-based detection - no DLL references needed
+            return Resources.FindObjectsOfTypeAll<MonoBehaviour>()
+                .Any(obj =>
+                    obj != null &&
+                    (obj.name.Contains("Multiplayer") ||
+                     obj.GetType().Name.Contains("Multiplayer") ||
+                     obj.GetType().FullName?.Contains("Multiplayer") == true)
+                );
+        }
 
 
 

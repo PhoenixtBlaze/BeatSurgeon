@@ -1,4 +1,5 @@
 ﻿using IPA.Config.Stores;
+using Newtonsoft.Json;
 using UnityEngine;
 
 namespace SaberSurgeon

@@ -25,10 +25,10 @@ namespace SaberSurgeon.HarmonyPatches
                 return;
             }
 
-            var gameNote = __instance.GetComponentInParent<GameNoteController>();
+            var gameNote = NoteUtils.FindNoteControllerParent(__instance);
             if (gameNote == null)
             {
-                Plugin.Log.Warn("GhostNotesPatch: No GameNoteController parent found");
+                Plugin.Log.Warn("GhostNotesPatch: No note controller parent found");
                 return;
             }
 

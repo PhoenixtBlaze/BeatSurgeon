@@ -42,9 +42,12 @@ namespace SaberSurgeon.HarmonyPatches
         [HarmonyPatch("HandleNoteControllerDidInit")]
         private static void Postfix(ColorNoteVisuals __instance, NoteControllerBase noteController)
         {
+
             // Apply when either mode is active
             if (!Gameplay.RainbowManager.RainbowActive && !Gameplay.RainbowManager.NoteColorActive)
                 return;
+
+            
 
             if (MpbField == null || DefaultAlphaField == null || ColorIdField == null)
             {

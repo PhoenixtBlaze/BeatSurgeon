@@ -17,7 +17,7 @@ namespace SaberSurgeon.Gameplay
 
         public static AudioTimeSyncController Audio { get; set; }
 
-        public void Initialize(GameNoteController gameNote, float noteHitTime)
+        public void Initialize(NoteControllerBase gameNote, float noteHitTime)
         {
             _noteHitTime = noteHitTime;
             CacheRenderers(gameNote);
@@ -25,8 +25,9 @@ namespace SaberSurgeon.Gameplay
             enabled = true;
         }
 
-        private void CacheRenderers(GameNoteController gameNote)
+        private void CacheRenderers(NoteControllerBase gameNote)
         {
+
             _arrowRenderers.Clear();
             _circleRenderers.Clear();
 

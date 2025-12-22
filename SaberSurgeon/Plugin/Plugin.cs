@@ -16,6 +16,7 @@ using SaberSurgeon.UI.Settings;
 using System;
 using System.Collections;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 
 
@@ -91,17 +92,18 @@ namespace SaberSurgeon
             _ = SaberSurgeon.Gameplay.PlayFirstSubmitLaterManager.Instance;
 
 
-            // Harmony patch (unchanged)
+            // Harmony patches - patch ALL SaberSurgeon harmony classes
             try
             {
-                var h = new Harmony("SaberSurgeon.Endless");
-                h.PatchAll(typeof(SaberSurgeon.HarmonyPatches.EndlessHarmonyPatch).Assembly);
-                Log.Info("SaberSurgeon: EndlessHarmonyPatch applied");
+                var harmony = new Harmony("SaberSurgeon");
+                harmony.PatchAll(Assembly.GetExecutingAssembly()); // Catches EndlessHarmonyPatch + LocalNoteModifierPatch
+                Log.Info("SaberSurgeon: All Harmony patches applied");
             }
             catch (Exception ex)
             {
                 Log.Error($"SaberSurgeon: Harmony patch error: {ex}");
             }
+
 
 
         }

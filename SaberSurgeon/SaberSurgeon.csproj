@@ -314,6 +314,7 @@
     <Compile Include="Gameplay\GhostVisualController.cs" />
     <Compile Include="Gameplay\InLevelQueueProcessor.cs" />
     <Compile Include="Gameplay\LookAtCamera.cs" />
+    <Compile Include="Gameplay\NoteUtils.cs" />
     <Compile Include="Gameplay\PlayFirstSubmitLaterManager.cs" />
     <Compile Include="Gameplay\RainbowManager.cs" />
     <Compile Include="Gameplay\RendererWatchdog.cs" />

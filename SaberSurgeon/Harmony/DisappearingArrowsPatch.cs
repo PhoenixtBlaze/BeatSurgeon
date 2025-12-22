@@ -34,10 +34,10 @@ namespace SaberSurgeon.HarmonyPatches
 
             // We now affect both directional and dot notes, so no cutDirection/Any check
 
-            var gameNote = __instance.GetComponentInParent<GameNoteController>();
+            var gameNote = NoteUtils.FindNoteControllerParent(__instance);
             if (gameNote == null)
             {
-                Plugin.Log.Warn("DisappearingArrowsPatch: No GameNoteController parent found");
+                Plugin.Log.Warn("DisappearingArrowsPatch: No note controller parent found");
                 return;
             }
 
