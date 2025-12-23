@@ -223,7 +223,21 @@
 			-->
 			
 		</horizontal>
-	</vertical>
-	
+		<horizontal>
+			<text text="Made by Phoenixblaze0"
+				  color="#FFA500"
+				  pad-right="60"/>
 
+			<!-- Support button -->
+			<button id="support-button"
+					text="Support this project 💙"
+					on-click="OnSubscribeClicked"
+					hover-hint="Unlock supporter-only features by subscribing and supporting this project"/>
+
+			<!-- Supporter unlocked text -->
+			<text id="supporter-text"
+				  text="Supporter features unlocked 💙"
+					color="#00FF66"/>
+		</horizontal>
+	</vertical>
 </bg>

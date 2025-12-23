@@ -345,6 +345,8 @@ namespace SaberSurgeon.UI.Controllers
         {
             base.DidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
 
+            UpdateSupportUI();
+
             if (firstActivation)
             {
                 if (rainbowButton != null)
@@ -467,7 +469,7 @@ namespace SaberSurgeon.UI.Controllers
                     rt.anchoredPosition = Vector2.zero;
                     rt.sizeDelta = new Vector2(12f, 12f);
                 }
-
+                TwitchApiClient.OnSubscriberStatusChanged += UpdateSupportUI;
 
             }
 
@@ -484,6 +486,7 @@ namespace SaberSurgeon.UI.Controllers
             RefreshTwitchStatusText();
 
         }
+
 
 
         private void UpdateFlashbangButtonVisual()
@@ -841,7 +844,46 @@ namespace SaberSurgeon.UI.Controllers
             }
         }
 
+
+
+
+
+
+
+
         // Footer text properties
+
+
+        [UIComponent("support-button")]
+        private Button _supportButton;
+
+        [UIComponent("supporter-text")]
+        private TMP_Text _supporterText;
+
+
+
+
+        private void UpdateSupportUI()
+        {
+            bool isAuthenticated = TwitchAuthManager.Instance.IsAuthenticated;
+
+            bool isSupporter =
+                isAuthenticated &&
+                (
+                    SupporterState.CurrentTier != SupporterTier.None ||
+                    (Plugin.Settings?.CachedSupporterTier ?? 0) > 0
+                );
+
+            if (_supportButton != null)
+                _supportButton.gameObject.SetActive(!isSupporter);
+
+            if (_supporterText != null)
+                _supporterText.gameObject.SetActive(isSupporter);
+        }
+
+
+
+
         [UIValue("subscribeButtonText")]
         public string SubscribeButtonText
         {
@@ -853,12 +895,12 @@ namespace SaberSurgeon.UI.Controllers
                 if (supporterTier > 0)
                 {
                     // Subscriber - show unlocked message in green
-                    return "<color=#00FF00>✓ Subscriber Features Unlocked</color>";
+                    return "<color=#00FF00>✓ Subscriber Features Unlocked ♡</color>";
                 }
                 else
                 {
                     // Non-subscriber - show subscribe prompt in blue
-                    return "<color=#0099FF>Subscribe to Support</color>";
+                    return "<color=#0099FF>Subscribe to Support ♡ </color>";
                 }
             }
         }

@@ -106,12 +106,12 @@
 					integer-only="true"
 					apply-on-change="true" />
 
-				<!-- Button after slider -->
+				<!--  
 				<button text="Edit Visuals"
 						on-click="OnRainbowEditVisualsClicked"
 						pref-width="18"
-						pref-height="8" />
-			</horizontal>
+						pref-height="8" /> -->
+			</horizontal> 
 
 			<!-- Ghost -->
 			<horizontal spacing="2" pad="0">
