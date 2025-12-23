@@ -4,9 +4,21 @@ Saber Surgeon is a Beat Saber mod that lets your Twitch chat directly interact w
 
 ## Screenshots
 
-<img width="896" height="573" alt="SaberSurgeon Cooldowns UI" src="https://github.com/user-attachments/assets/83886575-e008-442e-97e0-5237f45d5129" />
+### Mod screenshots
+<img width="1107" height="766" alt="image" src="https://github.com/user-attachments/assets/4adcdad5-16a6-4e0c-b297-5e9194d1a424" />
 
-<img width="951" height="668" alt="SaberSurgeon Settings UI" src="https://github.com/user-attachments/assets/08f26977-cb2c-48e8-b793-c46347b69a11" />
+<img width="1337" height="803" alt="image" src="https://github.com/user-attachments/assets/b1d54b4e-3a22-465d-9562-88b24db369f7" />
+
+### Twitch Tab Screenshots
+<img width="886" height="697" alt="image" src="https://github.com/user-attachments/assets/59105a81-11ba-4bba-b55e-d8a9883d18a6" />
+
+### Supporter Features Screenshots
+<img width="1031" height="594" alt="image" src="https://github.com/user-attachments/assets/53faa9a6-3e0b-436c-8569-f34e29474712" />
+
+### Playfirst submit later screenshots
+<img width="827" height="633" alt="image" src="https://github.com/user-attachments/assets/e2bd5df7-8fc1-4f12-b2e2-ee48607c09f1" />
+
+
 
 ## Features
 
@@ -153,6 +165,17 @@ Configure the bomb command name in the UI. If set to `boop`, viewers type `!boop
 - All settings persisted to JSON config file
 - Enable/disable states preserved across game sessions
 - Global disable state is saved and can be restored
+
+## Creator note & support
+
+I’m still pretty new to Beat Saber modding, and Saber Surgeon is something I’m actively learning and improving as I go.
+
+I’m currently building and supporting this mod full-time, and I plan to keep updating it with more fun features over time.
+
+Right now, some parts of the mod use a “brute force” approach to get the gameplay effects working reliably; the plan is to tune/optimize and clean things up in later updates.
+
+If you enjoy the mod and want to support ongoing development, any help (feedback, bug reports, testing, or financial support) is hugely appreciated.
+
 
 ## Version History
 
