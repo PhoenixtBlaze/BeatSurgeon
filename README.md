@@ -36,8 +36,6 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
     *   *Includes an optional "Speed Exclusivity" mode to prevent multiple speed effects from stacking.*
 *   **Flashbang (`!flashbang`)**: Triggers an intense, momentary overexposure of the game's lighting system to simulate a flashbang.
 
-<img width="1107" height="766" alt="Mod Setting Screen" src="https://github.com/user-attachments/assets/4adcdad5-16a6-4e0c-b297-5e9194d1a424" />
-
 ### Robust Moderation & Control
 *   **Global Disable/Enable**: Moderators can instantly shut down all mod interactivity with `!surgeon disable` (and restore it with `!surgeon enable`) if things get too chaotic.
 *   **Granular Command Control**: Moderators can disable specific problematic commands (e.g., `!surgeon bomb disable`) without stopping the entire mod.
@@ -45,6 +43,34 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
     *   **Global Cooldowns**: Enforce a universal wait time between *any* command usage.
     *   **Per-Command Cooldowns**: Set specific timers for individual effects (e.g., allow `!rainbow` often, but restrict `!superfast`).
 *   **Custom Aliases**: Rename commands like `!bomb` to fit your channel's theme (e.g., `!boop` or `!prank`).
+
+---
+
+## In-Game Settings
+
+You can fully configure **Saber Surgeon** from within Beat Saber using the mod settings menu. The configuration is split into two main tabs:
+
+### 1. Settings Panel
+*   **Command Toggles:** Individually enable or disable specific commands (e.g., if you want `!rainbow` enabled but don't want `!flashbangs`).
+*   **Global Disable State:** View the current state of the global kill-switch (Enabled/Disabled).
+
+<img width="1107" height="766" alt="Mod Setting Screen" src="https://github.com/user-attachments/assets/4adcdad5-16a6-4e0c-b297-5e9194d1a424" />
+
+### 2. Cooldowns Panel
+Control how often chat can trigger effects to balance chaos with playability.
+
+*   **Global Cooldown:**
+    *   **Toggle:** When enabled, triggering *any* command puts *all* other commands on cooldown.
+    *   **Duration:** Set the universal wait time (default: 60s).
+*   **Per-Command Cooldowns:**
+    *   **Toggle:** Switch to granular control where each command runs on its own timer.
+    *   **Sliders:** Adjust individual cooldowns for `Rainbow`, `Ghost`, `Disappear`, `Bomb`, `Faster`, `SuperFast`, `Slower`, and `Flashbang`.
+*   **Speed Exclusivity:**
+    *   **Toggle:** When enabled, prevents speed modifiers from stacking. Activating `!faster` will automatically cancel an active `!slower` or `!superfast` effect, ensuring the song remains playable.
+
+*   **Custom Bomb Alias:** Change the default `!bomb` command to something unique for your channel (e.g., set it to `!boop` or `!prank`).
+
+<img width="1337" height="803" alt="Cooldowns Panel" src="https://github.com/user-attachments/assets/b1d54b4e-3a22-465d-9562-88b24db369f7" />
 
 ---
 
@@ -97,30 +123,6 @@ If you are a supporter (currently via **Twitch Subscription**), you gain access 
 
 ---
 
-## In-Game Settings
-
-You can fully configure **Saber Surgeon** from within Beat Saber using the mod settings menu. The configuration is split into two main tabs:
-
-### 1. Settings Panel
-*   **Command Toggles:** Individually enable or disable specific commands (e.g., if you want `!rainbow` enabled but don't want `!flashbangs`).
-*   **Custom Bomb Alias:** Change the default `!bomb` command to something unique for your channel (e.g., set it to `!boop` or `!prank`).
-*   **Global Disable State:** View the current state of the global kill-switch (Enabled/Disabled).
-
-### 2. Cooldowns Panel
-Control how often chat can trigger effects to balance chaos with playability.
-
-*   **Global Cooldown:**
-    *   **Toggle:** When enabled, triggering *any* command puts *all* other commands on cooldown.
-    *   **Duration:** Set the universal wait time (default: 60s).
-*   **Per-Command Cooldowns:**
-    *   **Toggle:** Switch to granular control where each command runs on its own timer.
-    *   **Sliders:** Adjust individual cooldowns for `Rainbow`, `Ghost`, `Disappear`, `Bomb`, `Faster`, `SuperFast`, `Slower`, and `Flashbang`.
-*   **Speed Exclusivity:**
-    *   **Toggle:** When enabled, prevents speed modifiers from stacking. Activating `!faster` will automatically cancel an active `!slower` or `!superfast` effect, ensuring the song remains playable.
-
-<img width="1337" height="803" alt="Cooldowns Panel" src="https://github.com/user-attachments/assets/b1d54b4e-3a22-465d-9562-88b24db369f7" />
-
----
 
 ## Requirements
 
@@ -137,16 +139,17 @@ To use Saber Surgeon, you need a PC version of Beat Saber (Steam or Oculus) and 
 ## Installation
 
 1.  **Install Dependencies:**
-    *   Make sure you have installed **BeatSaberPlus** and successfully connected your Twitch account in its setup menu.
+    *   (Necessary if you dont use SaberSurgeon Twitch backend) Make sure you have installed **BeatSaberPlus** and successfully connected your Twitch account in its setup menu.
     *   Ensure **BSML** and **BSIPA** are installed (usually handled automatically by ModAssistant).
 
 2.  **Download & Install:**
-    *   Download the latest `SaberSurgeon.dll` from the [Releases page](#).
-    *   Place the `.dll` file into your Beat Saber `Plugins` folder (typically `C:\Program Files (x86)\Steam\steamapps\common\Beat Saber\Plugins`).
+    *   Download the latest `SaberSurgeon.zip` from the [Releases page](https://github.com/PhoenixtBlaze/SaberSurgeon/releases).
+    *   Once you extract the zip file there will be 2 folders `Plugins` and `UserData`. 
+    *   Copy and paste both the folders in your beat saber directory (typically `C:\Program Files (x86)\Steam\steamapps\common\Beat Saber\`)
 
 3.  **Launch & Verify:**
     *   Launch Beat Saber.
-    *   Look for the **Saber Surgeon** entry in the Mod Settings menu on the left side of the main screen.
+    *   Look for the **Saber Surgeon** Button in the Mod Settings menu on the left side of the main screen.
 
 ---
 
@@ -157,7 +160,7 @@ Saber Surgeon requires two simple steps to get fully up and running:
 ### 1. Chat Connection (Basic)
 The mod leverages your existing **BeatSaberPlus (ChatPlex)** connection. 
 *   **How to:** Simply ensure **BeatSaberPlus** is installed and you are logged into Twitch within its settings.
-*   **Result:** The mod will automatically listen to your chat for basic commands.
+*   **Result:** The mod will automatically listen to your chat for basic commands that start with `!`.
 
 ### 2. Backend Connection (Advanced/Supporter)
 To enable **Supporter Benefits** (checking your Twitch Subscription status), you must authenticate with the Saber Surgeon backend.
@@ -168,6 +171,8 @@ To enable **Supporter Benefits** (checking your Twitch Subscription status), you
     3.  Click the **"Connect to Twitch"** button.
     4.  This will open a browser window to authorize the mod securely via Twitch.
 *   **Why is this needed?** The ChatPlex connection handles *reading chat*, but the Saber Surgeon backend is required to safely verify *subscription status* for unlocking custom fonts and colors.
+*   Once you are connected to SaberSurgeon's Backend, you should see `Edit Visuals` button in the Cooldown settings menu
+*   If you dont see the `Edit Visuals` button, Please go out of the menu and reselect saber surgeon in the mods tab to see it.
 
 <img width="886" height="697" alt="Twitch Settings" src="https://github.com/user-attachments/assets/59105a81-11ba-4bba-b55e-d8a9883d18a6" />
 ---
@@ -205,7 +210,6 @@ Thank you for helping me keep the lights on and the sabers swinging!
     *   **New Feature:** Added moderator command management (`!surgeon disable`/`enable`) for global and per-command control.
     *   **New Feature:** Added `!notecolor` command for custom chat-specified RGB values.
     *   **New Feature:** Added **Speed Exclusivity** setting to prevent stacking speed modifiers.
-    *   **Improvement:** Permission system overhauled to reliably detect Moderators and Broadcasters via ChatPlex.
     *   **Cleanup:** Temporarily removed "Play First Submit Later" and "Song Request" systems for refactoring.
     *   **Fix:** Various stability improvements for asset loading and material handling.
 
@@ -224,7 +228,7 @@ Thank you for helping me keep the lights on and the sabers swinging!
 This project is proprietary. All rights reserved.
 
 *   You **may** download and use this mod for personal gameplay and streaming.
-*   You **may not** modify, redistribute, or reverse-engineer the source code or the compiled `.dll` without explicit written permission from the author.
+*   You **may not** modify or redistribute without explicit written permission from the author.
 *   You **may not** re-upload this mod to other platforms or claim it as your own.
 
 ---
