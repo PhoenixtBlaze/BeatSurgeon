@@ -193,6 +193,7 @@ I am working on **Saber Surgeon** full-time to create the best possible interact
 
 If you enjoy the chaos this mod brings to your streams and want to support its continued development, optimization, and new features, please consider supporting me:
 
+*   **[Subscribe on Twitch and Unlock Supporter Benefits](http://twitch.tv/phoenixblaze0)**
 *   **[Donate via PayPal](https://paypal.me/PhoenixBlaze0)**
 
 **Your support directly helps me:**
