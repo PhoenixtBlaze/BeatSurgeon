@@ -5,8 +5,11 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
+using BeatSaberMarkupLanguage;
 using UnityEngine;
 using UnityEngine.Rendering;
+using IPA.Utilities.Async;
 
 namespace SaberSurgeon.Chat
 {
@@ -159,7 +162,7 @@ namespace SaberSurgeon.Chat
                 );
 
                 // NOTE: your TwitchEventSubClient events must match these signatures (see next section)
-                _eventSubClient.OnChatMessage += ctx => EnqueueChatMessage(ctx);
+                _eventSubClient.OnChatMessage += HandleNativeChatMessage;
                 _eventSubClient.OnFollow += user => OnFollowReceived?.Invoke(user);
                 _eventSubClient.OnSubscription += (user, tier) => OnSubscriptionReceived?.Invoke(user, tier);
                 _eventSubClient.OnRaid += (raider, viewers) => OnRaidReceived?.Invoke(raider, viewers);
@@ -196,6 +199,22 @@ namespace SaberSurgeon.Chat
             }
 
             Plugin.Log.Error("ChatManager: No chat backend available.");
+        }
+
+        // New method to handle parsing on background thread
+        private void EnqueueChatMessage(ChatContext ctx)
+        {
+            if (ctx == null || string.IsNullOrWhiteSpace(ctx.MessageText)) return;
+
+            lock (_queueLock)
+                _pendingMessages.Enqueue(ctx);
+        }
+
+        
+        private void HandleNativeChatMessage(ChatContext ctx)
+        {
+            if (!ChatEnabled) return;
+            EnqueueChatMessage(ctx);
         }
 
         private IEnumerator WaitForChatPlexAndInitialize()
@@ -448,7 +467,7 @@ namespace SaberSurgeon.Chat
             {
                 if (message == null)
                 {
-                    Plugin.Log.Warn("ChatManager: Received null message");
+                    LogUtils.Warn("ChatManager: Received null message");
                     return;
                 }
 
@@ -514,10 +533,9 @@ namespace SaberSurgeon.Chat
                 };
 
                 // Minimal log – good for debugging, not spammy
-                Plugin.Log.Info($"CHAT MESSAGE RECEIVED: {ctx.SenderName} (Mod={ctx.IsModerator}, VIP={ctx.IsVip}, Sub={ctx.IsSubscriber}, Bits={ctx.Bits})");
+                LogUtils.Debug($"CHAT MESSAGE RECEIVED: {ctx.SenderName} (Mod={ctx.IsModerator}, VIP={ctx.IsVip}, Sub={ctx.IsSubscriber}, Bits={ctx.Bits})");
 
-                // Pass through unified dispatcher used by both backends
-                DispatchChatMessage(ctx);
+                EnqueueChatMessage(ctx);
 
                 // Non-command messages: no extra work here; follows/subs/channel points handled by Streamer.bot.
             }
@@ -560,53 +578,35 @@ namespace SaberSurgeon.Chat
 
 
 
-        private void EnqueueChatMessage(ChatContext ctx)
-        {
-            if (ctx == null)
-                return;
-
-            lock (_queueLock)
-            {
-                _pendingMessages.Enqueue(ctx);
-            }
-        }
+        
 
         private void Update()
         {
             UpdateGraphicsDeviceState();
 
-            // Process queued messages on the main thread
             while (true)
             {
                 ChatContext ctx = null;
+
                 lock (_queueLock)
                 {
-                    if (_pendingMessages.Count == 0)
-                        break;
+                    if (_pendingMessages.Count == 0) break;
                     ctx = _pendingMessages.Dequeue();
                 }
 
-                if (ctx != null && _isGraphicsDeviceStable)
+                if (ctx == null) continue;
+
+                if (_isGraphicsDeviceStable)
+                    DispatchChatMessage(ctx);
+                else
                 {
-                    try
-                    {
-                        DispatchChatMessage(ctx);
-                    }
-                    catch (Exception ex)
-                    {
-                        Plugin.Log.Error($"ChatManager: Error dispatching message: {ex.Message}");
-                    }
-                }
-                else if (ctx != null && !_isGraphicsDeviceStable)
-                {
-                    // Re-queue for next frame
                     lock (_queueLock)
-                    {
                         _pendingMessages.Enqueue(ctx);
-                    }
+                    break;
                 }
             }
         }
+
 
 
 

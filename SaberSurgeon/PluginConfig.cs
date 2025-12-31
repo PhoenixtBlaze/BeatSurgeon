@@ -109,5 +109,9 @@ namespace SaberSurgeon
         public virtual bool ScoreSubmissionEnabled { get; set; } = true;
         public virtual bool AutoPauseOnMapEnd { get; set; } = true;
 
+
+        public virtual bool DebugMode { get; set; } = false;
+
+
     }
 }
