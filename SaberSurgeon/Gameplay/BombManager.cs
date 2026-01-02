@@ -29,9 +29,18 @@ namespace SaberSurgeon.Gameplay
         // Tracks which NoteData is the "Bomb"
         private readonly Dictionary<NoteData, string> _bombNotes = new Dictionary<NoteData, string>();
 
-        // NEW: Tracks ACTIVE visuals so we can clear them without FindObjectsOfTypeAll
-        private readonly Dictionary<GameNoteController, (bool cubeEnabled, bool circleEnabled)> _activeBombVisuals = new Dictionary<GameNoteController, (bool, bool)>();
-        
+        private struct BombVisualState
+        {
+            public BombVisualInstance Visual;   // <-- CHANGE THIS
+            public MeshRenderer CubeRenderer;
+            public MeshRenderer CircleRenderer;
+            public bool CubeWasEnabled;
+            public bool CircleWasEnabled;
+        }
+
+        private readonly Dictionary<GameNoteController, BombVisualState> _activeBombVisuals
+            = new Dictionary<GameNoteController, BombVisualState>();
+
         // Pending bomb requests; each entry must eventually become exactly one cut bomb.
         private readonly Queue<string> _pendingBombers = new Queue<string>();
 
@@ -56,7 +65,8 @@ namespace SaberSurgeon.Gameplay
                     _go = new GameObject("SaberSurgeon_BombManager_GO");
                     Object.DontDestroyOnLoad(_go);
                     _instance = _go.AddComponent<BombManager>();
-                    LogUtils.Debug("BombManager: Created new instance");
+
+                    LogUtils.Debug(() => "BombManager: Created new instance");
                 }
                 return _instance;
             }
@@ -67,7 +77,7 @@ namespace SaberSurgeon.Gameplay
             var inMap = UnityEngine.Object.FindObjectOfType<BeatmapObjectSpawnController>() != null;
             if (!inMap)
             {
-                LogUtils.Debug("BombManager: Not in a map.");
+                LogUtils.Debug(() => $"BombManager: Not in a map.");
                 return false;
             }
 
@@ -79,7 +89,7 @@ namespace SaberSurgeon.Gameplay
             BombArmed = true;
             BombConsumed = false;
 
-            LogUtils.Debug($"BombManager: Enqueued bomb for {name} (queue={_pendingBombers.Count})");
+            LogUtils.Debug(() => $"BombManager: Enqueued bomb for {name} (queue={_pendingBombers.Count})");
             return true;
         }
 
@@ -105,7 +115,7 @@ namespace SaberSurgeon.Gameplay
             CurrentBomberName = bomber;
             BombArmed = false;
 
-            LogUtils.Debug($"BombManager: Marked note at {noteData.time:F3} as bomb for {bomber} (queue={_pendingBombers.Count})");
+            LogUtils.Debug(() => $"BombManager: Marked note at {noteData.time:F3} as bomb for {bomber} (queue={_pendingBombers.Count})");
             return true;
         }
 
@@ -113,20 +123,27 @@ namespace SaberSurgeon.Gameplay
 
 
         // NEW: Call this from BombNotePatch to track the visual
-        public void RegisterBombVisual(GameNoteController controller)
+        internal void RegisterBombVisual(
+            GameNoteController controller,
+            BombVisualInstance visual,
+            MeshRenderer cubeRenderer,
+            MeshRenderer circleRenderer,
+            bool cubeWasEnabled,
+            bool circleWasEnabled)
         {
             if (controller == null || _activeBombVisuals.ContainsKey(controller))
                 return;
 
-            var t = controller.transform;
-            var noteCube = t.Find("NoteCube");
-            bool cubeEnabled = noteCube?.GetComponent<MeshRenderer>()?.enabled ?? false;
-
-            var circle = noteCube?.Find("NoteCircleGlow");
-            bool circleEnabled = circle?.GetComponent<MeshRenderer>()?.enabled ?? false;
-
-            _activeBombVisuals[controller] = (cubeEnabled, circleEnabled);
+            _activeBombVisuals[controller] = new BombVisualState
+            {
+                Visual = visual,
+                CubeRenderer = cubeRenderer,
+                CircleRenderer = circleRenderer,
+                CubeWasEnabled = cubeWasEnabled,
+                CircleWasEnabled = circleWasEnabled
+            };
         }
+
 
 
         public bool TryConsumeBomb(NoteData noteData, out string bomber)
@@ -146,7 +163,9 @@ namespace SaberSurgeon.Gameplay
             BombConsumed = true;
             BombArmed = _pendingBombers.Count > 0;
 
-            LogUtils.Debug($"BombManager: Bomb cut by {bomber}! (queue={_pendingBombers.Count})");
+            string bomberLocal = bomber;
+            int queueCount = _pendingBombers.Count;
+            LogUtils.Debug(() => $"BombManager: Bomb cut by {bomberLocal}! (queue={queueCount})");
             return true;
         }
 
@@ -154,40 +173,28 @@ namespace SaberSurgeon.Gameplay
         // OPTIMIZED: Clears only known active visuals
         public void ClearBombVisuals()
         {
-            LogUtils.Debug($"BombManager: Clearing {_activeBombVisuals.Count} active bomb visuals...");
+            LogUtils.Debug(() => $"BombManager: Clearing {_activeBombVisuals.Count} active bomb visuals...");
 
-            // Snapshot the dictionary entries so we can safely clear afterward
-            var toClear = new List<KeyValuePair<GameNoteController, (bool cubeEnabled, bool circleEnabled)>>(_activeBombVisuals);
-
-            foreach (var kvp in toClear)
+            foreach (var kvp in _activeBombVisuals)
             {
-                var note = kvp.Key;
                 var state = kvp.Value;
-                if (note == null) continue;
 
-                var t = note.transform;
+                // Return pooled visual (no Transform.Find needed)
+                if (state.Visual != null)
+                    BombVisualPool.Instance.Return(state.Visual);
 
-                var bombVisual = t.Find("SaberSurgeon_BombVisual");
-                if (bombVisual != null) Destroy(bombVisual.gameObject);
+                // Restore renderers (no Transform.Find needed)
+                if (state.CubeRenderer != null)
+                    state.CubeRenderer.enabled = state.CubeWasEnabled;
 
-                var noteCube = t.Find("NoteCube");
-                if (noteCube != null)
-                {
-                    var cubeMr = noteCube.GetComponent<MeshRenderer>();
-                    if (cubeMr != null) cubeMr.enabled = state.cubeEnabled;
-
-                    var circle = noteCube.Find("NoteCircleGlow");
-                    if (circle != null)
-                    {
-                        var circleMr = circle.GetComponent<MeshRenderer>();
-                        if (circleMr != null) circleMr.enabled = state.circleEnabled;
-                    }
-                }
+                if (state.CircleRenderer != null)
+                    state.CircleRenderer.enabled = state.CircleWasEnabled;
             }
 
             _activeBombVisuals.Clear();
-            LogUtils.Debug("BombManager: Visuals cleared.");
+            LogUtils.Debug(() => "BombManager: Visuals cleared.");
         }
+
 
         private bool IsInMap()
         {
@@ -224,7 +231,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (Time.time - _activeBombSetTime >= BombMissTimeoutSeconds)
                 {
-                    LogUtils.Debug("BombManager: Bomb not cut in time; clearing and rearming");
+                    LogUtils.Debug(() => "BombManager: Bomb not cut in time; clearing and rearming");
                     _bombNotes.Clear();
                     _activeBombNote = null;
                     ClearBombVisuals();

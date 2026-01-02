@@ -47,14 +47,14 @@ namespace SaberSurgeon.Gameplay
             _endTime = Time.unscaledTime + seconds;
             enabled = true;
 
-            LogUtils.Debug($"RendererWatchdog: Tracking {_entries.Count} renderers for {seconds:0.00}s under {root.name}");
+            LogUtils.Debug(() => $"RendererWatchdog: Tracking {_entries.Count} renderers for {seconds:0.00}s under {root.name}");
         }
 
         private void Update()
         {
             if (Time.unscaledTime > _endTime)
             {
-                LogUtils.Debug("RendererWatchdog: End of tracking window");
+                LogUtils.Debug(() => "RendererWatchdog: End of tracking window");
                 enabled = false;
                 Destroy(this);
                 return;
@@ -69,7 +69,7 @@ namespace SaberSurgeon.Gameplay
                 {
                     if (e.mr.enabled != false) // Should stay disabled during bomb
                     {
-                        LogUtils.Debug($"RendererWatchdog: NoteCube state changed by external source, re-enforcing disable");
+                        LogUtils.Debug(() => $"RendererWatchdog: NoteCube state changed by external source, re-enforcing disable");
                         e.mr.enabled = false;
                     }
                     e.lastEnabled = false;

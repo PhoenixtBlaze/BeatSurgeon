@@ -307,6 +307,7 @@
     <Compile Include="Chat\ChatManager.cs" />
     <Compile Include="Chat\CommandHandler.cs" />
     <Compile Include="Gameplay\BombManager.cs" />
+    <Compile Include="Gameplay\BombVisualPool.cs" />
     <Compile Include="Gameplay\CoroutineHost.cs" />
     <Compile Include="Gameplay\DisappearingArrowsManager.cs" />
     <Compile Include="Gameplay\DisappearingArrowsVisualController.cs" />

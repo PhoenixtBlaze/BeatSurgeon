@@ -4,6 +4,7 @@ using SaberSurgeon;
 using SaberSurgeon.Gameplay;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using TMPro;
@@ -53,27 +54,50 @@ namespace SaberSurgeon.HarmonyPatches
             }
 
             LogUtils.Debug(
-                $"BombNotePatch: INIT -> time={noteData.time:F3}, colorType={noteData.colorType}, " +
+                () => $"BombNotePatch: INIT -> time={noteData.time:F3}, colorType={noteData.colorType}, " +
                 $"cutDir={noteData.cutDirection}, obj='{gameNote.name}', layer={gameNote.gameObject.layer}"
             );
 
             
             CacheBombPrefabIfNeeded();
-            Color noteColor = TryGetNoteColor(__instance, noteData.colorType);
+            
 
             bool isBomb = BombManager.Instance.MarkNoteAsBomb(noteData);
             if (!isBomb)
                 return;
 
-            BombManager.Instance.RegisterBombVisual(gameNote);
+            Color noteColor = TryGetNoteColor(__instance, noteData.colorType);
 
-            // Only disable the NoteCube mesh (main note body), keep arrows
-            DisableNoteCubeOnly(gameNote);
+            CacheAndDisableNoteCube(gameNote, out var cubeMr, out var circleMr, out var cubeWasEnabled, out var circleWasEnabled);
 
-            // Create bomb visual with color
-            AttachBombVisualWithColor(gameNote, noteColor);
 
-            
+            // Rent pooled bomb visual and cache the exact instance
+            int noteLayer = gameNote.gameObject.layer;
+            GameObject prefabGo = _bombPrefab != null ? _bombPrefab.gameObject : null;
+            var visualInst = BombVisualPool.Instance.Rent(gameNote.transform, noteLayer, noteColor, prefabGo);
+
+            try
+            {
+                var watchdog = gameNote.gameObject.AddComponent<RendererWatchdog>();
+                watchdog.Init(gameNote.transform, 1.0f, visualInst.transform);
+            }
+            catch (Exception ex)
+            {
+                LogUtils.Warn("BombNotePatch: Failed to start watchdog: " + ex.Message);
+            }
+
+
+            // Give BombManager everything it needs to clear without Find()
+            BombManager.Instance.RegisterBombVisual(
+                gameNote,
+                visualInst,
+                cubeMr,
+                circleMr,
+                cubeWasEnabled,
+                circleWasEnabled
+            );
+
+
         }
 
         private static void CacheBombPrefabIfNeeded()
@@ -83,7 +107,7 @@ namespace SaberSurgeon.HarmonyPatches
 
             _bombPrefab = Resources.FindObjectsOfTypeAll<BombNoteController>().FirstOrDefault();
             if (_bombPrefab != null)
-                LogUtils.Debug($"BombNotePatch: Cached BombNoteController prefab '{_bombPrefab.name}'");
+                LogUtils.Debug(() => $"BombNotePatch: Cached BombNoteController prefab '{_bombPrefab.name}'");
             else
                 LogUtils.Warn("BombNotePatch: No BombNoteController found – will use sphere fallback");
         }
@@ -104,7 +128,7 @@ namespace SaberSurgeon.HarmonyPatches
                 if (_noteColorField != null)
                 {
                     noteColor = (Color)_noteColorField.GetValue(visuals);
-                    LogUtils.Debug($"BombNotePatch: Got note color via reflection: {noteColor}");
+                    LogUtils.Debug(() => $"BombNotePatch: Got note color via reflection: {noteColor}");
                     return noteColor;
                 }
 
@@ -125,7 +149,7 @@ namespace SaberSurgeon.HarmonyPatches
                     if (_colorForTypeMethod != null)
                     {
                         noteColor = (Color)_colorForTypeMethod.Invoke(cm, new object[] { colorType });
-                        LogUtils.Debug($"BombNotePatch: Got color from ColorManager: {noteColor}");
+                        LogUtils.Debug(() => $"BombNotePatch: Got color from ColorManager: {noteColor}");
                     }
                 }
             }
@@ -137,139 +161,116 @@ namespace SaberSurgeon.HarmonyPatches
             return noteColor;
         }
 
-        private static void DisableNoteCubeOnly(GameNoteController gameNote)
+        private static void CacheAndDisableNoteCube(
+            GameNoteController gameNote,
+            out MeshRenderer cubeMr,
+            out MeshRenderer circleMr,
+            out bool cubeWasEnabled,
+            out bool circleWasEnabled)
         {
-            var noteCube = gameNote.transform.Find("NoteCube");
-            if (noteCube == null)
-                return;
+            cubeMr = null;
+            circleMr = null;
+            cubeWasEnabled = false;
+            circleWasEnabled = false;
 
-            var cubeRenderer = noteCube.GetComponent<MeshRenderer>();
-            if (cubeRenderer != null)
+            var noteCube = gameNote.GetComponentsInChildren<Transform>(true)
+                .FirstOrDefault(t => t.name == "NoteCube");
+
+            if (noteCube == null)
             {
-                cubeRenderer.enabled = false;
-                LogUtils.Debug("BombNotePatch: Disabled NoteCube renderer (keeping arrows visible)");
+                LogUtils.Warn($"BombNotePatch: NoteCube not found under '{gameNote.name}'");
+                return;
             }
 
-            // Also disable the circle mesh if it exists (for dot notes)
-            var circle = noteCube.Find("NoteCircleGlow");
-            if (circle != null)
+            cubeMr = noteCube.GetComponent<MeshRenderer>()
+                    ?? noteCube.GetComponentInChildren<MeshRenderer>(true);
+
+            if (cubeMr != null)
             {
-                var circleRenderer = circle.GetComponent<MeshRenderer>();
-                if (circleRenderer != null)
-                    circleRenderer.enabled = false;
+                cubeWasEnabled = cubeMr.enabled;
+                cubeMr.enabled = false;
+            }
+
+            var circleT = noteCube.GetComponentsInChildren<Transform>(true)
+                .FirstOrDefault(t => t.name == "NoteCircleGlow");
+
+            circleMr = circleT != null
+                ? (circleT.GetComponent<MeshRenderer>() ?? circleT.GetComponentInChildren<MeshRenderer>(true))
+                : null;
+
+            if (circleMr != null)
+            {
+                circleWasEnabled = circleMr.enabled;
+                circleMr.enabled = false;
             }
         }
+
+
+        private static void DisableNoteCubeOnly(GameNoteController gameNote)
+            {
+                // Always log entry so the logs prove this method is actually running
+                LogUtils.Debug(() => $"BombNotePatch: DisableNoteCubeOnly called for '{gameNote.name}'");
+
+                // Find NoteCube at ANY depth (Transform.Find("NoteCube") only checks direct children)
+                var noteCube = gameNote.GetComponentsInChildren<Transform>(true)
+                    .FirstOrDefault(t => t.name == "NoteCube");
+
+                if (noteCube == null)
+                {
+                    LogUtils.Warn($"BombNotePatch: NoteCube not found under '{gameNote.name}'");
+                    return;
+                }
+
+                // Disable the main cube body renderer (either on NoteCube or inside it)
+                var cubeRenderer =
+                    noteCube.GetComponent<MeshRenderer>() ??
+                    noteCube.GetComponentInChildren<MeshRenderer>(true);
+
+                if (cubeRenderer != null)
+                {
+                    cubeRenderer.enabled = false;
+                    LogUtils.Debug(() => "BombNotePatch: Disabled NoteCube renderer (keeping arrows visible)");
+                }
+                else
+                {
+                    LogUtils.Warn("BombNotePatch: NoteCube found, but no MeshRenderer found on it or its children");
+                }
+
+                // Disable dot-circle if present (same “any depth” approach)
+                var circle = noteCube.GetComponentsInChildren<Transform>(true)
+                    .FirstOrDefault(t => t.name == "NoteCircleGlow");
+
+                var circleRenderer =
+                    circle != null
+                        ? (circle.GetComponent<MeshRenderer>() ?? circle.GetComponentInChildren<MeshRenderer>(true))
+                        : null;
+
+                if (circleRenderer != null)
+                    circleRenderer.enabled = false;
+        }
+
+
+        private static string GetPath(Transform t, Transform root)
+        {
+            var parts = new List<string>();
+            while (t != null && t != root)
+            {
+                parts.Add(t.name);
+                t = t.parent;
+            }
+            parts.Reverse();
+            return string.Join("/", parts);
+        }
+
 
         private static void AttachBombVisualWithColor(GameNoteController gameNote, Color noteColor)
         {
-            var existing = gameNote.transform.Find("SaberSurgeon_BombVisual");
-            if (existing != null)
-            {
-                UnityEngine.Object.Destroy(existing.gameObject);
-                LogUtils.Debug("BombNotePatch: Removed pooled bomb visual before (re)creating");
-                
-            }
-
-            var root = new GameObject("SaberSurgeon_BombVisual");
-            root.transform.SetParent(gameNote.transform, false);
-            root.transform.localPosition = Vector3.zero;
-            root.transform.localRotation = Quaternion.identity;
-            root.transform.localScale = Vector3.one;
-
             int noteLayer = gameNote.gameObject.layer;
-            root.layer = noteLayer;
-            root.SetActive(true);
+            GameObject prefabGo = _bombPrefab != null ? _bombPrefab.gameObject : null;
 
-            LogUtils.Debug($"BombNotePatch: Created bomb root under {gameNote.name}, layer={noteLayer}");
-
-            if (_bombPrefab != null)
-            {
-                var prefabGO = _bombPrefab.gameObject;
-                var instance = UnityEngine.Object.Instantiate(prefabGO, root.transform);
-                instance.name = "BombPrefabInstance";
-                instance.transform.localPosition = Vector3.zero;
-                instance.transform.localRotation = Quaternion.identity;
-                instance.transform.localScale = Vector3.one;
-                instance.SetActive(true);
-
-                // Remove BombNoteController + Colliders so it isn't a real bomb
-                foreach (var bomb in instance.GetComponentsInChildren<BombNoteController>(true))
-                {
-                    bomb.enabled = false;
-                    UnityEngine.Object.Destroy(bomb);
-                }
-                foreach (var col in instance.GetComponentsInChildren<Collider>(true))
-                    UnityEngine.Object.Destroy(col);
-
-                SetLayerRecursively(root.transform, noteLayer);
-
-                var bombRenderers = root.GetComponentsInChildren<Renderer>(true);
-                LogUtils.Debug($"BombNotePatch: Found {bombRenderers.Length} renderers in bomb visual");
-
-                foreach (var mr in bombRenderers)
-                {
-                    if (mr == null) continue;
-
-                    mr.enabled = true;
-                    mr.gameObject.SetActive(true);
-
-                    ApplyRendererColor(mr, noteColor);
-
-                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
-                    mr.receiveShadows = true;
-                }
-            }
-            else
-            {
-                // Sphere fallback (no material allocations per-bomb)
-                var bombGo = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                bombGo.name = "BombSphere";
-                bombGo.transform.SetParent(root.transform, false);
-                bombGo.transform.localPosition = Vector3.zero;
-                bombGo.transform.localRotation = Quaternion.identity;
-                bombGo.transform.localScale = Vector3.one * 0.45f;
-                bombGo.SetActive(true);
-
-                var col = bombGo.GetComponent<Collider>();
-                if (col != null) UnityEngine.Object.Destroy(col);
-
-                var mr = bombGo.GetComponent<MeshRenderer>();
-                if (mr != null)
-                {
-                    mr.enabled = true;
-
-                    if (_sphereSharedMaterial == null)
-                    {
-                        var safeShader = Shader.Find("Custom/SimpleLit") ?? Shader.Find("Standard");
-                        if (safeShader != null)
-                            _sphereSharedMaterial = new Material(safeShader);
-                    }
-
-                    if (_sphereSharedMaterial != null)
-                        mr.sharedMaterial = _sphereSharedMaterial;
-
-                    ApplyRendererColor(mr, noteColor);
-
-                    mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
-                    mr.receiveShadows = true;
-                }
-
-                SetLayerRecursively(root.transform, noteLayer);
-                LogUtils.Debug("BombNotePatch: Sphere bomb visual created and colored");
-            }
-
-            // Watchdog: ignore bomb visual renderers, only watch base note tree changes
-            try
-            {
-                var watchdog = gameNote.gameObject.AddComponent<RendererWatchdog>();
-                watchdog.Init(gameNote.transform, 1.0f, root.transform);
-                LogUtils.Debug("BombNotePatch: Watchdog started for 1s (ignoring bomb visual subtree)");
-            }
-            catch (Exception ex)
-            {
-                LogUtils.Warn("BombNotePatch: Failed to start watchdog: " + ex.Message);
-            }
+            BombVisualPool.Instance.Rent(gameNote.transform, noteLayer, noteColor, prefabGo);
         }
+
 
         private static void ApplyRendererColor(Renderer r, Color noteColor)
         {
@@ -293,7 +294,7 @@ namespace SaberSurgeon.HarmonyPatches
                 if (mat.HasProperty(EmissionColorId)) { _mpb.SetColor(EmissionColorId, noteColor); any = true; }
 
                 if (any) r.SetPropertyBlock(_mpb, i);
-                else LogUtils.Debug($"BombNotePatch: No known color property on shader '{mat.shader?.name}' (matIndex={i})");
+                else LogUtils.Debug(() => $"BombNotePatch: No known color property on shader '{mat.shader?.name}' (matIndex={i})");
             }
         }
 
@@ -354,7 +355,7 @@ namespace SaberSurgeon.HarmonyPatches
             {
                 _effectsSpawner = Resources.FindObjectsOfTypeAll<NoteCutCoreEffectsSpawner>().FirstOrDefault();
                 if (_effectsSpawner != null)
-                    LogUtils.Debug("BombCutPatch: Cached NoteCutCoreEffectsSpawner");
+                    LogUtils.Debug(() => "BombCutPatch: Cached NoteCutCoreEffectsSpawner");
             }
 
             if (_flyingTextPrefab == null)
@@ -364,7 +365,7 @@ namespace SaberSurgeon.HarmonyPatches
                 {
                     _flyingTextPrefab = flyingScores[0].GetComponentInChildren<CurvedTextMeshPro>(true);
                     if (_flyingTextPrefab != null)
-                        LogUtils.Debug("BombCutPatch: Cached CurvedTextMeshPro from FlyingScoreEffect");
+                        LogUtils.Debug(() => "BombCutPatch: Cached CurvedTextMeshPro from FlyingScoreEffect");
                 }
             }
 
@@ -411,7 +412,7 @@ namespace SaberSurgeon.HarmonyPatches
             else if (_flyingTextPrefab.font != null)
                 curvedText.font = _flyingTextPrefab.font;
 
-            LogUtils.Debug($"BombText font = {(customFont != null ? customFont.name : "NULL (fallback)")}");
+            LogUtils.Debug(() => $"BombText font = {(customFont != null ? customFont.name : "NULL (fallback)")}");
 
             curvedText.text = username;
             curvedText.fontSize = 4f;

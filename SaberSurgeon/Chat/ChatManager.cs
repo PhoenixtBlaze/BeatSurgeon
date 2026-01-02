@@ -29,6 +29,7 @@ namespace SaberSurgeon.Chat
         private Assembly _chatPlexAssembly;
         private int _retryCount = 0;
         private const int MAX_RETRIES = 60;
+        private const int MaxChatDispatchPerFrame = 10;
 
         private bool _isGraphicsDeviceStable = true;
 
@@ -47,10 +48,22 @@ namespace SaberSurgeon.Chat
         public event Action<string> OnFollowReceived;
         public event Action<string, int> OnRaidReceived;
 
-        private readonly object _queueLock = new object();
-        private readonly Queue<ChatContext> _pendingMessages = new Queue<ChatContext>();
+        //private readonly object _queueLock = new object();
+        //private readonly Queue<ChatContext> _pendingMessages = new Queue<ChatContext>();
 
         public bool ChatEnabled { get; set; } = true;
+
+        private struct RawChatMessage { public object Service; public object Message; }
+
+        private readonly System.Collections.Concurrent.ConcurrentQueue<RawChatMessage> _rawQueue = new System.Collections.Concurrent.ConcurrentQueue<RawChatMessage>();
+
+        private readonly System.Collections.Concurrent.ConcurrentQueue<ChatContext> _parsedQueue = new System.Collections.Concurrent.ConcurrentQueue<ChatContext>();
+
+        private System.Threading.CancellationTokenSource _cts;
+        private Task _parserWorker;
+
+
+
 
         private void UpdateGraphicsDeviceState()
         {
@@ -201,20 +214,14 @@ namespace SaberSurgeon.Chat
             Plugin.Log.Error("ChatManager: No chat backend available.");
         }
 
-        // New method to handle parsing on background thread
-        private void EnqueueChatMessage(ChatContext ctx)
-        {
-            if (ctx == null || string.IsNullOrWhiteSpace(ctx.MessageText)) return;
-
-            lock (_queueLock)
-                _pendingMessages.Enqueue(ctx);
-        }
+        
+        
 
         
         private void HandleNativeChatMessage(ChatContext ctx)
         {
             if (!ChatEnabled) return;
-            EnqueueChatMessage(ctx);
+            _parsedQueue.Enqueue(ctx);
         }
 
         private IEnumerator WaitForChatPlexAndInitialize()
@@ -279,7 +286,7 @@ namespace SaberSurgeon.Chat
         {
             if (_isInitialized)
                 return;
-
+            
             try
             {
                 Plugin.Log.Info("ChatManager: NOW INITIALIZING WITH CHATPLEX!");
@@ -356,6 +363,7 @@ namespace SaberSurgeon.Chat
                 }
 
                 _isInitialized = true;
+                StartParserWorker();
                 Plugin.Log.Info("ChatManager: FULLY INITIALIZED AND READY!");
 
                 if (_broadcastMessageMethod != null)
@@ -379,7 +387,8 @@ namespace SaberSurgeon.Chat
             client.OnChatMessage += ctx =>
             {
                 Plugin.Log.Info($"NATIVE CHAT: {ctx.SenderName}: {ctx.MessageText}");
-                EnqueueChatMessage(ctx);
+                _parsedQueue.Enqueue(ctx);
+
             };
 
             client.OnFollow += user =>
@@ -463,15 +472,18 @@ namespace SaberSurgeon.Chat
 
         private void HandleChatMessage(object service, object message)
         {
+            if (!ChatEnabled) return;
+            if (message == null) return;
+
+            _rawQueue.Enqueue(new RawChatMessage { Service = service, Message = message });
+        }
+
+        private ChatContext BuildChatContextFromChatPlex(object service, object message)
+        {
             try
             {
-                if (message == null)
-                {
-                    LogUtils.Warn("ChatManager: Received null message");
-                    return;
-                }
+                if (message == null) return null;
 
-                // --- Basic sender name ---
                 var sender = GetPropertyValue(message, "Sender") ??
                              GetPropertyValue(message, "User") ??
                              GetPropertyValue(message, "Author");
@@ -485,13 +497,11 @@ namespace SaberSurgeon.Chat
                     senderName = senderNameObj?.ToString() ?? "Unknown";
                 }
 
-                // --- Message text ---
                 var messageTextObj = GetPropertyValue(message, "Message") ??
                                      GetPropertyValue(message, "Text") ??
                                      GetPropertyValue(message, "Content");
                 string messageText = messageTextObj?.ToString() ?? "";
 
-                // --- Helpers for typed properties ---
                 bool GetBool(object obj, params string[] names)
                 {
                     if (obj == null) return false;
@@ -515,33 +525,30 @@ namespace SaberSurgeon.Chat
                     return 0;
                 }
 
-                // --- Build ChatContext with roles + bits ---
                 var ctx = new ChatContext
                 {
                     SenderName = senderName,
                     MessageText = messageText,
                     RawService = service,
                     RawMessage = message,
-
                     IsModerator = GetBool(sender, "IsModerator", "Moderator", "IsMod"),
                     IsVip = GetBool(sender, "IsVip", "VIP"),
                     IsSubscriber = GetBool(sender, "IsSubscriber", "Subscriber", "IsSub"),
                     IsBroadcaster = GetBool(sender, "IsBroadcaster", "Broadcaster"),
-
                     Bits = GetInt(message, "Bits", "BitsAmount", "CheerAmount"),
                     Source = ChatSource.ChatPlex
                 };
 
-                // Minimal log – good for debugging, not spammy
-                LogUtils.Debug($"CHAT MESSAGE RECEIVED: {ctx.SenderName} (Mod={ctx.IsModerator}, VIP={ctx.IsVip}, Sub={ctx.IsSubscriber}, Bits={ctx.Bits})");
+                if (string.IsNullOrWhiteSpace(ctx.MessageText))
+                    return null;
 
-                EnqueueChatMessage(ctx);
-
-                // Non-command messages: no extra work here; follows/subs/channel points handled by Streamer.bot.
+                LogUtils.Debug(() => $"CHAT MESSAGE RECEIVED: {ctx.SenderName} (Mod={ctx.IsModerator}, VIP={ctx.IsVip}, Sub={ctx.IsSubscriber}, Bits={ctx.Bits})");
+                return ctx;
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error($"ChatManager: Error handling message: {ex.Message}");
+                Plugin.Log.Error($"ChatManager: Error parsing ChatPlex message: {ex.Message}");
+                return null;
             }
         }
 
@@ -577,33 +584,44 @@ namespace SaberSurgeon.Chat
         }
 
 
+        private void StartParserWorker()
+        {
+            _cts = new System.Threading.CancellationTokenSource();
+            _parserWorker = Task.Run(() => ParserLoop(_cts.Token));
+        }
 
-        
+        private void ParserLoop(System.Threading.CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                if (!_rawQueue.TryDequeue(out var raw))
+                {
+                    System.Threading.Thread.Sleep(1);
+                    continue;
+                }
+
+                // reflection parsing here (NO Unity APIs)
+                var ctx = BuildChatContextFromChatPlex(raw.Service, raw.Message);
+                if (ctx != null) _parsedQueue.Enqueue(ctx);
+            }
+        }
+
+
+
 
         private void Update()
         {
             UpdateGraphicsDeviceState();
 
-            while (true)
+            int processed = 0;
+            while (processed++ < MaxChatDispatchPerFrame && _parsedQueue.TryDequeue(out var ctx))
             {
-                ChatContext ctx = null;
-
-                lock (_queueLock)
+                if (!_isGraphicsDeviceStable)
                 {
-                    if (_pendingMessages.Count == 0) break;
-                    ctx = _pendingMessages.Dequeue();
-                }
-
-                if (ctx == null) continue;
-
-                if (_isGraphicsDeviceStable)
-                    DispatchChatMessage(ctx);
-                else
-                {
-                    lock (_queueLock)
-                        _pendingMessages.Enqueue(ctx);
+                    _parsedQueue.Enqueue(ctx);
                     break;
                 }
+                DispatchChatMessage(ctx);
             }
         }
 
@@ -615,6 +633,10 @@ namespace SaberSurgeon.Chat
         {
             Plugin.Log.Info("ChatManager: Shutting down...");
             StopAllCoroutines();
+
+            try { _cts?.Cancel(); } catch { }
+            _cts = null;
+            _parserWorker = null;
 
             try
             {

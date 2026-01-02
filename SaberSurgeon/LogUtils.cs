@@ -4,13 +4,12 @@ namespace SaberSurgeon
 {
     public static class LogUtils
     {
+        public static bool DebugEnabled => PluginConfig.Instance != null && PluginConfig.Instance.DebugMode;
         // Only log if DebugMode is enabled in Config
-        public static void Debug(string message)
+        public static void Debug(Func<string> messageFactory)
         {
-            if (PluginConfig.Instance.DebugMode)
-            {
-                Plugin.Log.Info($"[DEBUG] {message}");
-            }
+            if (!DebugEnabled) return;
+            Plugin.Log.Info("[DEBUG] " + messageFactory());
         }
 
         // Always log Warnings/Errors regardless of DebugMode
