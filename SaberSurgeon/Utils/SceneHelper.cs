@@ -71,17 +71,17 @@ namespace SaberSurgeon
             if (_initialized) return;
             _initialized = true;
 
-            DumpIpaPluginsOnce();
+            //DumpIpaPluginsOnce();
             SceneManager.activeSceneChanged += OnActiveSceneChanged;
 
-            LogUtils.Info($"[SceneHelper] Init. Active scene: {SceneManager.GetActiveScene().name}");
+            LogUtils.Debug(() => $"[SceneHelper] Init. Active scene: {SceneManager.GetActiveScene().name}");
             _pollRoutine = CoroutineHost.Instance.StartCoroutine(PollMpPlusState());
         }
 
         private static void DumpIpaPluginsOnce()
         {
             foreach (var p in PluginManager.EnabledPlugins)
-                LogUtils.Info($"[SceneHelper] IPA plugin: Id={p.Id} Name={p.Name} Assembly={(p.Assembly?.GetName().Name ?? "null")}");
+                LogUtils.Debug(() => $"[SceneHelper] IPA plugin: Id={p.Id} Name={p.Name} Assembly={(p.Assembly?.GetName().Name ?? "null")}");
         }
 
         internal static void Dispose()
@@ -116,12 +116,12 @@ namespace SaberSurgeon
 
             MpPlusInRoom = false;
 
-            LogUtils.Info("[SceneHelper] Disposed.");
+            LogUtils.Debug(() => "[SceneHelper] Disposed.");
         }
 
         private static void OnActiveSceneChanged(Scene prev, Scene next)
         {
-            LogUtils.Info($"[SceneHelper] Active scene changed: {prev.name} -> {next.name}");
+            LogUtils.Debug(() => $"[SceneHelper] Active scene changed: {prev.name} -> {next.name}");
         }
 
         private static IEnumerator PollMpPlusState()
@@ -194,7 +194,7 @@ namespace SaberSurgeon
                     if (!string.Equals(snapshot, _lastSnapshot, StringComparison.Ordinal))
                     {
                         _lastSnapshot = snapshot;
-                        LogUtils.Info($"[SceneHelper] MP+ snapshot -> {snapshot}");
+                        LogUtils.Debug(() => $"[SceneHelper] MP+ snapshot -> {snapshot}");
                     }
                 }
                 catch (Exception ex)
@@ -212,7 +212,7 @@ namespace SaberSurgeon
 
             MpPlusInRoom = value;
             MpPlusInRoomChanged?.Invoke(MpPlusInRoom);
-            LogUtils.Info($"[SceneHelper] MP+ in-room changed -> {MpPlusInRoom} (reason={reason}, status={statusStr ?? "null"}, roomData={hasRoomData})");
+            LogUtils.Debug(() => $"[SceneHelper] MP+ in-room changed -> {MpPlusInRoom} (reason={reason}, status={statusStr ?? "null"}, roomData={hasRoomData})");
         }
 
         // ----------------------------
@@ -254,7 +254,7 @@ namespace SaberSurgeon
                 if (mpPlugin?.Assembly != null)
                 {
                     _mpAsm = mpPlugin.Assembly;
-                    LogUtils.Info($"[SceneHelper] MP+ assembly resolved via plugin Id '{id}': {_mpAsm.GetName().Name}");
+                    LogUtils.Debug(() => $"[SceneHelper] MP+ assembly resolved via plugin Id '{id}': {_mpAsm.GetName().Name}");
                     return;
                 }
             }
@@ -268,7 +268,7 @@ namespace SaberSurgeon
                 if (mpPlugin?.Assembly != null)
                 {
                     _mpAsm = mpPlugin.Assembly;
-                    LogUtils.Info($"[SceneHelper] MP+ assembly resolved via plugin assembly name '{asmName}': {_mpAsm.GetName().Name}");
+                    LogUtils.Debug(() => $"[SceneHelper] MP+ assembly resolved via plugin assembly name '{asmName}': {_mpAsm.GetName().Name}");
                     return;
                 }
             }
@@ -282,7 +282,7 @@ namespace SaberSurgeon
                 if (domainAsm != null)
                 {
                     _mpAsm = domainAsm;
-                    LogUtils.Info($"[SceneHelper] MP+ assembly resolved via AppDomain '{asmName}': {_mpAsm.GetName().Name}");
+                    LogUtils.Debug(() => $"[SceneHelper] MP+ assembly resolved via AppDomain '{asmName}': {_mpAsm.GetName().Name}");
                     return;
                 }
             }
@@ -296,7 +296,7 @@ namespace SaberSurgeon
                     if (asm.GetType(probeType, throwOnError: false) != null)
                     {
                         _mpAsm = asm;
-                        LogUtils.Info($"[SceneHelper] MP+ assembly resolved via global type probe: {_mpAsm.GetName().Name}");
+                        LogUtils.Debug(() => $"[SceneHelper] MP+ assembly resolved via global type probe: {_mpAsm.GetName().Name}");
                         return;
                     }
                 }
@@ -339,7 +339,7 @@ namespace SaberSurgeon
             if (!_loggedBindings)
             {
                 _loggedBindings = true;
-                LogUtils.Info(
+                LogUtils.Debug(() => 
                     $"[SceneHelper] MP+ bound NetworkManager. " +
                     $"RoomDataProp={_mpRoomDataProp != null}, RoomDataField={_mpRoomDataField != null}, " +
                     $"StatusProp={_mpStatusProp != null}, StatusField={_mpStatusField != null}"
@@ -426,7 +426,7 @@ namespace SaberSurgeon
             }
 
             _mpEventsHooked = true;
-            LogUtils.Info($"[SceneHelper] MP+ NetworkManager events hooked: {hooked}");
+            LogUtils.Debug(() => $"[SceneHelper] MP+ NetworkManager events hooked: {hooked}");
         }
 
         private static Delegate BuildEventForwarder(EventInfo evt, string eventName)
