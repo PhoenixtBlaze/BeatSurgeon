@@ -335,7 +335,7 @@
     <Compile Include="Integrations\BeatSaverClient.cs" />
     <Compile Include="Integrations\EndlessPlaylistService.cs" />
     <Compile Include="Integrations\SongInstaller.cs" />
-    <Compile Include="LogUtils.cs" />
+    <Compile Include="Utils\LogUtils.cs" />
     <Compile Include="PluginConfig.cs" />
     <Compile Include="Plugin\Plugin.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -348,6 +348,7 @@
     <Compile Include="UI\Controllers\SaberSurgeonViewController.cs" />
     <Compile Include="UI\FlowCoordinator\SaberSurgeonFlowCoordinator.cs" />
     <Compile Include="UI\Settings\PlayFirstSubmitLaterSettingsHost.cs" />
+    <Compile Include="Utils\SceneHelper.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="manifest.json" />

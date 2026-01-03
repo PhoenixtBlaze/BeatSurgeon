@@ -4,6 +4,7 @@ using System.Linq;
 using UnityEngine;
 using BS_Utils.Utilities;
 using System.Reflection;
+using BS_Utils;
 
 namespace SaberSurgeon.Gameplay
 {
@@ -45,7 +46,7 @@ namespace SaberSurgeon.Gameplay
         {
             try
             {
-                // 1. Check BS_Utils Isolation (Fastest)
+                // 1) BSUtils isolation signal (keep)
                 if (BS_Utils.Gameplay.Gamemode.IsIsolatedLevel)
                 {
                     var mod = BS_Utils.Gameplay.Gamemode.IsolatingMod ?? "";
@@ -53,43 +54,16 @@ namespace SaberSurgeon.Gameplay
                         return true;
                 }
 
-                // 2. Check for the specific BS+ MP Assembly
-                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-                var mpAssembly = assemblies.FirstOrDefault(a => a.GetName().Name == "BeatSaberPlus_Multiplayer");
-
-                if (mpAssembly != null)
-                {
-                    // If the assembly exists, check if we are in a networked state
-                    // The safest way is to check for the singleton "Instance" of the MultiplayerController or NetworkManager
-                    var controllerType = mpAssembly.GetType("BeatSaberPlus.Multiplayer.MultiplayerController");
-
-                    if (controllerType != null)
-                    {
-                        // Check static 'Instance'
-                        var instanceProp = controllerType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
-                        if (instanceProp != null)
-                        {
-                            var instance = instanceProp.GetValue(null);
-                            if (instance != null)
-                            {
-                                // Check if the instance is active/enabled (it's a MonoBehaviour)
-                                var mb = instance as MonoBehaviour;
-                                if (mb != null && mb.isActiveAndEnabled)
-                                {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
+                // 2) MP+ hook-based signal (new, fast, reliable)
+                return SaberSurgeon.SceneHelper.MpPlusInRoom;
             }
             catch (Exception ex)
             {
-                Plugin.Log.Warn($"PlayFirstSubmitLater: Error checking for BS+ MP: {ex.Message}");
+                Plugin.Log.Warn($"[PlayFirstSubmitLater] Error checking for MP+: {ex.Message}");
+                return false;
             }
-
-            return false;
         }
+
 
         private void OnEnable()
         {

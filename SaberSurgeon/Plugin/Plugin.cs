@@ -65,8 +65,7 @@ namespace SaberSurgeon
             SaberSurgeon.Gameplay.FontBundleLoader.CopyBundleFromPluginFolderIfMissing();
             _ = SaberSurgeon.Gameplay.FontBundleLoader.EnsureLoadedAsync();
 
-
-            
+            SceneHelper.Init();
 
             BSEvents.menuSceneActive += OnMenuSceneActive;
 
@@ -270,6 +269,7 @@ namespace SaberSurgeon
 
             try
             {
+                SceneHelper.Dispose();
                 TwitchApiClient.ClearCache();
                 BSEvents.menuSceneActive -= OnMenuSceneActive;
                 BSMLSettings.Instance.RemoveSettingsMenu(PlayFirstSubmitLaterSettingsHost.Instance);

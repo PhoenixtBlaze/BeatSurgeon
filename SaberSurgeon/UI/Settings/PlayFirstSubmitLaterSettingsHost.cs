@@ -22,6 +22,16 @@ namespace SaberSurgeon.UI.Settings
         private void NotifyPropertyChanged([CallerMemberName] string propertyName = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 
+        private PlayFirstSubmitLaterSettingsHost()
+        {
+            SceneHelper.MpPlusInRoomChanged += _ =>
+            {
+                NotifyPropertyChanged(nameof(IsAutoPauseAvailable));
+            };
+        }
+
+
+
         [UIValue("enabled")]
         public bool Enabled
         {
@@ -72,12 +82,10 @@ namespace SaberSurgeon.UI.Settings
                 if (!Enabled) return false;
 
                 // Native Multiplayer check
-                if (BS_Utils.Plugin.LevelData.Mode == BS_Utils.Gameplay.Mode.Multiplayer)
-                    return false;
+                if (BS_Utils.Plugin.LevelData.Mode == BS_Utils.Gameplay.Mode.Multiplayer) return false;
 
-                // BeatSaberPlus Multiplayer check
-                if (PlayFirstSubmitLaterManager.IsBSPlusMultiplayerActive())
-                    return false;
+                // MP+ room check (NEW)
+                if (SceneHelper.MpPlusInRoom) return false;
 
                 return true;
             }

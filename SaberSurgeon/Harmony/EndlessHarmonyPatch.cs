@@ -6,6 +6,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using SaberSurgeon.Gameplay;
+using SaberSurgeon;
 
 namespace SaberSurgeon.HarmonyPatches
 {
@@ -30,17 +31,17 @@ namespace SaberSurgeon.HarmonyPatches
         {
             if (results == null) return false;
 
-            // 1. Native Multiplayer Check
+            // 1) Native Multiplayer check (keep as-is)
             if (BS_Utils.Plugin.LevelData.Mode == BS_Utils.Gameplay.Mode.Multiplayer)
                 return false;
 
-            // 2. BeatSaberPlus Multiplayer Check
-            bool isBSPlus = PlayFirstSubmitLaterManager.IsBSPlusMultiplayerActive();
-            if (isBSPlus)
+            // 2) MP+ room check (NEW)
+            if (SceneHelper.MpPlusInRoom)
             {
-                Plugin.Log.Info("PlayFirstSubmitLater: BS+ Multiplayer active. Skipping auto-pause.");
+                Plugin.Log.Info("[PlayFirstSubmitLater] MP+ room detected. Skipping auto-pause.");
                 return false;
             }
+
 
             var s = Plugin.Settings;
             if (s == null) return false;
