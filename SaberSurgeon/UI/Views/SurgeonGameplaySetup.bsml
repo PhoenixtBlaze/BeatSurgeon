@@ -1,0 +1,438 @@
+﻿<bg xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+    xsi:schemaLocation='https://monkeymanboy.github.io/BSML-Docs/ https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd'>
+
+	<vertical child-control-height="false"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="- https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd">
+
+		<!-- Tab selector host -->
+		<tab-selector tab-tag="saber-surgeon-tabs" />
+
+		<!-- Tab strip area -->
+		<horizontal preferred-width="100" preferred-height="58" pad-top="4" pad="3">
+
+			<!-- TAB 1: Surgeon Commands -->
+			<tab tab-name="Surgeon Commands" tags="saber-surgeon-tabs">
+				<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
+					<!-- Root: left = main controls, right = cooldowns -->
+					<horizontal spacing="5" pad="2">
+						<!-- LEFT: main SaberSurgeon controls -->
+						<vertical vertical-fit="PreferredSize" spacing="2" pad="2">
+
+							<!-- Command toggles row: Rainbow + DA + Ghost + Bomb + Faster -->
+							<horizontal spacing="1" pad="0" horizontal-fit="PreferredSize">
+								<!-- Rainbow -->
+								<button id="rainbowbutton"
+										on-click="OnRainbowButtonClicked"
+										pref-width="15"
+										text=""
+										pref-height="15"
+										hover-hint="Enable/Disable !Rainbow Command and !NoteColour Command">
+									<image id="rainbowicon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+
+								<!-- Disappearing Arrows -->
+								<button id="dabutton"
+										on-click="OnDAButtonClicked"
+										pref-width="15"
+										text=""
+										pref-height="15"
+										hover-hint="Enable/Disable Disappearing Arrows Command">
+									<image id="daicon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+
+								<!-- Ghost Notes -->
+								<button id="ghostbutton"
+										on-click="OnGhostButtonClicked"
+										pref-width="15"
+										text=""
+										pref-height="15"
+										hover-hint="Enable/Disable Ghost Notes Command">
+									<image id="ghosticon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+
+								<!-- Bomb Command -->
+								<button id="bombbutton"
+										on-click="OnBombButtonClicked"
+										pref-width="15"
+										pref-height="15"
+										text=""
+										hover-hint="Enable/Disable Bomb Command">
+									<image id="bombicon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+
+								<!-- Faster Song -->
+								<button id="fasterbutton"
+										on-click="OnFasterButtonClicked"
+										text=""
+										pref-width="15"
+										pref-height="15"
+										hover-hint="Enable/Disable Faster Command">
+									<image id="fastericon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+							</horizontal>
+
+							<!-- Command toggles row: SuperFast + Slower + Flashbang -->
+							<horizontal spacing="1" pad="0" horizontal-fit="PreferredSize">
+								<!-- SuperFast Song -->
+								<button id="superfastbutton"
+										on-click="OnSFastButtonClicked"
+										pref-width="15"
+										pref-height="15"
+										text=""
+										hover-hint="Enable/Disable SuperFaster Command">
+									<image id="superfasticon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+
+								<!-- Slower Song -->
+								<button id="slowerbutton"
+										on-click="OnSlowerButtonClicked"
+										pref-width="15"
+										pref-height="15"
+										text=""
+										hover-hint="Enable/Disable Slower Command">
+									<image id="slowericon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+
+								<!-- Flashbang -->
+								<button id="flashbangbutton"
+										on-click="OnFlashbangButtonClicked"
+										pref-width="15"
+										pref-height="15"
+										text=""
+										hover-hint="Enable/Disable Flashbang Command (!flashbang)">
+									<image id="flashbangicon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+							</horizontal>
+
+							
+						</vertical>
+					</horizontal>
+				</modifier-container>
+			</tab>
+
+			<!-- TAB 2: Other  -->
+			<tab tab-name="Twitch" tags="saber-surgeon-tabs">
+        <modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
+          <vertical vertical-fit="PreferredSize" spacing="2" pad="2" pad-top="5">
+
+            <!-- Twitch Status Display (Read Only) -->
+            <horizontal horizontal-fit="PreferredSize" spacing="2">
+              <text text="Twitch:" font-size="5" color="#AAAAAA" align="MidlineLeft" />
+              <text text="~TwitchStatusText" font-size="5" align="MidlineLeft" rich-text="true" />
+            </horizontal>
+
+            <text text="Channel Point settings" align="Center" font-size="4" color="#AAAAAA" />
+
+            <!-- Row 1: Rainbow / Ghost / Bomb / Disappear -->
+            <horizontal spacing="1" pad="0" horizontal-fit="PreferredSize">
+
+              <button id="twitch-rainbow-button"
+                      on-click="OpenTwitchRainbowModal"
+                      pref-width="13"
+                      pref-height="13"
+                      hover-hint="Rainbow command settings">
+                <image id="twitch-rainbow-icon" preserve-aspect="true" pref-width="11" pref-height="11" />
+              </button>
+
+              <button id="twitch-ghost-button"
+                      on-click="OpenTwitchGhostModal"
+                      pref-width="13"
+                      pref-height="13"
+                      hover-hint="Ghost Notes command settings">
+                <image id="twitch-ghost-icon" preserve-aspect="true" pref-width="11" pref-height="11" />
+              </button>
+
+              <button id="twitch-bomb-button"
+                      on-click="OpenTwitchBombModal"
+                      pref-width="13"
+                      pref-height="13"
+                      hover-hint="Bomb command settings">
+                <image id="twitch-bomb-icon" preserve-aspect="true" pref-width="11" pref-height="11" />
+              </button>
+
+              <button id="twitch-da-button"
+                      on-click="OpenTwitchDAModal"
+                      pref-width="13"
+                      pref-height="13"
+                      hover-hint="Disappearing Arrows command settings">
+                <image id="twitch-da-icon" preserve-aspect="true" pref-width="11" pref-height="11" />
+              </button>
+
+            </horizontal>
+
+            <!-- Row 2: Faster / SuperFast / Slower / Flashbang -->
+            <horizontal spacing="1" pad="0" horizontal-fit="PreferredSize">
+
+              <button id="twitch-faster-button"
+                      on-click="OpenTwitchFasterModal"
+                      pref-width="13"
+                      pref-height="13"
+                      hover-hint="Faster command settings">
+                <image id="twitch-faster-icon" preserve-aspect="true" pref-width="11" pref-height="11" />
+              </button>
+
+              <button id="twitch-superfast-button"
+                      on-click="OpenTwitchSuperFastModal"
+                      pref-width="13"
+                      pref-height="13"
+                      hover-hint="SuperFast command settings">
+                <image id="twitch-superfast-icon" preserve-aspect="true" pref-width="11" pref-height="11" />
+              </button>
+
+              <button id="twitch-slower-button"
+                      on-click="OpenTwitchSlowerModal"
+                      pref-width="13"
+                      pref-height="13"
+                      hover-hint="Slower command settings">
+                <image id="twitch-slower-icon" preserve-aspect="true" pref-width="11" pref-height="11" />
+              </button>
+
+              <button id="twitch-flashbang-button"
+                      on-click="OpenTwitchFlashbangModal"
+                      pref-width="13"
+                      pref-height="13"
+                      hover-hint="Flashbang command settings">
+                <image id="twitch-flashbang-icon" preserve-aspect="true" pref-width="11" pref-height="11" />
+              </button>
+
+            </horizontal>
+
+          </vertical>
+        </modifier-container>
+      </tab>
+
+    </horizontal>
+
+    <!-- Footer -->
+    <horizontal>
+      <text text="Made by Phoenixblaze0"
+            color="#FFA500"
+            pad-right="60"/>
+
+      <button id="support-button"
+              text="Support this project 💙"
+              on-click="OnSubscribeClicked"
+              hover-hint="Unlock supporter-only features by subscribing and supporting this project"/>
+
+      <text id="supporter-text"
+            text="Supporter features unlocked 💙"
+            color="#00FF66"/>
+    </horizontal>
+
+  </vertical>
+
+	<!-- ========================= -->
+	<!-- Twitch command modals -->
+	<!-- ========================= -->
+
+	<modal id="twitch-rainbow-modal"
+       size-delta-x="75"
+       size-delta-y="75"
+       click-off-closes="true"
+       move-to-center="true">
+
+		<!-- Header -->
+		<horizontal child-align="MiddleCenter" pad-bottom="65">
+			<text text="Use Rainbow as Channel Points" align="Center" font-size="5" />
+		</horizontal>
+
+		<!-- Content -->
+		<settings-scroll-view pad="2" pad-top="6" pad-bottom="10">
+			<vertical vertical-fit="PreferredSize"
+					  horizontal-fit="PreferredSize"
+					  spacing="2"
+					  pad="2"
+					  pref-width="75">
+
+				<toggle-setting text="Enable as Channel Point"
+							   value="rainbowCpEnabled"
+								align="Center"
+								apply-on-change="true"
+								hover-hint="Will Disable !bomb command and Enable/Make Channel point redeem on your twitch channel"/>
+
+				<color-setting text="Background color"
+							  value="rainbowCpBackgroundColor"
+							   align="Center"
+							  apply-on-change="true" />
+
+				<!-- "Numerical input" via keyboard: user types a number -->
+				<string-setting text="Cost"
+							   value="rainbowCpCostText"
+							   apply-on-change="true"
+							   align="Center"
+							   max-length="7"
+							   hover-hint="Numbers only (e.g. 500)."/>
+
+				<!-- Inc/Dec control -->
+				<increment-setting text="Cooldown (sec)"
+								   value="rainbowCpCooldownSeconds"
+								   min="0"
+								   max="3600"
+								   align="Center"
+								   increment="5"
+								   integer-only="true"
+								   apply-on-change="true" />
+
+			</vertical>
+		</settings-scroll-view>
+
+		<!-- Footer -->
+		<horizontal child-align="MiddleCenter" pad-top="65">
+			<button text="Close" pref-width="20" on-click="CloseTwitchRainbowModal" />
+		</horizontal>
+
+	</modal>
+
+
+	<modal id="twitch-ghost-modal"
+		   size-delta-x="75"
+		   size-delta-y="75"
+		   click-off-closes="true"
+		   move-to-center="true">
+		<horizontal child-align="MiddleCenter" pad-bottom="65">
+			<text text="Use Ghost Notes as Channel Points" align="Center" font-size="5" />
+		</horizontal>
+
+		<horizontal>
+			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
+		</horizontal>
+
+		<horizontal child-align="MiddleCenter" pad-top="65">
+			<button text="Close" pref-width="20" on-click="CloseTwitchGhostModal" />
+		</horizontal>
+	</modal>
+
+	<modal id="twitch-bomb-modal"
+		   size-delta-x="75"
+		   size-delta-y="75"
+		   click-off-closes="true"
+		   move-to-center="true">
+		<horizontal child-align="MiddleCenter" pad-bottom="65">
+			<text text="Use Bomb as Channel Points" align="Center" font-size="5" />
+		</horizontal>
+
+		<horizontal>
+			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
+		</horizontal>
+
+		<horizontal child-align="MiddleCenter" pad-top="65">
+			<button text="Close" pref-width="20" on-click="CloseTwitchBombModal" />
+		</horizontal>
+	</modal>
+
+	<modal id="twitch-da-modal"
+		   size-delta-x="75"
+		   size-delta-y="75"
+		   click-off-closes="true"
+		   move-to-center="true">
+		<horizontal child-align="MiddleCenter" pad-bottom="65">
+			<text text="Use Disappearing Arrows as Channel Points" align="Center" font-size="5" />
+		</horizontal>
+
+		<horizontal>
+			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
+		</horizontal>
+
+		<horizontal child-align="MiddleCenter" pad-top="65">
+			<button text="Close" pref-width="20" on-click="CloseTwitchDAModal" />
+		</horizontal>
+	</modal>
+
+	<modal id="twitch-faster-modal"
+		   size-delta-x="75"
+		   size-delta-y="75"
+		   click-off-closes="true"
+		   move-to-center="true">
+		<horizontal child-align="MiddleCenter" pad-bottom="65">
+			<text text="Use Faster as Channel Points" align="Center" font-size="5" />
+		</horizontal>
+
+		<horizontal>
+			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
+		</horizontal>
+
+		<horizontal child-align="MiddleCenter" pad-top="65">
+			<button text="Close" pref-width="20" on-click="CloseTwitchFasterModal" />
+		</horizontal>
+	</modal>
+
+	<modal id="twitch-superfast-modal"
+		   size-delta-x="75"
+		   size-delta-y="75"
+		   click-off-closes="true"
+		   move-to-center="true">
+		<horizontal child-align="MiddleCenter" pad-bottom="65">
+			<text text="Use SuperFast as Channel Points" align="Center" font-size="5" />
+		</horizontal>
+
+		<horizontal>
+			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
+		</horizontal>
+
+		<horizontal child-align="MiddleCenter" pad-top="65">
+			<button text="Close" pref-width="20" on-click="CloseTwitchSuperFastModal" />
+		</horizontal>
+	</modal>
+
+	<modal id="twitch-slower-modal"
+		   size-delta-x="75"
+		   size-delta-y="75"
+		   click-off-closes="true"
+		   move-to-center="true">
+		<horizontal child-align="MiddleCenter" pad-bottom="65">
+			<text text="Use Slower as Channel Points" align="Center" font-size="5" />
+		</horizontal>
+
+		<horizontal>
+			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
+		</horizontal>
+
+		<horizontal child-align="MiddleCenter" pad-top="65">
+			<button text="Close" pref-width="20" on-click="CloseTwitchSlowerModal" />
+		</horizontal>
+	</modal>
+
+	<modal id="twitch-flashbang-modal"
+		   size-delta-x="75"
+		   size-delta-y="75"
+		   click-off-closes="true"
+		   move-to-center="true">
+		<horizontal child-align="MiddleCenter" pad-bottom="65">
+			<text text="Use Flashbang as Channel Points" align="Center" font-size="5" />
+		</horizontal>
+
+		<horizontal>
+			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
+		</horizontal>
+
+		<horizontal child-align="MiddleCenter" pad-top="65">
+			<button text="Close" pref-width="20" on-click="CloseTwitchFlashbangModal" />
+		</horizontal>
+	</modal>
+
+</bg>

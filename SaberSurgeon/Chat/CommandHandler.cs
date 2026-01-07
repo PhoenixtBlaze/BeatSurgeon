@@ -235,6 +235,7 @@ namespace SaberSurgeon.Chat
 
                 var commandName = parts[0].ToLower();
 
+                bool isChannelPoint = context != null && context.IsChannelPoint;
                 // 1. Thread-safe alias check
                 // We capture local copies of settings to avoid threading issues if settings change
                 string bombCmdName = BombCommandName;
@@ -258,7 +259,7 @@ namespace SaberSurgeon.Chat
                 }
 
                 // 3. Permission & Cooldown Checks
-                bool isadmin = string.Equals(context?.SenderName, "phoenixblaze0", StringComparison.OrdinalIgnoreCase);
+                bool isadmin = !isChannelPoint && string.Equals(context?.SenderName, "phoenixblaze0", StringComparison.OrdinalIgnoreCase);
                 bool skipCooldown = IsCommandExcludedFromCooldown(commandName);
 
                 bool onCooldown = false;
@@ -276,6 +277,34 @@ namespace SaberSurgeon.Chat
                     ChatManager.GetInstance().SendChatMessage($"!Command !{commandName} is on cooldown. Try again in {remainingTime.TotalSeconds:F0}s.");
                     return;
                 }
+
+
+
+
+                if (!isChannelPoint)
+                {
+                    var cfg = Plugin.Settings;
+                    if (cfg != null)
+                    {
+                        bool cpBlocks =
+                            (commandName == "rainbow" || commandName == "notecolor" || commandName == "notecolour") ? cfg.CpRainbowEnabled :
+                            (commandName == "disappear") ? cfg.CpDisappearEnabled :
+                            (commandName == "ghost") ? cfg.CpGhostEnabled :
+                            (commandName == "bomb") ? cfg.CpBombEnabled :
+                            (commandName == "faster") ? cfg.CpFasterEnabled :
+                            (commandName == "superfast") ? cfg.CpSuperFastEnabled :
+                            (commandName == "slower") ? cfg.CpSlowerEnabled :
+                            (commandName == "flashbang") ? cfg.CpFlashbangEnabled :
+                            false;
+
+                        if (cpBlocks && !string.Equals(commandName, "surgeon", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ChatManager.GetInstance().SendChatMessage($"!!Use Channel Points for !{commandName} (chat command disabled).");
+                            return;
+                        }
+                    }
+                }
+
 
                 // Log execution
                 string sourceLabel = context?.Source.ToString() ?? "Unknown";
@@ -981,56 +1010,53 @@ namespace SaberSurgeon.Chat
 
 
 
-        
 
-       
+
+
 
 
         private bool HandleRainbowCommand(object ctxObj, string fullCommand)
         {
-            // Respect the menu toggle
             if (!RainbowEnabled)
             {
-                SendResponse(
-                    "Rainbow command is disabled via menu",
-                    "Command Disabled");
+                SendResponse("Rainbow command is disabled via menu", "Command Disabled");
                 return false;
             }
-            // Check if global disable is active
+
             if (GlobalDisableActive)
             {
-                SendResponse(
-                    "Rainbow blocked: global disable active",
-                    "!!Rainbow is blocked by global disable.");
+                SendResponse("Rainbow blocked: global disable active", "!!Rainbow is blocked by global disable.");
                 return false;
             }
 
             var ctx = ctxObj as ChatContext;
+            bool isChannelPoint = ctx != null && ctx.IsChannelPoint;
 
-            // Optional: privilege gating
-            if (ctx == null) //(ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
+            // Optional privilege gating for chat-only.
+            if (!isChannelPoint)
             {
-                SendResponse(
-                    "Rainbow denied: not privileged",
-                    null);
-                return false;
+                if (ctx == null || (!ctx.IsSubscriber && !ctx.IsModerator && !ctx.IsBroadcaster))
+                {
+                    SendResponse("Rainbow denied: not privileged", null);
+                    return false;
+                }
             }
 
             bool started = Gameplay.RainbowManager.Instance.StartRainbow(30f);
             if (!started)
             {
-                SendResponse(
-                    "Rainbow ignored: not in a map",
-                    "!!Rainbow can only be used while you are playing a song.");
+                SendResponse("Rainbow ignored: not in a map", "!!Rainbow can only be used while you are playing a song.");
                 return false;
             }
 
             SendResponse(
-                $"Rainbow started for 30s (requested by {ctx?.SenderName ?? "Unknown"})",
-                "!!All The Colours!");
-
+                $"Rainbow started for 30s requested by {ctx?.SenderName ?? "Unknown"}",
+                "!!All The Colours!"
+            );
             return true;
         }
+
+
 
 
         private bool HandleSrCommand(object ctxObj, string fullCommand)

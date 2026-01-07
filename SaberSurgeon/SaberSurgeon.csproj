@@ -335,6 +335,9 @@
     <Compile Include="Integrations\BeatSaverClient.cs" />
     <Compile Include="Integrations\EndlessPlaylistService.cs" />
     <Compile Include="Integrations\SongInstaller.cs" />
+    <Compile Include="Twitch\ChannelPointRouter.cs" />
+    <Compile Include="Twitch\TwitchChannelPointsManager.cs" />
+    <Compile Include="UI\Settings\SurgeonGameplaySetupHost.cs" />
     <Compile Include="Utils\LogUtils.cs" />
     <Compile Include="PluginConfig.cs" />
     <Compile Include="Plugin\Plugin.cs" />
@@ -359,6 +362,7 @@
     <EmbeddedResource Include="UI\Views\SaberSurgeonSettings.bsml" />
     <EmbeddedResource Include="UI\Views\SaberSurgeonCooldowns.bsml" />
     <EmbeddedResource Include="UI\Views\PlayFirstSubmitLaterGameplaySetup.bsml" />
+    <EmbeddedResource Include="UI\Views\SurgeonGameplaySetup.bsml" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="BeatSaberModdingTools.Tasks">

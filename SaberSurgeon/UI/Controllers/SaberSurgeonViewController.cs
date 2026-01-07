@@ -3,6 +3,7 @@ using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.ViewControllers;
 using SaberSurgeon.Chat;
 using SaberSurgeon.Twitch;
+using SaberSurgeon.UI.Settings;
 using System;
 using System.IO;
 using System.Reflection;
@@ -116,6 +117,7 @@ namespace SaberSurgeon.UI.Controllers
         private static readonly Sprite FlashbangOnSprite =
             LoadEmbeddedSprite("SaberSurgeon.Assets.FlashbangGB.png");
 
+        public static SaberSurgeonViewController ActiveInstance { get; private set; }
 
 
         private string _twitchChannel = string.Empty;
@@ -150,6 +152,7 @@ namespace SaberSurgeon.UI.Controllers
                 if (Plugin.Settings != null)
                     Plugin.Settings.RainbowEnabled = value;
                 NotifyPropertyChanged(nameof(RainbowEnabled));
+                SurgeonGameplaySetupHost.RefreshGameplaySetupIcons();
                 UpdateRainbowButtonVisual();
             }
         }
@@ -175,6 +178,8 @@ namespace SaberSurgeon.UI.Controllers
                     Plugin.Settings.DisappearEnabled = value;
                 NotifyPropertyChanged(nameof(DisappearingEnabled));
                 UpdateDAButtonVisual();
+                SurgeonGameplaySetupHost.RefreshGameplaySetupIcons();
+
             }
         }
 
@@ -201,6 +206,8 @@ namespace SaberSurgeon.UI.Controllers
                     Plugin.Settings.GhostEnabled = value;
                 NotifyPropertyChanged(nameof(GhostEnabled));
                 UpdateGhostButtonVisual();
+                SurgeonGameplaySetupHost.RefreshGameplaySetupIcons();
+
             }
         }
 
@@ -225,6 +232,8 @@ namespace SaberSurgeon.UI.Controllers
                     Plugin.Settings.BombEnabled = value;
                 NotifyPropertyChanged(nameof(BombEnabled));
                 UpdateBombButtonVisual();
+                SurgeonGameplaySetupHost.RefreshGameplaySetupIcons();
+
             }
         }
 
@@ -247,6 +256,8 @@ namespace SaberSurgeon.UI.Controllers
                     Plugin.Settings.FasterEnabled = value;
                 NotifyPropertyChanged(nameof(FasterEnabled));
                 UpdateFasterButtonVisual();
+                SurgeonGameplaySetupHost.RefreshGameplaySetupIcons();
+
             }
         }
 
@@ -271,6 +282,8 @@ namespace SaberSurgeon.UI.Controllers
                     Plugin.Settings.SuperFastEnabled = value;
                 NotifyPropertyChanged(nameof(SuperFastEnabled));
                 UpdateSuperFastButtonVisual();
+                SurgeonGameplaySetupHost.RefreshGameplaySetupIcons();
+
             }
         }
 
@@ -294,6 +307,8 @@ namespace SaberSurgeon.UI.Controllers
                     Plugin.Settings.SlowerEnabled = value;
                 NotifyPropertyChanged(nameof(SlowerEnabled));
                 UpdateSlowerButtonVisual();
+                SurgeonGameplaySetupHost.RefreshGameplaySetupIcons();
+
             }
         }
 
@@ -317,6 +332,8 @@ namespace SaberSurgeon.UI.Controllers
                     Plugin.Settings.FlashbangEnabled = value;
                 NotifyPropertyChanged(nameof(FlashbangEnabled));
                 UpdateFlashbangButtonVisual();
+                SurgeonGameplaySetupHost.RefreshGameplaySetupIcons();
+
             }
         }
 
@@ -344,6 +361,7 @@ namespace SaberSurgeon.UI.Controllers
         protected override void DidActivate(bool firstActivation, bool addedToHierarchy, bool screenSystemEnabling)
         {
             base.DidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
+            ActiveInstance = this;
 
             UpdateSupportUI();
 
@@ -485,6 +503,41 @@ namespace SaberSurgeon.UI.Controllers
             UpdateFlashbangButtonVisual();
             RefreshTwitchStatusText();
 
+        }
+
+        protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
+        {
+            if (removedFromHierarchy && ReferenceEquals(ActiveInstance, this))
+                ActiveInstance = null;
+
+            base.DidDeactivate(removedFromHierarchy, screenSystemDisabling);
+        }
+
+
+        public static void RefreshCommandUiFromExternal()
+        {
+            var vc = ActiveInstance;
+            if (vc == null) return;
+
+            // Re-evaluate BSML bindings
+            vc.NotifyPropertyChanged(nameof(RainbowEnabled));
+            vc.NotifyPropertyChanged(nameof(DisappearingEnabled));
+            vc.NotifyPropertyChanged(nameof(GhostEnabled));
+            vc.NotifyPropertyChanged(nameof(BombEnabled));
+            vc.NotifyPropertyChanged(nameof(FasterEnabled));
+            vc.NotifyPropertyChanged(nameof(SuperFastEnabled));
+            vc.NotifyPropertyChanged(nameof(SlowerEnabled));
+            vc.NotifyPropertyChanged(nameof(FlashbangEnabled));
+
+            // Repaint icons/backgrounds
+            vc.UpdateRainbowButtonVisual();
+            vc.UpdateDAButtonVisual();
+            vc.UpdateGhostButtonVisual();
+            vc.UpdateBombButtonVisual();
+            vc.UpdateFasterButtonVisual();
+            vc.UpdateSuperFastButtonVisual();
+            vc.UpdateSlowerButtonVisual();
+            vc.UpdateFlashbangButtonVisual();
         }
 
 

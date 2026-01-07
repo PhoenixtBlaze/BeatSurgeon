@@ -176,6 +176,7 @@ namespace SaberSurgeon.Chat
 
                 // NOTE: your TwitchEventSubClient events must match these signatures (see next section)
                 _eventSubClient.OnChatMessage += HandleNativeChatMessage;
+                _eventSubClient.OnChannelPointRedeemed += HandleChannelPointRedeemed;
                 _eventSubClient.OnFollow += user => OnFollowReceived?.Invoke(user);
                 _eventSubClient.OnSubscription += (user, tier) => OnSubscriptionReceived?.Invoke(user, tier);
                 _eventSubClient.OnRaid += (raider, viewers) => OnRaidReceived?.Invoke(raider, viewers);
@@ -214,10 +215,43 @@ namespace SaberSurgeon.Chat
             Plugin.Log.Error("ChatManager: No chat backend available.");
         }
 
-        
-        
 
-        
+        private void HandleChannelPointRedeemed(TwitchEventSubClient.ChannelPointRedemption redemption)
+        {
+            try
+            {
+                if (redemption == null) return;
+
+                // Map rewardId -> command and invoke existing command handler.
+                // Use a fake chat command string to reuse existing code paths. [file:212]
+                string cmd = SaberSurgeon.Twitch.ChannelPointRouter.TryBuildCommandFromReward(redemption);
+                if (string.IsNullOrEmpty(cmd))
+                    return;
+
+                var ctx = new ChatContext
+                {
+                    SenderName = redemption.UserName ?? "Unknown",
+                    MessageText = cmd,
+                    IsBroadcaster = false,
+                    IsModerator = false,
+                    IsSubscriber = false,
+                    IsVip = false,
+                    Bits = 0,
+                    Source = ChatSource.NativeTwitch,
+                    IsChannelPoint = true
+                };
+
+                // Directly invoke command processing.
+                CommandHandler.Instance.ProcessCommand(cmd, ctx);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("ChatManager: CP redemption handling failed: " + ex.Message);
+            }
+        }
+
+
+
         private void HandleNativeChatMessage(ChatContext ctx)
         {
             if (!ChatEnabled) return;

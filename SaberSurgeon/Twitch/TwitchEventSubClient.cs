@@ -57,6 +57,17 @@ namespace SaberSurgeon.Twitch
         public event Action<string> OnFollow;
         public event Action<string, int> OnSubscription;
         public event Action<string, int> OnRaid;
+        public sealed class ChannelPointRedemption
+        {
+            public string RewardId;
+            public string RewardTitle;
+            public string UserName;
+            public string UserId;
+            public string UserInput;
+        }
+
+        public event Action<ChannelPointRedemption> OnChannelPointRedeemed;
+
 
         public bool IsConnected => _isConnected && _ws != null && _ws.State == WebSocketState.Open;
         public bool HasSession => !string.IsNullOrEmpty(_sessionId);
@@ -273,10 +284,13 @@ namespace SaberSurgeon.Twitch
                 try
                 {
                     // Pick the event types you want. These match your old backend WS events.
+
+                    await EnsureSubscriptionAsync("channel.channel_points_custom_reward_redemption.add", "1");
                     await EnsureSubscriptionAsync("channel.chat.message", "1");
                     await EnsureSubscriptionAsync("channel.follow", "2");
                     await EnsureSubscriptionAsync("channel.subscribe", "1");
                     await EnsureSubscriptionAsync("channel.raid", "1");
+
                 }
                 catch (Exception ex)
                 {
@@ -434,6 +448,25 @@ namespace SaberSurgeon.Twitch
                 };
             }
 
+            if (type == "channel.channel_points_custom_reward_redemption.add")
+            {
+                return new
+                {
+                    type,
+                    version,
+                    condition = new
+                    {
+                        broadcaster_user_id = _broadcasterId
+                    },
+                    transport = new
+                    {
+                        method = "websocket",
+                        session_id = _sessionId
+                    }
+                };
+            }
+
+
             // These are common broadcaster-scoped events (simple condition)
             // If Twitch ever requires more fields for a type, add a dedicated case like above.
             return new
@@ -475,6 +508,10 @@ namespace SaberSurgeon.Twitch
 
                 case "channel.raid":
                     HandleRaid(eventData);
+                    break;
+
+                case "channel.channel_points_custom_reward_redemption.add":
+                    HandleChannelPointRedemption(eventData);
                     break;
 
                 default:
@@ -531,6 +568,36 @@ namespace SaberSurgeon.Twitch
 
             OnRaid?.Invoke(raiderName, viewers);
         }
+
+        private void HandleChannelPointRedemption(JToken eventData)
+        {
+            try
+            {
+                string userName = (string)eventData["user_name"] ?? "Unknown";
+                string userId = (string)eventData["user_id"] ?? "";
+                string userInput = (string)eventData["user_input"] ?? "";
+
+                string rewardId = (string)eventData["reward"]?["id"] ?? "";
+                string rewardTitle = (string)eventData["reward"]?["title"] ?? "";
+
+                if (string.IsNullOrWhiteSpace(rewardId))
+                    return;
+
+                OnChannelPointRedeemed?.Invoke(new ChannelPointRedemption
+                {
+                    RewardId = rewardId,
+                    RewardTitle = rewardTitle,
+                    UserName = userName,
+                    UserId = userId,
+                    UserInput = userInput
+                });
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("TwitchEventSubClient: Failed parsing channel points redemption: " + ex.Message);
+            }
+        }
+
 
         /// <summary>
         /// Replacement for TwitchEventClient.SendChatMessage(): send via Helix.

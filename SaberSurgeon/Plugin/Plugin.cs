@@ -30,6 +30,8 @@ namespace SaberSurgeon
         internal static IPA.Logging.Logger Log { get; private set; }
 
         private bool pfslTabRegisteredThisMenu = false;
+        private bool surgeonTabRegisteredThisMenu = false;
+
 
         // Raw BSIPA config object (kept for compatibility if ever need it)
         internal static IPA.Config.Config Configuration { get; private set; }
@@ -113,12 +115,14 @@ namespace SaberSurgeon
         {
             Log.Info("SaberSurgeon : menuSceneActive");
             _menuButtonRegisteredThisMenu = false;
+            surgeonTabRegisteredThisMenu = false;
             pfslTabRegisteredThisMenu = false;
 
             
             // Run a small coroutine on the game’s main thread
             CoroutineHost.Instance.StartCoroutine(RegisterMenuButtonWhenReady());
             CoroutineHost.Instance.StartCoroutine(RegisterPfslGameplaySetupTabWhenReady());
+            CoroutineHost.Instance.StartCoroutine(RegisterSurgeonGameplaySetupTabWhenReady());
 
             if (_pfslTabRegistered) return;
 
@@ -128,7 +132,38 @@ namespace SaberSurgeon
         }
 
 
-        
+        private IEnumerator RegisterSurgeonGameplaySetupTabWhenReady()
+        {
+            while (!surgeonTabRegisteredThisMenu)
+            {
+                yield return null;
+
+                try
+                {
+                    var gs = BeatSaberMarkupLanguage.GameplaySetup.GameplaySetup.Instance;
+                    if (gs == null) continue;
+
+                    gs.AddTab(
+                        "Surgeon",
+                        "SaberSurgeon.UI.Views.SurgeonGameplaySetup.bsml",
+                        SaberSurgeon.UI.Settings.SurgeonGameplaySetupHost.Instance
+                    );
+
+                    surgeonTabRegisteredThisMenu = true;
+                    Log.Info("Surgeon GameplaySetup tab registered delayed");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Log.Debug($"Surgeon GameplaySetup not ready yet: {ex.Message}");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"Failed registering Surgeon GameplaySetup tab: {ex}");
+                    yield break;
+                }
+            }
+        }
+
         private IEnumerator RegisterPfslGameplaySetupTabWhenReady()
         {
             while (!pfslTabRegisteredThisMenu)
@@ -282,6 +317,35 @@ namespace SaberSurgeon
             {
                 Log.Error($"SaberSurgeon: Error during shutdown: {ex}");
             }
+            try
+            {
+                // Disable all CP rewards when exiting so they don't remain redeemable. [file:214][file:200]
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    try
+                    {
+                        var cfg = Plugin.Settings;
+                        if (cfg == null) return;
+
+                        var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+                        if (cfg.CpRainbowEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpRainbowRewardId, false, cts.Token);
+                        if (cfg.CpDisappearEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpDisappearRewardId, false, cts.Token);
+                        if (cfg.CpGhostEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpGhostRewardId, false, cts.Token);
+                        if (cfg.CpBombEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpBombRewardId, false, cts.Token);
+                        if (cfg.CpFasterEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpFasterRewardId, false, cts.Token);
+                        if (cfg.CpSuperFastEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpSuperFastRewardId, false, cts.Token);
+                        if (cfg.CpSlowerEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpSlowerRewardId, false, cts.Token);
+                        if (cfg.CpFlashbangEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpFlashbangRewardId, false, cts.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Log.Warn("CP disable-on-exit failed: " + ex.Message);
+                    }
+                });
+            }
+            catch { }
+
 
             try
             {

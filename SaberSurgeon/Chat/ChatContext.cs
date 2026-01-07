@@ -29,5 +29,8 @@
         public object RawMessage { get; set; }
 
         public ChatSource Source { get; set; } = ChatSource.Unknown;
+
+        public bool IsChannelPoint { get; set; }
+
     }
 }
