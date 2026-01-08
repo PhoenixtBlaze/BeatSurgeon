@@ -126,36 +126,50 @@ namespace SaberSurgeon
         public virtual int CpDisappearCost { get; set; } = 500;
         public virtual int CpDisappearCooldownSeconds { get; set; } = 0;
         public virtual string CpDisappearRewardId { get; set; } = "";
+        public virtual Color CpDisappearBackgroundColor { get; set; } = Color.white;
+
 
         public virtual bool CpGhostEnabled { get; set; } = false;
         public virtual int CpGhostCost { get; set; } = 500;
         public virtual int CpGhostCooldownSeconds { get; set; } = 0;
         public virtual string CpGhostRewardId { get; set; } = "";
+        public virtual Color CpGhostBackgroundColor { get; set; } = Color.white;
+
 
         public virtual bool CpBombEnabled { get; set; } = false;
         public virtual int CpBombCost { get; set; } = 500;
         public virtual int CpBombCooldownSeconds { get; set; } = 0;
         public virtual string CpBombRewardId { get; set; } = "";
+        public virtual Color CpBombBackgroundColor { get; set; } = Color.white;
+
 
         public virtual bool CpFasterEnabled { get; set; } = false;
         public virtual int CpFasterCost { get; set; } = 500;
         public virtual int CpFasterCooldownSeconds { get; set; } = 0;
         public virtual string CpFasterRewardId { get; set; } = "";
+        public virtual Color CpFasterBackgroundColor { get; set; } = Color.white;
+
 
         public virtual bool CpSuperFastEnabled { get; set; } = false;
         public virtual int CpSuperFastCost { get; set; } = 500;
         public virtual int CpSuperFastCooldownSeconds { get; set; } = 0;
         public virtual string CpSuperFastRewardId { get; set; } = "";
+        public virtual Color CpSuperFastBackgroundColor { get; set; } = Color.white;
+
 
         public virtual bool CpSlowerEnabled { get; set; } = false;
         public virtual int CpSlowerCost { get; set; } = 500;
         public virtual int CpSlowerCooldownSeconds { get; set; } = 0;
         public virtual string CpSlowerRewardId { get; set; } = "";
+        public virtual Color CpSlowerBackgroundColor { get; set; } = Color.white;
+
 
         public virtual bool CpFlashbangEnabled { get; set; } = false;
         public virtual int CpFlashbangCost { get; set; } = 500;
         public virtual int CpFlashbangCooldownSeconds { get; set; } = 0;
         public virtual string CpFlashbangRewardId { get; set; } = "";
+        public virtual Color CpFlashbangBackgroundColor { get; set; } = Color.white;
+
 
     }
 }

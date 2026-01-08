@@ -13,7 +13,7 @@ namespace SaberSurgeon.Gameplay
         private float _activeBombSetTime;
 
         // Tweak these two values to control how often it reappears
-        private const float BombMissTimeoutSeconds = 8.0f; // if not cut after this, treat as missed
+        public const float BombMissTimeoutSeconds = 3.0f; // if not cut after this, treat as missed
         private const float BombRearmDelaySeconds = 0.25f; // rearm shortly after clearing
         private float _nextRearmTime;
 
@@ -31,7 +31,7 @@ namespace SaberSurgeon.Gameplay
 
         private struct BombVisualState
         {
-            public BombVisualInstance Visual;   // <-- CHANGE THIS
+            public BombVisualInstance Visual;   // <-- CHANGE THISS
             public MeshRenderer CubeRenderer;
             public MeshRenderer CircleRenderer;
             public bool CubeWasEnabled;

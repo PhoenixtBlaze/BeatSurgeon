@@ -310,125 +310,362 @@
 
 
 	<modal id="twitch-ghost-modal"
-		   size-delta-x="75"
-		   size-delta-y="75"
-		   click-off-closes="true"
-		   move-to-center="true">
+       size-delta-x="75"
+       size-delta-y="75"
+       click-off-closes="true"
+       move-to-center="true">
+
 		<horizontal child-align="MiddleCenter" pad-bottom="65">
 			<text text="Use Ghost Notes as Channel Points" align="Center" font-size="5" />
 		</horizontal>
 
-		<horizontal>
-			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
-		</horizontal>
+		<settings-scroll-view pad="2" pad-top="6" pad-bottom="10">
+			<vertical vertical-fit="PreferredSize"
+					  horizontal-fit="PreferredSize"
+					  spacing="2"
+					  pad="2"
+					  pref-width="75">
+
+				<toggle-setting text="Enable as Channel Point"
+								value="ghostCpEnabled"
+								align="Center"
+								apply-on-change="true" />
+
+				<color-setting text="Background color"
+							   value="ghostCpBackgroundColor"
+							   align="Center"
+							   apply-on-change="true" />
+
+				<string-setting text="Cost"
+								value="ghostCpCostText"
+								apply-on-change="true"
+								align="Center"
+								max-length="7"
+								hover-hint="Numbers only (e.g. 500)." />
+
+				<increment-setting text="Cooldown (sec)"
+								   value="ghostCpCooldownSeconds"
+								   min="0"
+								   max="3600"
+								   align="Center"
+								   increment="5"
+								   integer-only="true"
+								   apply-on-change="true" />
+
+			</vertical>
+		</settings-scroll-view>
 
 		<horizontal child-align="MiddleCenter" pad-top="65">
 			<button text="Close" pref-width="20" on-click="CloseTwitchGhostModal" />
 		</horizontal>
 	</modal>
 
+
 	<modal id="twitch-bomb-modal"
 		   size-delta-x="75"
 		   size-delta-y="75"
 		   click-off-closes="true"
 		   move-to-center="true">
+
 		<horizontal child-align="MiddleCenter" pad-bottom="65">
 			<text text="Use Bomb as Channel Points" align="Center" font-size="5" />
 		</horizontal>
 
-		<horizontal>
-			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
-		</horizontal>
+		<settings-scroll-view pad="2" pad-top="6" pad-bottom="10">
+			<vertical vertical-fit="PreferredSize"
+					  horizontal-fit="PreferredSize"
+					  spacing="2"
+					  pad="2"
+					  pref-width="75">
+
+				<toggle-setting text="Enable as Channel Point"
+								value="bombCpEnabled"
+								align="Center"
+								apply-on-change="true" />
+
+				<color-setting text="Background color"
+							   value="bombCpBackgroundColor"
+							   align="Center"
+							   apply-on-change="true" />
+
+				<string-setting text="Cost"
+								value="bombCpCostText"
+								apply-on-change="true"
+								align="Center"
+								max-length="7"
+								hover-hint="Numbers only (e.g. 500)." />
+
+				<increment-setting text="Cooldown (sec)"
+								   value="bombCpCooldownSeconds"
+								   min="0"
+								   max="3600"
+								   align="Center"
+								   increment="5"
+								   integer-only="true"
+								   apply-on-change="true" />
+
+			</vertical>
+		</settings-scroll-view>
 
 		<horizontal child-align="MiddleCenter" pad-top="65">
 			<button text="Close" pref-width="20" on-click="CloseTwitchBombModal" />
 		</horizontal>
 	</modal>
 
+
 	<modal id="twitch-da-modal"
 		   size-delta-x="75"
 		   size-delta-y="75"
 		   click-off-closes="true"
 		   move-to-center="true">
+
 		<horizontal child-align="MiddleCenter" pad-bottom="65">
 			<text text="Use Disappearing Arrows as Channel Points" align="Center" font-size="5" />
 		</horizontal>
 
-		<horizontal>
-			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
-		</horizontal>
+		<settings-scroll-view pad="2" pad-top="6" pad-bottom="10">
+			<vertical vertical-fit="PreferredSize"
+					  horizontal-fit="PreferredSize"
+					  spacing="2"
+					  pad="2"
+					  pref-width="75">
+
+				<toggle-setting text="Enable as Channel Point"
+								value="daCpEnabled"
+								align="Center"
+								apply-on-change="true" />
+
+				<color-setting text="Background color"
+							   value="daCpBackgroundColor"
+							   align="Center"
+							   apply-on-change="true" />
+
+				<string-setting text="Cost"
+								value="daCpCostText"
+								apply-on-change="true"
+								align="Center"
+								max-length="7"
+								hover-hint="Numbers only (e.g. 500)." />
+
+				<increment-setting text="Cooldown (sec)"
+								   value="daCpCooldownSeconds"
+								   min="0"
+								   max="3600"
+								   align="Center"
+								   increment="5"
+								   integer-only="true"
+								   apply-on-change="true" />
+
+			</vertical>
+		</settings-scroll-view>
 
 		<horizontal child-align="MiddleCenter" pad-top="65">
 			<button text="Close" pref-width="20" on-click="CloseTwitchDAModal" />
 		</horizontal>
 	</modal>
 
+
 	<modal id="twitch-faster-modal"
 		   size-delta-x="75"
 		   size-delta-y="75"
 		   click-off-closes="true"
 		   move-to-center="true">
+
 		<horizontal child-align="MiddleCenter" pad-bottom="65">
 			<text text="Use Faster as Channel Points" align="Center" font-size="5" />
 		</horizontal>
 
-		<horizontal>
-			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
-		</horizontal>
+		<settings-scroll-view pad="2" pad-top="6" pad-bottom="10">
+			<vertical vertical-fit="PreferredSize"
+					  horizontal-fit="PreferredSize"
+					  spacing="2"
+					  pad="2"
+					  pref-width="75">
+
+				<toggle-setting text="Enable as Channel Point"
+								value="fasterCpEnabled"
+								align="Center"
+								apply-on-change="true" />
+
+				<color-setting text="Background color"
+							   value="fasterCpBackgroundColor"
+							   align="Center"
+							   apply-on-change="true" />
+
+				<string-setting text="Cost"
+								value="fasterCpCostText"
+								apply-on-change="true"
+								align="Center"
+								max-length="7"
+								hover-hint="Numbers only (e.g. 500)." />
+
+				<increment-setting text="Cooldown (sec)"
+								   value="fasterCpCooldownSeconds"
+								   min="0"
+								   max="3600"
+								   align="Center"
+								   increment="5"
+								   integer-only="true"
+								   apply-on-change="true" />
+
+			</vertical>
+		</settings-scroll-view>
 
 		<horizontal child-align="MiddleCenter" pad-top="65">
 			<button text="Close" pref-width="20" on-click="CloseTwitchFasterModal" />
 		</horizontal>
 	</modal>
 
+
 	<modal id="twitch-superfast-modal"
 		   size-delta-x="75"
 		   size-delta-y="75"
 		   click-off-closes="true"
 		   move-to-center="true">
+
 		<horizontal child-align="MiddleCenter" pad-bottom="65">
 			<text text="Use SuperFast as Channel Points" align="Center" font-size="5" />
 		</horizontal>
 
-		<horizontal>
-			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
-		</horizontal>
+		<settings-scroll-view pad="2" pad-top="6" pad-bottom="10">
+			<vertical vertical-fit="PreferredSize"
+					  horizontal-fit="PreferredSize"
+					  spacing="2"
+					  pad="2"
+					  pref-width="75">
+
+				<toggle-setting text="Enable as Channel Point"
+								value="superFastCpEnabled"
+								align="Center"
+								apply-on-change="true" />
+
+				<color-setting text="Background color"
+							   value="superFastCpBackgroundColor"
+							   align="Center"
+							   apply-on-change="true" />
+
+				<string-setting text="Cost"
+								value="superFastCpCostText"
+								apply-on-change="true"
+								align="Center"
+								max-length="7"
+								hover-hint="Numbers only (e.g. 500)." />
+
+				<increment-setting text="Cooldown (sec)"
+								   value="superFastCpCooldownSeconds"
+								   min="0"
+								   max="3600"
+								   align="Center"
+								   increment="5"
+								   integer-only="true"
+								   apply-on-change="true" />
+
+			</vertical>
+		</settings-scroll-view>
 
 		<horizontal child-align="MiddleCenter" pad-top="65">
 			<button text="Close" pref-width="20" on-click="CloseTwitchSuperFastModal" />
 		</horizontal>
 	</modal>
 
+
 	<modal id="twitch-slower-modal"
 		   size-delta-x="75"
 		   size-delta-y="75"
 		   click-off-closes="true"
 		   move-to-center="true">
+
 		<horizontal child-align="MiddleCenter" pad-bottom="65">
 			<text text="Use Slower as Channel Points" align="Center" font-size="5" />
 		</horizontal>
 
-		<horizontal>
-			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
-		</horizontal>
+		<settings-scroll-view pad="2" pad-top="6" pad-bottom="10">
+			<vertical vertical-fit="PreferredSize"
+					  horizontal-fit="PreferredSize"
+					  spacing="2"
+					  pad="2"
+					  pref-width="75">
+
+				<toggle-setting text="Enable as Channel Point"
+								value="slowerCpEnabled"
+								align="Center"
+								apply-on-change="true" />
+
+				<color-setting text="Background color"
+							   value="slowerCpBackgroundColor"
+							   align="Center"
+							   apply-on-change="true" />
+
+				<string-setting text="Cost"
+								value="slowerCpCostText"
+								apply-on-change="true"
+								align="Center"
+								max-length="7"
+								hover-hint="Numbers only (e.g. 500)." />
+
+				<increment-setting text="Cooldown (sec)"
+								   value="slowerCpCooldownSeconds"
+								   min="0"
+								   max="3600"
+								   align="Center"
+								   increment="5"
+								   integer-only="true"
+								   apply-on-change="true" />
+
+			</vertical>
+		</settings-scroll-view>
 
 		<horizontal child-align="MiddleCenter" pad-top="65">
 			<button text="Close" pref-width="20" on-click="CloseTwitchSlowerModal" />
 		</horizontal>
 	</modal>
 
+
 	<modal id="twitch-flashbang-modal"
 		   size-delta-x="75"
 		   size-delta-y="75"
 		   click-off-closes="true"
 		   move-to-center="true">
+
 		<horizontal child-align="MiddleCenter" pad-bottom="65">
 			<text text="Use Flashbang as Channel Points" align="Center" font-size="5" />
 		</horizontal>
 
-		<horizontal>
-			<text text="(Scroll area placeholder)" align="Center" font-size="3" color="#AAAAAA" />
-		</horizontal>
+		<settings-scroll-view pad="2" pad-top="6" pad-bottom="10">
+			<vertical vertical-fit="PreferredSize"
+					  horizontal-fit="PreferredSize"
+					  spacing="2"
+					  pad="2"
+					  pref-width="75">
+
+				<toggle-setting text="Enable as Channel Point"
+								value="flashbangCpEnabled"
+								align="Center"
+								apply-on-change="true" />
+
+				<color-setting text="Background color"
+							   value="flashbangCpBackgroundColor"
+							   align="Center"
+							   apply-on-change="true" />
+
+				<string-setting text="Cost"
+								value="flashbangCpCostText"
+								apply-on-change="true"
+								align="Center"
+								max-length="7"
+								hover-hint="Numbers only (e.g. 500)." />
+
+				<increment-setting text="Cooldown (sec)"
+								   value="flashbangCpCooldownSeconds"
+								   min="0"
+								   max="3600"
+								   align="Center"
+								   increment="5"
+								   integer-only="true"
+								   apply-on-change="true" />
+
+			</vertical>
+		</settings-scroll-view>
 
 		<horizontal child-align="MiddleCenter" pad-top="65">
 			<button text="Close" pref-width="20" on-click="CloseTwitchFlashbangModal" />

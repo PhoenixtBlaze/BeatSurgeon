@@ -3,6 +3,7 @@ using BeatSaberMarkupLanguage.Components;
 using BeatSaberMarkupLanguage.Parser;
 using HMUI;
 using SaberSurgeon.Chat;
+using SaberSurgeon.Gameplay;
 using SaberSurgeon.Twitch;
 using SaberSurgeon.UI.Controllers;
 using System;
@@ -24,7 +25,6 @@ namespace SaberSurgeon.UI.Settings
 
         private bool _rainbowCpEnabled;
         private Color _rainbowCpBackgroundColor = Color.white;
-
         private int _rainbowCpCost = 500;
         private string _rainbowCpCostText = "500";
         private int _rainbowCpCooldownSeconds = 0;
@@ -34,36 +34,43 @@ namespace SaberSurgeon.UI.Settings
         private int _daCpCost = 500;
         private string _daCpCostText = "500";
         private int _daCpCooldownSeconds = 0;
+        private Color _daCpBackgroundColor = Color.white;
 
         private bool _ghostCpEnabled;
         private int _ghostCpCost = 500;
         private string _ghostCpCostText = "500";
         private int _ghostCpCooldownSeconds = 0;
+        private Color _ghostCpBackgroundColor = Color.white;
 
         private bool _bombCpEnabled;
         private int _bombCpCost = 500;
         private string _bombCpCostText = "500";
         private int _bombCpCooldownSeconds = 0;
+        private Color _bombCpBackgroundColor = Color.white;
 
         private bool _fasterCpEnabled;
         private int _fasterCpCost = 500;
         private string _fasterCpCostText = "500";
         private int _fasterCpCooldownSeconds = 0;
+        private Color _fasterCpBackgroundColor = Color.white;
 
         private bool _superFastCpEnabled;
         private int _superFastCpCost = 500;
         private string _superFastCpCostText = "500";
         private int _superFastCpCooldownSeconds = 0;
+        private Color _superFastCpBackgroundColor = Color.white;
 
         private bool _slowerCpEnabled;
         private int _slowerCpCost = 500;
         private string _slowerCpCostText = "500";
         private int _slowerCpCooldownSeconds = 0;
+        private Color _slowerCpBackgroundColor = Color.white;
 
         private bool _flashbangCpEnabled;
         private int _flashbangCpCost = 500;
         private string _flashbangCpCostText = "500";
         private int _flashbangCpCooldownSeconds = 0;
+        private Color _flashbangCpBackgroundColor = Color.white;
 
 
 
@@ -275,131 +282,208 @@ namespace SaberSurgeon.UI.Settings
             UpdateSupporterUi();
         }
 
+        private static (string Title, string Prompt, string BgHex) GetRewardText(string key)
+        {
+            switch (key)
+            {
+                case "rainbow":
+                    return (
+                        "Beat Saber : Rainbow Notes",
+                        $"(Only works if playing a map) Turns notes RGB for {CommandHandler.RainbowEffectSeconds:F0} seconds.",
+                        ToHex(Instance._rainbowCpBackgroundColor)
+                    );
+
+                case "disappear":
+                    return (
+                        "Beat Saber : Disappearing Arrows",
+                        $"(Only works if playing a map) Enables Disappearing Arrows for {CommandHandler.DisappearEffectSeconds:F0} seconds.",
+                        ToHex(Instance._daCpBackgroundColor)
+                    );
+
+                case "ghost":
+                    return (
+                        "Beat Saber : Ghost Notes",
+                        $"(Only works if playing a map) Enables Ghost Notes for {CommandHandler.GhostEffectSeconds:F0} seconds.",
+                        ToHex(Instance._ghostCpBackgroundColor)
+                    );
+
+                case "bomb":
+                    return (
+                        "Beat Saber : Bomb Note",
+                        $" (Only works if playing a map) Turns a random Note into a Bomb until cut (Does not effect score)",
+                        ToHex(Instance._bombCpBackgroundColor)
+                    );
+
+                case "faster":
+                    return (
+                        "Beat Saber : Faster Song",
+                        $"(Only works if playing a map) Enables Faster Song for {CommandHandler.SpeedEffectSeconds:F0} seconds. Will disable score submission",
+                        ToHex(Instance._fasterCpBackgroundColor)
+                    );
+
+                case "superfast":
+                    return (
+                        "Beat Saber : SuperFast Song",
+                        $" (Only works if playing a map) Enables SuperFast Song for {CommandHandler.SpeedEffectSeconds:F0} seconds. Will disable score submission",
+                        ToHex(Instance._superFastCpBackgroundColor)
+                    );
+
+                case "slower":
+                    return (
+                        "Beat Saber : Slower Song",
+                        $"(Only works if playing a map) Enables Slower song for {CommandHandler.SpeedEffectSeconds:F0} seconds. Will disable score submission",
+                        ToHex(Instance._slowerCpBackgroundColor)
+                    );
+
+                case "flashbang":
+                    return (
+                        "Beat Saber : Flashbang",
+                        $"(Only works if playing a map) Deploy an Environmental Flashbang that fades over {CommandHandler.FlashbangFadeSeconds:F0} seconds.",
+                        ToHex(Instance._flashbangCpBackgroundColor)
+                    );
+
+            }
+
+            return ($"Beat Saber : {key}", $"Triggers {key}.", null);
+        }
+
+
+        private void NotifyCpChanged(string key)
+        {
+            switch (key)
+            {
+                case "rainbow": NotifyPropertyChanged(nameof(RainbowCpEnabled)); break;
+                case "disappear": NotifyPropertyChanged(nameof(DaCpEnabled)); break;
+                case "ghost": NotifyPropertyChanged(nameof(GhostCpEnabled)); break;
+                case "bomb": NotifyPropertyChanged(nameof(BombCpEnabled)); break;
+                case "faster": NotifyPropertyChanged(nameof(FasterCpEnabled)); break;
+                case "superfast": NotifyPropertyChanged(nameof(SuperFastCpEnabled)); break;
+                case "slower": NotifyPropertyChanged(nameof(SlowerCpEnabled)); break;
+                case "flashbang": NotifyPropertyChanged(nameof(FlashbangCpEnabled)); break;
+            }
+        }
+
         private async Task ToggleCpAsync(string key)
         {
             try
             {
                 var cfg = Plugin.Settings;
-                if (cfg == null)
-                    return;
+                if (cfg == null) return;
 
-                // flip local + persist + sync Helix reward
+                bool enabled;
+                int cost;
+                int cooldown;
+                Func<string> getId;
+                Action<string> setId;
+
                 switch (key)
                 {
                     case "rainbow":
                         _rainbowCpEnabled = !_rainbowCpEnabled;
                         cfg.CpRainbowEnabled = _rainbowCpEnabled;
-                        await SyncRewardAsync(
-                            title: "SaberSurgeon: Rainbow",
-                            prompt: "Triggers Rainbow",
-                            cost: _rainbowCpCost,
-                            cooldown: _rainbowCpCooldownSeconds,
-                            enabled: _rainbowCpEnabled,
-                            getId: () => cfg.CpRainbowRewardId,
-                            setId: id => cfg.CpRainbowRewardId = id
-                        );
+
+                        enabled = _rainbowCpEnabled;
+                        cost = _rainbowCpCost;
+                        cooldown = _rainbowCpCooldownSeconds;
+                        getId = () => cfg.CpRainbowRewardId;
+                        setId = id => cfg.CpRainbowRewardId = id;
                         break;
 
                     case "disappear":
                         _daCpEnabled = !_daCpEnabled;
                         cfg.CpDisappearEnabled = _daCpEnabled;
-                        await SyncRewardAsync(
-                            "SaberSurgeon: Disappear",
-                            "Triggers Disappearing Arrows",
-                            _daCpCost,
-                            _daCpCooldownSeconds,
-                            _daCpEnabled,
-                            () => cfg.CpDisappearRewardId,
-                            id => cfg.CpDisappearRewardId = id
-                        );
+
+                        enabled = _daCpEnabled;
+                        cost = _daCpCost;
+                        cooldown = _daCpCooldownSeconds;
+                        getId = () => cfg.CpDisappearRewardId;
+                        setId = id => cfg.CpDisappearRewardId = id;
                         break;
 
                     case "ghost":
                         _ghostCpEnabled = !_ghostCpEnabled;
                         cfg.CpGhostEnabled = _ghostCpEnabled;
-                        await SyncRewardAsync(
-                            "SaberSurgeon: Ghost Notes",
-                            "Triggers Ghost Notes",
-                            _ghostCpCost,
-                            _ghostCpCooldownSeconds,
-                            _ghostCpEnabled,
-                            () => cfg.CpGhostRewardId,
-                            id => cfg.CpGhostRewardId = id
-                        );
+
+                        enabled = _ghostCpEnabled;
+                        cost = _ghostCpCost;
+                        cooldown = _ghostCpCooldownSeconds;
+                        getId = () => cfg.CpGhostRewardId;
+                        setId = id => cfg.CpGhostRewardId = id;
                         break;
 
                     case "bomb":
                         _bombCpEnabled = !_bombCpEnabled;
                         cfg.CpBombEnabled = _bombCpEnabled;
-                        await SyncRewardAsync(
-                            "SaberSurgeon: Bomb",
-                            "Triggers Bomb",
-                            _bombCpCost,
-                            _bombCpCooldownSeconds,
-                            _bombCpEnabled,
-                            () => cfg.CpBombRewardId,
-                            id => cfg.CpBombRewardId = id
-                        );
+
+                        enabled = _bombCpEnabled;
+                        cost = _bombCpCost;
+                        cooldown = _bombCpCooldownSeconds;
+                        getId = () => cfg.CpBombRewardId;
+                        setId = id => cfg.CpBombRewardId = id;
                         break;
 
                     case "faster":
                         _fasterCpEnabled = !_fasterCpEnabled;
                         cfg.CpFasterEnabled = _fasterCpEnabled;
-                        await SyncRewardAsync(
-                            "SaberSurgeon: Faster",
-                            "Triggers Faster Song",
-                            _fasterCpCost,
-                            _fasterCpCooldownSeconds,
-                            _fasterCpEnabled,
-                            () => cfg.CpFasterRewardId,
-                            id => cfg.CpFasterRewardId = id
-                        );
+
+                        enabled = _fasterCpEnabled;
+                        cost = _fasterCpCost;
+                        cooldown = _fasterCpCooldownSeconds;
+                        getId = () => cfg.CpFasterRewardId;
+                        setId = id => cfg.CpFasterRewardId = id;
                         break;
 
                     case "superfast":
                         _superFastCpEnabled = !_superFastCpEnabled;
                         cfg.CpSuperFastEnabled = _superFastCpEnabled;
-                        await SyncRewardAsync(
-                            "SaberSurgeon: SuperFast",
-                            "Triggers SuperFast Song",
-                            _superFastCpCost,
-                            _superFastCpCooldownSeconds,
-                            _superFastCpEnabled,
-                            () => cfg.CpSuperFastRewardId,
-                            id => cfg.CpSuperFastRewardId = id
-                        );
+
+                        enabled = _superFastCpEnabled;
+                        cost = _superFastCpCost;
+                        cooldown = _superFastCpCooldownSeconds;
+                        getId = () => cfg.CpSuperFastRewardId;
+                        setId = id => cfg.CpSuperFastRewardId = id;
                         break;
 
                     case "slower":
                         _slowerCpEnabled = !_slowerCpEnabled;
                         cfg.CpSlowerEnabled = _slowerCpEnabled;
-                        await SyncRewardAsync(
-                            "SaberSurgeon: Slower",
-                            "Triggers Slower Song",
-                            _slowerCpCost,
-                            _slowerCpCooldownSeconds,
-                            _slowerCpEnabled,
-                            () => cfg.CpSlowerRewardId,
-                            id => cfg.CpSlowerRewardId = id
-                        );
+
+                        enabled = _slowerCpEnabled;
+                        cost = _slowerCpCost;
+                        cooldown = _slowerCpCooldownSeconds;
+                        getId = () => cfg.CpSlowerRewardId;
+                        setId = id => cfg.CpSlowerRewardId = id;
                         break;
 
                     case "flashbang":
                         _flashbangCpEnabled = !_flashbangCpEnabled;
                         cfg.CpFlashbangEnabled = _flashbangCpEnabled;
-                        await SyncRewardAsync(
-                            "SaberSurgeon: Flashbang",
-                            "Triggers Flashbang",
-                            _flashbangCpCost,
-                            _flashbangCpCooldownSeconds,
-                            _flashbangCpEnabled,
-                            () => cfg.CpFlashbangRewardId,
-                            id => cfg.CpFlashbangRewardId = id
-                        );
+
+                        enabled = _flashbangCpEnabled;
+                        cost = _flashbangCpCost;
+                        cooldown = _flashbangCpCooldownSeconds;
+                        getId = () => cfg.CpFlashbangRewardId;
+                        setId = id => cfg.CpFlashbangRewardId = id;
                         break;
+
+                    default:
+                        return;
                 }
 
-                NotifyPropertyChanged(nameof(RainbowCpEnabled));
+                var t = GetRewardText(key);
+
+                await SyncRewardAsync(
+                    title: t.Title,
+                    prompt: t.Prompt,
+                    cost: cost,
+                    cooldown: cooldown,
+                    enabled: enabled,
+                    getId: getId,
+                    setId: setId,
+                    backgroundColorHex: t.BgHex
+                );
+
+                NotifyCpChanged(key);
                 UpdateTwitchCpButtonVisuals();
             }
             catch (Exception ex)
@@ -407,6 +491,7 @@ namespace SaberSurgeon.UI.Settings
                 Plugin.Log.Warn("ToggleCpAsync failed: " + ex.Message);
             }
         }
+
 
         private async Task SyncRewardAsync(
         string title,
@@ -485,6 +570,18 @@ namespace SaberSurgeon.UI.Settings
             _flashbangCpCost = cfg.CpFlashbangCost;
             _flashbangCpCostText = _flashbangCpCost.ToString();
             _flashbangCpCooldownSeconds = cfg.CpFlashbangCooldownSeconds;
+
+
+            _rainbowCpBackgroundColor = cfg.CpRainbowBackgroundColor;
+            _daCpBackgroundColor = cfg.CpDisappearBackgroundColor;
+            _ghostCpBackgroundColor = cfg.CpGhostBackgroundColor;
+            _bombCpBackgroundColor = cfg.CpBombBackgroundColor;
+            _fasterCpBackgroundColor = cfg.CpFasterBackgroundColor;
+            _superFastCpBackgroundColor = cfg.CpSuperFastBackgroundColor;
+            _slowerCpBackgroundColor = cfg.CpSlowerBackgroundColor;
+            _flashbangCpBackgroundColor = cfg.CpFlashbangBackgroundColor;
+
+
         }
 
         private void UpdateTwitchCpButtonVisuals()
@@ -708,6 +805,37 @@ namespace SaberSurgeon.UI.Settings
             Instance?.UpdateAllCommandButtonVisuals();
         }
 
+        private void QueueRewardSync(
+        string key,
+        int cost,
+        int cooldown,
+        bool enabled,
+        Func<string> getId,
+        Action<string> setId,
+        string logPrefix)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var t = GetRewardText(key);
+                    await SyncRewardAsync(
+                        title: t.Title,
+                        prompt: t.Prompt,
+                        cost: cost,
+                        cooldown: cooldown,
+                        enabled: enabled,
+                        getId: getId,
+                        setId: setId,
+                        backgroundColorHex: t.BgHex
+                    );
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn($"{logPrefix} CP SyncRewardAsync failed: {ex}");
+                }
+            });
+        }
 
 
 
@@ -892,27 +1020,14 @@ namespace SaberSurgeon.UI.Settings
                 _rainbowCpEnabled = value;
 
                 var cfg = Plugin.Settings;
-                if (cfg != null) cfg.CpRainbowEnabled = value;
-
-                _ = Task.Run(async () =>
+                if (cfg != null) 
                 {
-                    try
-                    {
-                        await SyncRewardAsync(
-                            title: "SaberSurgeon: Rainbow",
-                            prompt: "Triggers Rainbow",
-                            cost: _rainbowCpCost,
-                            cooldown: _rainbowCpCooldownSeconds,
-                            enabled: _rainbowCpEnabled,
-                            getId: () => cfg?.CpRainbowRewardId ?? "",
-                            setId: id => { if (cfg != null) cfg.CpRainbowRewardId = id; }
-                        );
-                    }
-                    catch (Exception ex)
-                    {
-                        Plugin.Log.Warn("Rainbow CP SyncRewardAsync failed: " + ex);
-                    }
-                });
+                    cfg.CpRainbowEnabled = value;
+                    QueueRewardSync("rainbow", _rainbowCpCost, _rainbowCpCooldownSeconds, _rainbowCpEnabled,
+                        () => cfg.CpRainbowRewardId,
+                        id => cfg.CpRainbowRewardId = id,
+                        "Rainbow");
+                }
 
                 UpdateTwitchCpButtonVisuals();
                 NotifyPropertyChanged();
@@ -930,7 +1045,14 @@ namespace SaberSurgeon.UI.Settings
                 _rainbowCpBackgroundColor = value;
 
                 var cfg = Plugin.Settings;
-                if (cfg != null) cfg.CpRainbowBackgroundColor = value;
+                if (cfg != null && _rainbowCpEnabled)
+                {
+                    QueueRewardSync("rainbow", _rainbowCpCost, _rainbowCpCooldownSeconds, _rainbowCpEnabled,
+                        () => cfg.CpRainbowRewardId,
+                        id => cfg.CpRainbowRewardId = id,
+                        "Rainbow");
+                }
+
 
                 NotifyPropertyChanged();
             }
@@ -974,30 +1096,730 @@ namespace SaberSurgeon.UI.Settings
 
                 if (cfg != null && _rainbowCpEnabled)
                 {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await SyncRewardAsync(
-                                title: "SaberSurgeon: Rainbow",
-                                prompt: "Triggers Rainbow",
-                                cost: _rainbowCpCost,
-                                cooldown: _rainbowCpCooldownSeconds,
-                                enabled: _rainbowCpEnabled,
-                                getId: () => cfg.CpRainbowRewardId,
-                                setId: id => cfg.CpRainbowRewardId = id,
-                                backgroundColorHex: ToHex(_rainbowCpBackgroundColor)
-                            );
-                        }
-                        catch (Exception ex)
-                        {
-                            Plugin.Log.Warn("Rainbow CP SyncRewardAsync (cooldown change) failed: " + ex);
-                        }
-                    });
+                    QueueRewardSync("rainbow", _rainbowCpCost, _rainbowCpCooldownSeconds, _rainbowCpEnabled,
+                        () => cfg.CpRainbowRewardId,
+                        id => cfg.CpRainbowRewardId = id,
+                        "Rainbow");
+                }
+
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("daCpEnabled")]
+        public bool DaCpEnabled
+        {
+            get => _daCpEnabled;
+            set
+            {
+                if (_daCpEnabled == value) return;
+                _daCpEnabled = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpDisappearEnabled = value;
+                    QueueRewardSync("disappear", _daCpCost, _daCpCooldownSeconds, _daCpEnabled,
+                        () => cfg.CpDisappearRewardId,
+                        id => cfg.CpDisappearRewardId = id,
+                        "DA");
+                }
+
+                UpdateTwitchCpButtonVisuals();
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("daCpBackgroundColor")]
+        public Color DaCpBackgroundColor
+        {
+            get => _daCpBackgroundColor;
+            set
+            {
+                if (_daCpBackgroundColor == value) return;
+                _daCpBackgroundColor = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null) cfg.CpDisappearBackgroundColor = value;
+
+                if (cfg != null && _daCpEnabled)
+                {
+                    QueueRewardSync("disappear", _daCpCost, _daCpCooldownSeconds, _daCpEnabled,
+                        () => cfg.CpDisappearRewardId,
+                        id => cfg.CpDisappearRewardId = id,
+                        "DA");
                 }
 
                 NotifyPropertyChanged();
             }
         }
+
+        [UIValue("daCpCostText")]
+        public string DaCpCostText
+        {
+            get => _daCpCostText;
+            set
+            {
+                if (_daCpCostText == value) return;
+                _daCpCostText = value ?? string.Empty;
+
+                if (int.TryParse(_daCpCostText, out var parsed) && parsed > 0)
+                    _daCpCost = parsed;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpDisappearCost = _daCpCost;
+                    if (_daCpEnabled)
+                    {
+                        QueueRewardSync("disappear", _daCpCost, _daCpCooldownSeconds, _daCpEnabled,
+                            () => cfg.CpDisappearRewardId,
+                            id => cfg.CpDisappearRewardId = id,
+                            "DA");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("daCpCooldownSeconds")]
+        public int DaCpCooldownSeconds
+        {
+            get => _daCpCooldownSeconds;
+            set
+            {
+                _daCpCooldownSeconds = Math.Max(0, value);
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpDisappearCooldownSeconds = _daCpCooldownSeconds;
+                    if (_daCpEnabled)
+                    {
+                        QueueRewardSync("disappear", _daCpCost, _daCpCooldownSeconds, _daCpEnabled,
+                            () => cfg.CpDisappearRewardId,
+                            id => cfg.CpDisappearRewardId = id,
+                            "DA");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("ghostCpEnabled")]
+        public bool GhostCpEnabled
+        {
+            get => _ghostCpEnabled;
+            set
+            {
+                if (_ghostCpEnabled == value) return;
+                _ghostCpEnabled = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpGhostEnabled = value;
+                    QueueRewardSync("ghost", _ghostCpCost, _ghostCpCooldownSeconds, _ghostCpEnabled,
+                        () => cfg.CpGhostRewardId,
+                        id => cfg.CpGhostRewardId = id,
+                        "Ghost");
+                }
+
+                UpdateTwitchCpButtonVisuals();
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("ghostCpBackgroundColor")]
+        public Color GhostCpBackgroundColor
+        {
+            get => _ghostCpBackgroundColor;
+            set
+            {
+                if (_ghostCpBackgroundColor == value) return;
+                _ghostCpBackgroundColor = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null) cfg.CpGhostBackgroundColor = value;
+
+                if (cfg != null && _ghostCpEnabled)
+                {
+                    QueueRewardSync("ghost", _ghostCpCost, _ghostCpCooldownSeconds, _ghostCpEnabled,
+                        () => cfg.CpGhostRewardId,
+                        id => cfg.CpGhostRewardId = id,
+                        "Ghost");
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("ghostCpCostText")]
+        public string GhostCpCostText
+        {
+            get => _ghostCpCostText;
+            set
+            {
+                if (_ghostCpCostText == value) return;
+                _ghostCpCostText = value ?? string.Empty;
+
+                if (int.TryParse(_ghostCpCostText, out var parsed) && parsed > 0)
+                    _ghostCpCost = parsed;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpGhostCost = _ghostCpCost;
+                    if (_ghostCpEnabled)
+                    {
+                        QueueRewardSync("ghost", _ghostCpCost, _ghostCpCooldownSeconds, _ghostCpEnabled,
+                            () => cfg.CpGhostRewardId,
+                            id => cfg.CpGhostRewardId = id,
+                            "Ghost");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("ghostCpCooldownSeconds")]
+        public int GhostCpCooldownSeconds
+        {
+            get => _ghostCpCooldownSeconds;
+            set
+            {
+                _ghostCpCooldownSeconds = Math.Max(0, value);
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpGhostCooldownSeconds = _ghostCpCooldownSeconds;
+                    if (_ghostCpEnabled)
+                    {
+                        QueueRewardSync("ghost", _ghostCpCost, _ghostCpCooldownSeconds, _ghostCpEnabled,
+                            () => cfg.CpGhostRewardId,
+                            id => cfg.CpGhostRewardId = id,
+                            "Ghost");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("bombCpEnabled")]
+        public bool BombCpEnabled
+        {
+            get => _bombCpEnabled;
+            set
+            {
+                if (_bombCpEnabled == value) return;
+                _bombCpEnabled = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpBombEnabled = value;
+                    QueueRewardSync("bomb", _bombCpCost, _bombCpCooldownSeconds, _bombCpEnabled,
+                        () => cfg.CpBombRewardId,
+                        id => cfg.CpBombRewardId = id,
+                        "Bomb");
+                }
+
+                UpdateTwitchCpButtonVisuals();
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("bombCpBackgroundColor")]
+        public Color BombCpBackgroundColor
+        {
+            get => _bombCpBackgroundColor;
+            set
+            {
+                if (_bombCpBackgroundColor == value) return;
+                _bombCpBackgroundColor = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null) cfg.CpBombBackgroundColor = value;
+
+                if (cfg != null && _bombCpEnabled)
+                {
+                    QueueRewardSync("bomb", _bombCpCost, _bombCpCooldownSeconds, _bombCpEnabled,
+                        () => cfg.CpBombRewardId,
+                        id => cfg.CpBombRewardId = id,
+                        "Bomb");
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("bombCpCostText")]
+        public string BombCpCostText
+        {
+            get => _bombCpCostText;
+            set
+            {
+                if (_bombCpCostText == value) return;
+                _bombCpCostText = value ?? string.Empty;
+
+                if (int.TryParse(_bombCpCostText, out var parsed) && parsed > 0)
+                    _bombCpCost = parsed;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpBombCost = _bombCpCost;
+                    if (_bombCpEnabled)
+                    {
+                        QueueRewardSync("bomb", _bombCpCost, _bombCpCooldownSeconds, _bombCpEnabled,
+                            () => cfg.CpBombRewardId,
+                            id => cfg.CpBombRewardId = id,
+                            "Bomb");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("bombCpCooldownSeconds")]
+        public int BombCpCooldownSeconds
+        {
+            get => _bombCpCooldownSeconds;
+            set
+            {
+                _bombCpCooldownSeconds = Math.Max(0, value);
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpBombCooldownSeconds = _bombCpCooldownSeconds;
+                    if (_bombCpEnabled)
+                    {
+                        QueueRewardSync("bomb", _bombCpCost, _bombCpCooldownSeconds, _bombCpEnabled,
+                            () => cfg.CpBombRewardId,
+                            id => cfg.CpBombRewardId = id,
+                            "Bomb");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("fasterCpEnabled")]
+        public bool FasterCpEnabled
+        {
+            get => _fasterCpEnabled;
+            set
+            {
+                if (_fasterCpEnabled == value) return;
+                _fasterCpEnabled = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpFasterEnabled = value;
+                    QueueRewardSync("faster", _fasterCpCost, _fasterCpCooldownSeconds, _fasterCpEnabled,
+                        () => cfg.CpFasterRewardId,
+                        id => cfg.CpFasterRewardId = id,
+                        "Faster");
+                }
+
+                UpdateTwitchCpButtonVisuals();
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("fasterCpBackgroundColor")]
+        public Color FasterCpBackgroundColor
+        {
+            get => _fasterCpBackgroundColor;
+            set
+            {
+                if (_fasterCpBackgroundColor == value) return;
+                _fasterCpBackgroundColor = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null) cfg.CpFasterBackgroundColor = value;
+
+                if (cfg != null && _fasterCpEnabled)
+                {
+                    QueueRewardSync("faster", _fasterCpCost, _fasterCpCooldownSeconds, _fasterCpEnabled,
+                        () => cfg.CpFasterRewardId,
+                        id => cfg.CpFasterRewardId = id,
+                        "Faster");
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("fasterCpCostText")]
+        public string FasterCpCostText
+        {
+            get => _fasterCpCostText;
+            set
+            {
+                if (_fasterCpCostText == value) return;
+                _fasterCpCostText = value ?? string.Empty;
+
+                if (int.TryParse(_fasterCpCostText, out var parsed) && parsed > 0)
+                    _fasterCpCost = parsed;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpFasterCost = _fasterCpCost;
+                    if (_fasterCpEnabled)
+                    {
+                        QueueRewardSync("faster", _fasterCpCost, _fasterCpCooldownSeconds, _fasterCpEnabled,
+                            () => cfg.CpFasterRewardId,
+                            id => cfg.CpFasterRewardId = id,
+                            "Faster");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("fasterCpCooldownSeconds")]
+        public int FasterCpCooldownSeconds
+        {
+            get => _fasterCpCooldownSeconds;
+            set
+            {
+                _fasterCpCooldownSeconds = Math.Max(0, value);
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpFasterCooldownSeconds = _fasterCpCooldownSeconds;
+                    if (_fasterCpEnabled)
+                    {
+                        QueueRewardSync("faster", _fasterCpCost, _fasterCpCooldownSeconds, _fasterCpEnabled,
+                            () => cfg.CpFasterRewardId,
+                            id => cfg.CpFasterRewardId = id,
+                            "Faster");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("superFastCpEnabled")]
+        public bool SuperFastCpEnabled
+        {
+            get => _superFastCpEnabled;
+            set
+            {
+                if (_superFastCpEnabled == value) return;
+                _superFastCpEnabled = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpSuperFastEnabled = value;
+                    QueueRewardSync("superfast", _superFastCpCost, _superFastCpCooldownSeconds, _superFastCpEnabled,
+                        () => cfg.CpSuperFastRewardId,
+                        id => cfg.CpSuperFastRewardId = id,
+                        "SuperFast");
+                }
+
+                UpdateTwitchCpButtonVisuals();
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("superFastCpBackgroundColor")]
+        public Color SuperFastCpBackgroundColor
+        {
+            get => _superFastCpBackgroundColor;
+            set
+            {
+                if (_superFastCpBackgroundColor == value) return;
+                _superFastCpBackgroundColor = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null) cfg.CpSuperFastBackgroundColor = value;
+
+                if (cfg != null && _superFastCpEnabled)
+                {
+                    QueueRewardSync("superfast", _superFastCpCost, _superFastCpCooldownSeconds, _superFastCpEnabled,
+                        () => cfg.CpSuperFastRewardId,
+                        id => cfg.CpSuperFastRewardId = id,
+                        "SuperFast");
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("superFastCpCostText")]
+        public string SuperFastCpCostText
+        {
+            get => _superFastCpCostText;
+            set
+            {
+                if (_superFastCpCostText == value) return;
+                _superFastCpCostText = value ?? string.Empty;
+
+                if (int.TryParse(_superFastCpCostText, out var parsed) && parsed > 0)
+                    _superFastCpCost = parsed;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpSuperFastCost = _superFastCpCost;
+                    if (_superFastCpEnabled)
+                    {
+                        QueueRewardSync("superfast", _superFastCpCost, _superFastCpCooldownSeconds, _superFastCpEnabled,
+                            () => cfg.CpSuperFastRewardId,
+                            id => cfg.CpSuperFastRewardId = id,
+                            "SuperFast");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("superFastCpCooldownSeconds")]
+        public int SuperFastCpCooldownSeconds
+        {
+            get => _superFastCpCooldownSeconds;
+            set
+            {
+                _superFastCpCooldownSeconds = Math.Max(0, value);
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpSuperFastCooldownSeconds = _superFastCpCooldownSeconds;
+                    if (_superFastCpEnabled)
+                    {
+                        QueueRewardSync("superfast", _superFastCpCost, _superFastCpCooldownSeconds, _superFastCpEnabled,
+                            () => cfg.CpSuperFastRewardId,
+                            id => cfg.CpSuperFastRewardId = id,
+                            "SuperFast");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("slowerCpEnabled")]
+        public bool SlowerCpEnabled
+        {
+            get => _slowerCpEnabled;
+            set
+            {
+                if (_slowerCpEnabled == value) return;
+                _slowerCpEnabled = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpSlowerEnabled = value;
+                    QueueRewardSync("slower", _slowerCpCost, _slowerCpCooldownSeconds, _slowerCpEnabled,
+                        () => cfg.CpSlowerRewardId,
+                        id => cfg.CpSlowerRewardId = id,
+                        "Slower");
+                }
+
+                UpdateTwitchCpButtonVisuals();
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("slowerCpBackgroundColor")]
+        public Color SlowerCpBackgroundColor
+        {
+            get => _slowerCpBackgroundColor;
+            set
+            {
+                if (_slowerCpBackgroundColor == value) return;
+                _slowerCpBackgroundColor = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null) cfg.CpSlowerBackgroundColor = value;
+
+                if (cfg != null && _slowerCpEnabled)
+                {
+                    QueueRewardSync("slower", _slowerCpCost, _slowerCpCooldownSeconds, _slowerCpEnabled,
+                        () => cfg.CpSlowerRewardId,
+                        id => cfg.CpSlowerRewardId = id,
+                        "Slower");
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("slowerCpCostText")]
+        public string SlowerCpCostText
+        {
+            get => _slowerCpCostText;
+            set
+            {
+                if (_slowerCpCostText == value) return;
+                _slowerCpCostText = value ?? string.Empty;
+
+                if (int.TryParse(_slowerCpCostText, out var parsed) && parsed > 0)
+                    _slowerCpCost = parsed;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpSlowerCost = _slowerCpCost;
+                    if (_slowerCpEnabled)
+                    {
+                        QueueRewardSync("slower", _slowerCpCost, _slowerCpCooldownSeconds, _slowerCpEnabled,
+                            () => cfg.CpSlowerRewardId,
+                            id => cfg.CpSlowerRewardId = id,
+                            "Slower");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("slowerCpCooldownSeconds")]
+        public int SlowerCpCooldownSeconds
+        {
+            get => _slowerCpCooldownSeconds;
+            set
+            {
+                _slowerCpCooldownSeconds = Math.Max(0, value);
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpSlowerCooldownSeconds = _slowerCpCooldownSeconds;
+                    if (_slowerCpEnabled)
+                    {
+                        QueueRewardSync("slower", _slowerCpCost, _slowerCpCooldownSeconds, _slowerCpEnabled,
+                            () => cfg.CpSlowerRewardId,
+                            id => cfg.CpSlowerRewardId = id,
+                            "Slower");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("flashbangCpEnabled")]
+        public bool FlashbangCpEnabled
+        {
+            get => _flashbangCpEnabled;
+            set
+            {
+                if (_flashbangCpEnabled == value) return;
+                _flashbangCpEnabled = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpFlashbangEnabled = value;
+                    QueueRewardSync("flashbang", _flashbangCpCost, _flashbangCpCooldownSeconds, _flashbangCpEnabled,
+                        () => cfg.CpFlashbangRewardId,
+                        id => cfg.CpFlashbangRewardId = id,
+                        "Flashbang");
+                }
+
+                UpdateTwitchCpButtonVisuals();
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("flashbangCpBackgroundColor")]
+        public Color FlashbangCpBackgroundColor
+        {
+            get => _flashbangCpBackgroundColor;
+            set
+            {
+                if (_flashbangCpBackgroundColor == value) return;
+                _flashbangCpBackgroundColor = value;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null) cfg.CpFlashbangBackgroundColor = value;
+
+                if (cfg != null && _flashbangCpEnabled)
+                {
+                    QueueRewardSync("flashbang", _flashbangCpCost, _flashbangCpCooldownSeconds, _flashbangCpEnabled,
+                        () => cfg.CpFlashbangRewardId,
+                        id => cfg.CpFlashbangRewardId = id,
+                        "Flashbang");
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("flashbangCpCostText")]
+        public string FlashbangCpCostText
+        {
+            get => _flashbangCpCostText;
+            set
+            {
+                if (_flashbangCpCostText == value) return;
+                _flashbangCpCostText = value ?? string.Empty;
+
+                if (int.TryParse(_flashbangCpCostText, out var parsed) && parsed > 0)
+                    _flashbangCpCost = parsed;
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpFlashbangCost = _flashbangCpCost;
+                    if (_flashbangCpEnabled)
+                    {
+                        QueueRewardSync("flashbang", _flashbangCpCost, _flashbangCpCooldownSeconds, _flashbangCpEnabled,
+                            () => cfg.CpFlashbangRewardId,
+                            id => cfg.CpFlashbangRewardId = id,
+                            "Flashbang");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
+        [UIValue("flashbangCpCooldownSeconds")]
+        public int FlashbangCpCooldownSeconds
+        {
+            get => _flashbangCpCooldownSeconds;
+            set
+            {
+                _flashbangCpCooldownSeconds = Math.Max(0, value);
+
+                var cfg = Plugin.Settings;
+                if (cfg != null)
+                {
+                    cfg.CpFlashbangCooldownSeconds = _flashbangCpCooldownSeconds;
+                    if (_flashbangCpEnabled)
+                    {
+                        QueueRewardSync("flashbang", _flashbangCpCost, _flashbangCpCooldownSeconds, _flashbangCpEnabled,
+                            () => cfg.CpFlashbangRewardId,
+                            id => cfg.CpFlashbangRewardId = id,
+                            "Flashbang");
+                    }
+                }
+
+                NotifyPropertyChanged();
+            }
+        }
+
     }
 }

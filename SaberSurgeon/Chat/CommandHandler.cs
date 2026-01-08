@@ -117,6 +117,21 @@ namespace SaberSurgeon.Chat
             NoCooldownCommands.Contains(commandName);
 
 
+        // Effect durations (seconds)
+        public const float RainbowEffectSeconds = 30f;
+        public const float GhostEffectSeconds = 30f;
+        public const float DisappearEffectSeconds = 30f;
+
+        public const float SpeedEffectSeconds = 30f;
+        public const float FasterMultiplier = 1.2f;
+        public const float SuperFastMultiplier = 1.5f;
+        public const float SlowerMultiplier = 0.85f;
+
+        public const float FlashbangHoldSeconds = 1f;
+        public const float FlashbangFadeSeconds = 3f;
+        public const float FlashbangIntensityMultiplier = 25f;
+
+
         private CommandHandler()
         {
             _commands = new Dictionary<string, CommandDelegate>(StringComparer.OrdinalIgnoreCase);
@@ -415,7 +430,7 @@ namespace SaberSurgeon.Chat
             if (leftArg.Equals("rainbow", StringComparison.OrdinalIgnoreCase) &&
                 rightArg.Equals("rainbow", StringComparison.OrdinalIgnoreCase))
             {
-                bool startedRainbow = Gameplay.RainbowManager.Instance.StartRainbow(30f);
+                bool startedRainbow = Gameplay.RainbowManager.Instance.StartRainbow(RainbowEffectSeconds);
                 if (!startedRainbow)
                 {
                     SendResponse(
@@ -665,7 +680,10 @@ namespace SaberSurgeon.Chat
             }
 
             // 2500% (x25) for 1s, then fade 3s
-            bool started = Gameplay.FlashbangManager.Instance.TriggerFlashbang(25f, 1f, 3f);
+            bool started = Gameplay.FlashbangManager.Instance.TriggerFlashbang(
+                FlashbangIntensityMultiplier,
+                FlashbangHoldSeconds,
+                FlashbangFadeSeconds);
             if (!started)
             {
                 SendResponse(
@@ -720,8 +738,8 @@ namespace SaberSurgeon.Chat
 
             bool started = Gameplay.FasterSongManager.Instance.StartSpeedEffect(
                 "faster",
-                1.2f,          // +20%
-                30f,
+                FasterMultiplier,
+                SpeedEffectSeconds,
                 "SaberSurgeon Faster");
 
             if (!started)
@@ -777,8 +795,8 @@ namespace SaberSurgeon.Chat
 
             bool started = Gameplay.FasterSongManager.Instance.StartSpeedEffect(
                 "superfast",
-                1.5f,          // +50%
-                30f,
+                SuperFastMultiplier,          // +50%
+                SpeedEffectSeconds,
                 "SaberSurgeon SuperFast");
 
             if (!started)
@@ -832,8 +850,8 @@ namespace SaberSurgeon.Chat
 
             bool started = Gameplay.FasterSongManager.Instance.StartSpeedEffect(
                 "slower",
-                0.85f,         // -15%
-                30f,
+                SlowerMultiplier,         // -15%
+                SpeedEffectSeconds,
                 "SaberSurgeon Slower");
 
             if (!started)
@@ -936,7 +954,7 @@ namespace SaberSurgeon.Chat
                 return false; // no cooldown
             }
 
-            bool started = Gameplay.DisappearingArrowsManager.Instance.StartDisappearingArrows(30f);
+            bool started = Gameplay.DisappearingArrowsManager.Instance.StartDisappearingArrows(DisappearEffectSeconds);
             if (!started)
             {
                 SendResponse(
@@ -992,7 +1010,7 @@ namespace SaberSurgeon.Chat
                 return false;
             }
 
-            bool started = Gameplay.GhostNotesManager.Instance.StartGhost(30f, ctx?.SenderName);
+            bool started = Gameplay.GhostNotesManager.Instance.StartGhost(GhostEffectSeconds, ctx?.SenderName);
             if (!started)
             {
                 SendResponse(
@@ -1042,7 +1060,7 @@ namespace SaberSurgeon.Chat
                 }
             }
 
-            bool started = Gameplay.RainbowManager.Instance.StartRainbow(30f);
+            bool started = Gameplay.RainbowManager.Instance.StartRainbow(RainbowEffectSeconds);
             if (!started)
             {
                 SendResponse("Rainbow ignored: not in a map", "!!Rainbow can only be used while you are playing a song.");
