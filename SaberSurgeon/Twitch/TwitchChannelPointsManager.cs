@@ -150,7 +150,10 @@ namespace SaberSurgeon.Twitch
             else
             {
                 payload["is_global_cooldown_enabled"] = false;
-                // do NOT include global_cooldown_seconds when disabled
+
+                // Still include the seconds field to satisfy Helix validation.
+                // Use 1 to avoid “minimum is 1” validation edge cases.
+                payload["global_cooldown_seconds"] = 1;
             }
 
             string url =
