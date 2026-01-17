@@ -15,6 +15,8 @@ using System.Reflection;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using IPA.Utilities.Async; // for UnityMainThreadTaskScheduler
+
 
 
 namespace SaberSurgeon.UI.Controllers
@@ -143,7 +145,33 @@ namespace SaberSurgeon.UI.Controllers
         {
             base.DidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
 
+            if (firstActivation)
+            {
+                TwitchApiClient.OnSubscriberStatusChanged += HandleSubscriberStatusChanged;
+            }
+
             UpdateBombVisualsButtonVisibility();
+        }
+
+        protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
+        {
+            base.DidDeactivate(removedFromHierarchy, screenSystemDisabling);
+
+            if (removedFromHierarchy)
+            {
+                TwitchApiClient.OnSubscriberStatusChanged -= HandleSubscriberStatusChanged;
+            }
+        }
+
+        private void HandleSubscriberStatusChanged()
+        {
+            // Ensure UI work runs on Unity’s main thread.
+            UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+            {
+                UpdateBombVisualsButtonVisibility();
+                // Optional – if you ever bind `show_bomb_visuals_button` directly in BSML:
+                // NotifyPropertyChanged(nameof(ShowBombVisualsButton));
+            });
         }
 
         private void UpdateBombVisualsButtonVisibility()

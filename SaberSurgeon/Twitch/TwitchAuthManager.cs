@@ -8,6 +8,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+using SaberSurgeon.Twitch;
+
 
 namespace SaberSurgeon.Twitch
 {
@@ -488,10 +490,25 @@ namespace SaberSurgeon.Twitch
         {
             await EnsureValidTokenAsync();
             await EnsureIdentityAsync();
+
+            try
+            {
+                // Populate BroadcasterId, BroadcasterName, SupportChannelId
+                // and refresh supporter entitlements + subscription tier.
+                await TwitchApiClient.Instance.FetchBroadcasterAndSupportInfo();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"TwitchAuthManager: FetchBroadcasterAndSupportInfo failed: {ex.Message}");
+            }
+
             return !string.IsNullOrEmpty(_accessToken)
                 && !string.IsNullOrEmpty(BroadcasterId)
                 && !string.IsNullOrEmpty(BotUserId);
+
+
         }
+
 
 
     }

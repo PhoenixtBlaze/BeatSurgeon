@@ -15,11 +15,17 @@ namespace SaberSurgeon
     {
         // Public-ish flag for other modules (e.g. PFSL) to query
         internal static bool MpPlusInRoom { get; private set; }
+        internal static string MpPlusRoomCode { get; private set; } = string.Empty;
+        internal static bool MpPlusIsHost { get; private set; } = false;
+        internal static event Action MpPlusRoomInfoChanged;
+
         internal static event Action<bool> MpPlusInRoomChanged;
 
 
         private static bool _initialized;
+        private static bool _roomDataDumped;
         private static Coroutine _pollRoutine;
+        private static string _lastRoomId;
 
         private static Assembly _mpAsm;
 
@@ -29,6 +35,8 @@ namespace SaberSurgeon
         private static FieldInfo _mpRoomDataField;
         private static PropertyInfo _mpStatusProp;
         private static FieldInfo _mpStatusField;
+        private static PropertyInfo _mpSelfPlayerProp;
+
 
         // ---- MP+ FlowCoordinator reflection (UI “lobby open” detection) ----
         // MP+ class: BeatSaberPlusMultiplayer.UI.MultiplayerPViewFlowCoordinator (derived from HMUIViewFlowCoordinatorMultiplayerPViewFlowCoordinator)
@@ -103,7 +111,10 @@ namespace SaberSurgeon
                 for (int i = 0; i < _mpEventSubs.Count; i++)
                 {
                     var sub = _mpEventSubs[i];
-                    sub?.Event?.RemoveEventHandler(null, sub.Handler);
+                    var remove = sub?.Event?.GetRemoveMethod(true);
+                    if (remove != null && sub?.Handler != null)
+                        remove.Invoke(null, new object[] { sub.Handler });
+
                 }
             }
             catch
@@ -124,6 +135,85 @@ namespace SaberSurgeon
             LogUtils.Debug(() => $"[SceneHelper] Active scene changed: {prev.name} -> {next.name}");
         }
 
+
+        private static void DumpRoomDataMembersOnce(object roomData)
+        {
+            if (roomData == null) return;
+
+            var t = roomData.GetType();
+            LogUtils.Debug(() => $"[SceneHelper] MP+ RoomData runtime type = {t.FullName}");
+
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            foreach (var p in t.GetProperties(flags))
+            {
+                if (p == null || p.GetIndexParameters().Length != 0) continue;
+                object v = null;
+                try { v = p.GetValue(roomData, null); } catch { /* ignore */ }
+                LogUtils.Debug(() => $"[SceneHelper] RoomData.PROP {p.PropertyType.Name} {p.Name} = {v}");
+            }
+
+            foreach (var f in t.GetFields(flags))
+            {
+                if (f == null) continue;
+                object v = null;
+                try { v = f.GetValue(roomData); } catch { /* ignore */ }
+                LogUtils.Debug(() => $"[SceneHelper] RoomData.FIELD {f.FieldType.Name} {f.Name} = {v}");
+            }
+        }
+
+        private static void DumpRoomDataOncePerRoom(object roomData)
+        {
+            if (roomData == null)
+            {
+                _lastRoomId = null;
+                _roomDataDumped = false;
+                return;
+            }
+
+            var roomId = GetMemberString(roomData, "RoomID"); // exists in your dump
+            if (!string.Equals(roomId, _lastRoomId, StringComparison.Ordinal))
+            {
+                _lastRoomId = roomId;
+                _roomDataDumped = false;
+            }
+
+            if (!_roomDataDumped)
+            {
+                _roomDataDumped = true;
+                DumpRoomDataMembersOnce(roomData);
+            }
+        }
+
+        private static bool _networkManagerDumped;
+
+        private static void DumpNetworkManagerMembersOnce()
+        {
+            if (_networkManagerDumped) return;
+            if (_mpNetworkManagerType == null) return;
+
+            _networkManagerDumped = true;
+
+            LogUtils.Debug(() => $"[SceneHelper] MP+ NetworkManager type = {_mpNetworkManagerType.FullName}");
+
+            foreach (var p in _mpNetworkManagerType.GetProperties(kStaticAny))
+            {
+                if (p == null || p.GetIndexParameters().Length != 0) continue;
+                object v = null;
+                try { v = p.GetValue(null, null); } catch { /* ignore */ }
+                LogUtils.Debug(() => $"[SceneHelper] NetMan.PROP {p.PropertyType.Name} {p.Name} = {v}");
+            }
+
+            foreach (var f in _mpNetworkManagerType.GetFields(kStaticAny))
+            {
+                if (f == null) continue;
+                object v = null;
+                try { v = f.GetValue(null); } catch { /* ignore */ }
+                LogUtils.Debug(() => $"[SceneHelper] NetMan.FIELD {f.FieldType.Name} {f.Name} = {v}");
+            }
+        }
+
+
         private static IEnumerator PollMpPlusState()
         {
             while (true)
@@ -132,6 +222,7 @@ namespace SaberSurgeon
                 {
                     EnsureMpAssembly();
                     EnsureMpNetworkReflection();
+                    DumpNetworkManagerMembersOnce();
                     EnsureMpFlowReflection();
 
                     var sceneName = SceneManager.GetActiveScene().name;
@@ -167,6 +258,20 @@ namespace SaberSurgeon
                         mpInRoom &&
                         string.Equals(sceneName, "GameCore", StringComparison.OrdinalIgnoreCase) &&
                         (mpRoomPlaying || mpRoomWarmingUp || mpRoomResults);
+
+
+
+                    object selfPlayer = GetStaticValue(_mpSelfPlayerProp, null);
+
+                    
+                    uint hostLuid = GetMemberUInt(roomData, "HostLUID");
+                    uint selfLuid = GetMemberUInt(selfPlayer, "LUID");
+
+                    bool isHost = hostLuid != 0 && selfLuid != 0 && hostLuid == selfLuid;
+
+                    SetMpPlusRoomInfo(roomCode, isHost);
+
+
 
                     // ----- UI FlowCoordinator-based detection (MP+ menu/lobby UI open) -----
                     object flow = GetStaticValue(_mpFlowInstanceProp, null);
@@ -210,10 +315,26 @@ namespace SaberSurgeon
         {
             if (MpPlusInRoom == value) return;
 
+
             MpPlusInRoom = value;
             MpPlusInRoomChanged?.Invoke(MpPlusInRoom);
             LogUtils.Debug(() => $"[SceneHelper] MP+ in-room changed -> {MpPlusInRoom} (reason={reason}, status={statusStr ?? "null"}, roomData={hasRoomData})");
         }
+
+        private static void SetMpPlusRoomInfo(string roomCode, bool isHost)
+        {
+            if (roomCode == null)
+                roomCode = string.Empty;
+
+
+            if (MpPlusRoomCode == roomCode && MpPlusIsHost == isHost)
+                return;
+
+            MpPlusRoomCode = roomCode;
+            MpPlusIsHost = isHost;
+            MpPlusRoomInfoChanged?.Invoke();
+        }
+
 
         // ----------------------------
         // Assembly / type binding
@@ -313,6 +434,35 @@ namespace SaberSurgeon
             }
         }
 
+        private static uint GetMemberUInt(object obj, string name)
+        {
+            if (obj == null) return 0;
+            var t = obj.GetType();
+
+            var p = t.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (p != null)
+            {
+                try
+                {
+                    var v = p.GetValue(obj, null);
+                    return v is uint u ? u : 0;
+                }
+                catch { return 0; }
+            }
+
+            var f = t.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (f != null)
+            {
+                try
+                {
+                    var v = f.GetValue(obj);
+                    return v is uint u ? u : 0;
+                }
+                catch { return 0; }
+            }
+
+            return 0;
+        }
 
         private static void EnsureMpNetworkReflection()
         {
@@ -322,8 +472,11 @@ namespace SaberSurgeon
             _mpNetworkManagerType =
                 _mpAsm.GetType("BeatSaberPlusMultiplayer.Network.NetworkManager", throwOnError: false)
                 ?? _mpAsm.GetType("BeatSaberPlus_Multiplayer.Network.NetworkManager", throwOnError: false);
+            
 
             if (_mpNetworkManagerType == null) return;
+
+            _mpSelfPlayerProp = _mpNetworkManagerType.GetProperty("SelfPlayer", kStaticAny);
 
             // RoomData in 6.4.2.0 is backed by private static RoomData mRoomData; and an internal static RoomData RoomData accessor exists.
             _mpRoomDataProp = _mpNetworkManagerType.GetProperty("RoomData", kStaticAny);
@@ -415,7 +568,11 @@ namespace SaberSurgeon
                     if (del == null)
                         continue;
 
-                    evt.AddEventHandler(null, del);
+                    var add = evt.GetAddMethod(true);
+                    if (add == null)
+                        continue;
+
+                    add.Invoke(null, new object[] { del });
                     _mpEventSubs.Add(new MpEventSub(evt, del));
                     hooked++;
                 }
@@ -471,13 +628,26 @@ namespace SaberSurgeon
 
             object roomData = GetStaticValue(_mpRoomDataProp, _mpRoomDataField);
             bool hasRoomData = roomData != null;
-
+            if (roomData != null && !_roomDataDumped)
+            {
+                _roomDataDumped = true;
+                DumpRoomDataMembersOnce(roomData);
+            }
             bool inRoom =
                 string.Equals(statusStr, "InRoom", StringComparison.OrdinalIgnoreCase) ||
                 hasRoomData;
 
             SetMpPlusInRoom(inRoom, reason, statusStr, hasRoomData);
+
+            if (roomData != null )//&& !_roomDataDumped)
+            {
+                //_roomDataDumped = true;
+                DumpRoomDataMembersOnce(roomData);
+                
+            }
         }
+
+
 
         // ----------------------------
         // Reflection helpers

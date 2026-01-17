@@ -31,7 +31,8 @@ namespace SaberSurgeon.Twitch
         public string SupportChannelId { get; private set; }
 
         private const string HelixUrl = "https://api.twitch.tv/helix";
-        //private const string ClientId = "dyq6orcrvl9cxd8d1usx6rtczt3tfb";
+
+        private const string BackendEntitlementsUrl = "https://phoenixblaze0.duckdns.org/entitlements";
 
         public static IEnumerator GetSpriteFromUrl(string url, Action<Sprite> callback)
         {
@@ -96,6 +97,36 @@ namespace SaberSurgeon.Twitch
             _spriteCache.Clear();
         }
 
+
+        private async Task CheckEntitlementsAsync(HttpClient client, string token)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, BackendEntitlementsUrl);
+            req.Headers.Add("Authorization", "Bearer " + token);
+
+            var resp = await client.SendAsync(req);
+            var body = await resp.Content.ReadAsStringAsync();
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                Plugin.Log.Warn($"TwitchAPI: /entitlements failed status={resp.StatusCode} body={body}");
+                return;
+            }
+
+            var json = JObject.Parse(body);
+            var payload = json["payload"];
+
+            bool supporter =
+                payload?["features"]?["supporter"]?.Value<bool>() ?? false;
+
+            // Map boolean entitlement to your existing tier model
+            Plugin.Settings.CachedSupporterTier = supporter ? 1 : 0;
+            SupporterState.CurrentTier = supporter ? SupporterTier.Tier1 : SupporterTier.None;
+
+            OnSubscriberStatusChanged?.Invoke();
+        }
+
+
+
         public async Task FetchBroadcasterAndSupportInfo()
         {
             string token = TwitchAuthManager.Instance.GetAccessToken();
@@ -139,6 +170,7 @@ namespace SaberSurgeon.Twitch
                     Plugin.Log.Warn($"TwitchAPI: /users failed status={userRes.StatusCode} body={errBody}");
                 }
 
+                await CheckEntitlementsAsync(client, token);
                 // 2. Get Support Channel Info
                 var supportRes = await client.GetAsync(HelixUrl + "/users?login=" + TwitchAuthManager.SupportChannelName);
                 if (supportRes.IsSuccessStatusCode)

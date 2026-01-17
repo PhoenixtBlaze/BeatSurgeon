@@ -104,9 +104,6 @@ namespace SaberSurgeon
             {
                 Log.Error($"SaberSurgeon: Harmony patch error: {ex}");
             }
-
-
-
         }
 
 
@@ -319,7 +316,7 @@ namespace SaberSurgeon
             }
             try
             {
-                // Disable all CP rewards when exiting so they don't remain redeemable. [file:214][file:200]
+                // Disable all CP rewards when exiting so they don't remain redeemable.
                 _ = System.Threading.Tasks.Task.Run(async () =>
                 {
                     try
