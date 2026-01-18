@@ -1,6 +1,6 @@
-# Saber Surgeon
+# Beat Surgeon
 
-**Saber Surgeon** is a Beat Saber mod that empowers your Twitch chat to directly interact with your gameplay in real time. It turns your stream into a collaborative (and chaotic) experience by allowing viewers to trigger visual effects, "pranks," and modifiers using simple chat commands—all while you maintain full control over cooldowns and permissions.
+**Beat Surgeon** is a Beat Saber mod that empowers your Twitch chat to directly interact with your gameplay in real time. It turns your stream into a collaborative (and chaotic) experience by allowing viewers to trigger visual effects, "pranks," and modifiers using simple chat commands—all while you maintain full control over cooldowns and permissions.
 
 ## What this mod does
 
@@ -13,7 +13,7 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 
 > **⚠️ A Note from the Developer**
 >
-> I am developing and supporting **Saber Surgeon** full-time to bring more fun, interactive features to the Beat Saber community. 
+> I am developing and supporting **Beat Surgeon** full-time to bring more fun, interactive features to the Beat Saber community. 
 >
 > Please be aware that I am still learning the intricacies of Beat Saber modding. The current version uses a "brute force" approach to ensure these effects work reliably, but I plan to refine the code and optimize performance in future updates. 
 >
@@ -48,7 +48,7 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 
 ## In-Game Settings
 
-You can fully configure **Saber Surgeon** from within Beat Saber using the mod settings menu. The configuration is split into two main tabs:
+You can fully configure **Beat Surgeon** from within Beat Saber using the mod settings menu. The configuration is split into two main tabs:
 
 ### 1. Settings Panel
 *   **Command Toggles:** Individually enable or disable specific commands (e.g., if you want `!rainbow` enabled but don't want `!flashbangs`).
@@ -76,9 +76,9 @@ Control how often chat can trigger effects to balance chaos with playability.
 
 ## Supporter Benefits
 
-To say thank you to those who support the development of Saber Surgeon, I've added exclusive customization options for **Supporters**!
+To say thank you to those who support the development of Beat Surgeon, I've added exclusive customization options for **Supporters**!
 
-**Note:** To activate these benefits, you must connect to the **Saber Surgeon Backend** via the Twitch tab in the mod settings (see *Twitch Chat Setup* below). This allows the mod to verify your Twitch subscription status securely.
+**Note:** To activate these benefits, you must connect to the **Beat Surgeon Backend** via the Twitch tab in the mod settings (see *Twitch Chat Setup* below). This allows the mod to verify your Twitch subscription status securely.
 
 If you are a supporter (currently via **Twitch Subscription**), you gain access to the **Edit Visuals Button** in the cooldown settings page, which currently allows you to customize the **Bomb Text** effect:
 
@@ -126,7 +126,7 @@ If you are a supporter (currently via **Twitch Subscription**), you gain access 
 
 ## Requirements
 
-To use Saber Surgeon, you need a PC version of Beat Saber (Steam or Oculus) and the following dependencies:
+To use Beat Surgeon, you need a PC version of Beat Saber (Steam or Oculus) and the following dependencies:
 
 *   **[Beat Saber](https://beatsaber.com/)** (PC VR)
 *   **[BeatSaberPlus](https://github.com/hardcpp/BeatSaberPlus)**
@@ -139,23 +139,23 @@ To use Saber Surgeon, you need a PC version of Beat Saber (Steam or Oculus) and 
 ## Installation
 
 1.  **Install Dependencies:**
-    *   (Necessary if you dont use SaberSurgeon Twitch backend) Make sure you have installed **BeatSaberPlus** and successfully connected your Twitch account in its setup menu.
+    *   (Necessary if you dont use BeatSurgeon Twitch backend) Make sure you have installed **BeatSaberPlus** and successfully connected your Twitch account in its setup menu.
     *   Ensure **BSML** and **BSIPA** are installed (usually handled automatically by ModAssistant).
 
 2.  **Download & Install:**
-    *   Download the latest `SaberSurgeon.zip` from the [Releases page](https://github.com/PhoenixtBlaze/SaberSurgeon/releases).
+    *   Download the latest `BeatSurgeon.zip` from the [Releases page](https://github.com/PhoenixtBlaze/BeatSurgeon/releases).
     *   Once you extract the zip file there will be 2 folders `Plugins` and `UserData`. 
     *   Copy and paste both the folders in your beat saber directory (typically `C:\Program Files (x86)\Steam\steamapps\common\Beat Saber\`)
 
 3.  **Launch & Verify:**
     *   Launch Beat Saber.
-    *   Look for the **Saber Surgeon** Button in the Mod Settings menu on the left side of the main screen.
+    *   Look for the **Beat Surgeon** Button in the Mod Settings menu on the left side of the main screen.
 
 ---
 
 ## Twitch Chat & Backend Setup
 
-Saber Surgeon requires two simple steps to get fully up and running:
+Beat Surgeon requires two simple steps to get fully up and running:
 
 ### 1. Chat Connection (Basic)
 The mod leverages your existing **BeatSaberPlus (ChatPlex)** connection. 
@@ -163,33 +163,33 @@ The mod leverages your existing **BeatSaberPlus (ChatPlex)** connection.
 *   **Result:** The mod will automatically listen to your chat for basic commands that start with `!`.
 
 ### 2. Backend Connection (Advanced/Supporter)
-To enable **Supporter Benefits** (checking your Twitch Subscription status), you must authenticate with the Saber Surgeon backend.
+To enable **Supporter Benefits** (checking your Twitch Subscription status), you must authenticate with the Beat Surgeon backend.
 
 *   **How to:**
-    1.  Open the **Saber Surgeon Settings** in-game.
+    1.  Open the **Beat Surgeon Settings** in-game.
     2.  Navigate to the **Twitch Tab**.
     3.  Click the **"Connect to Twitch"** button.
     4.  This will open a browser window to authorize the mod securely via Twitch.
-*   **Why is this needed?** The ChatPlex connection handles *reading chat*, but the Saber Surgeon backend is required to safely verify *subscription status* for unlocking custom fonts and colors.
-*   Once you are connected to SaberSurgeon's Backend, you should see `Edit Visuals` button in the Cooldown settings menu
-*   If you dont see the `Edit Visuals` button, Please go out of the menu and reselect saber surgeon in the mods tab to see it.
+*   **Why is this needed?** The ChatPlex connection handles *reading chat*, but the Beat Surgeon backend is required to safely verify *subscription status* for unlocking custom fonts and colors.
+*   Once you are connected to BeatSurgeon's Backend, you should see `Edit Visuals` button in the Cooldown settings menu
+*   If you dont see the `Edit Visuals` button, Please go out of the menu and reselect Beat surgeon in the mods tab to see it.
 
 <img width="886" height="697" alt="Twitch Settings" src="https://github.com/user-attachments/assets/59105a81-11ba-4bba-b55e-d8a9883d18a6" />
 ---
 
 ## Notes / Current Status (Work in Progress)
 
-**Saber Surgeon** is currently in active beta development. While the core features listed above are fully functional, please keep the following in mind:
+**Beat Surgeon** is currently in active beta development. While the core features listed above are fully functional, please keep the following in mind:
 
 *   **Brute Force Approach:** Some effects (like material swaps for Rainbow notes or Bomb visual overrides) currently use a "brute force" method to ensure they apply correctly over the base game. This may result in minor performance overhead on lower-end systems, though it is generally stable. Optimization is a priority for future updates.
 *   **Disabled Features:** You may see references to "Song Requests" or "Submit Later" in the code or older discussions. These features are currently **disabled/commented out** while they undergo major refactoring and testing. They will be reintroduced in a future update once they meet stability standards.
-*   **Compatibility:** This mod is tested primarily on the latest Steam version of Beat Saber. Compatibility with other major gameplay mods (like Noodle Extensions or Chroma) is generally fine, but visual conflicts can occasionally occur when multiple mods try to control note colors simultaneously.
+*   **Compatibility:** This mod is tested primarily on the Beat Saber v1.40.8. Compatibility with other major gameplay mods (like Noodle Extensions or Chroma) is generally fine, but visual conflicts can occasionally occur when multiple mods try to control note colors simultaneously Please let me know if you find any of them so they can be patched.
 
 ---
 
 ## Support Development
 
-I am working on **Saber Surgeon** full-time to create the best possible interactive experience for Beat Saber streamers. As a solo developer still mastering the Beat Saber codebase, this project is a labor of love—and a significant time investment.
+I am working on **Beat Surgeon** full-time to create the best possible interactive experience for Beat Saber streamers. As a solo developer still mastering the Beat Saber codebase, this project is a labor of love—and a significant time investment.
 
 If you enjoy the chaos this mod brings to your streams and want to support its continued development, optimization, and new features, please consider supporting me:
 
@@ -198,7 +198,7 @@ If you enjoy the chaos this mod brings to your streams and want to support its c
 
 **Your support directly helps me:**
 *   Dedicate time to cleaning up the "brute force" code for better performance.
-*   Re-enable and finish complex features like **Song Requests** and **Play First, Submit Later**.
+*   Re-enable and finish complex features like **Endless Mode** and **Dynamic Block/ BeatMap Insertions**.
 *   Keep the mod updated for new Beat Saber versions.
 
 Thank you for helping me keep the lights on and the sabers swinging!
@@ -236,7 +236,7 @@ This project is proprietary. All rights reserved.
 
 ## Credits
 
-**Saber Surgeon** wouldn't exist without the inspiration and tools provided by the amazing Beat Saber modding community.
+**Beat Surgeon** wouldn't exist without the inspiration and tools provided by the amazing Beat Saber modding community.
 
 *   **Development & Design:** [PhoenixBlaze0](https://github.com/PhoenixBlaze0)
 *   **Twitch Integration:** Powered by **[ChatPlexSDK](https://github.com/hardcpp/BeatSaberPlus)** (part of BeatSaberPlus).
@@ -247,4 +247,4 @@ This project is proprietary. All rights reserved.
 
 ---
 
-**Enjoy making your streams chaotic with Saber Surgeon!**
+**Enjoy making your streams chaotic with Beat Surgeon!**
