@@ -1,4 +1,4 @@
-﻿namespace SaberSurgeon.Twitch
+﻿namespace BeatSurgeon.Twitch
 {
     public enum SupporterTier
     {

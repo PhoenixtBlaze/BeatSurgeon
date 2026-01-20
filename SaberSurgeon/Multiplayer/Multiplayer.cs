@@ -4,9 +4,9 @@ using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.Networking;
 
-using SaberSurgeon.Gameplay; // for CoroutineHost
+using BeatSurgeon.Gameplay; // for CoroutineHost
 
-namespace SaberSurgeon
+namespace BeatSurgeon
 {
     /// <summary>
     /// Sends multiplayer state (room code, host flag, active command, control)
@@ -14,10 +14,6 @@ namespace SaberSurgeon
     /// </summary>
     internal static class MultiplayerStateClient
     {
-        /// <summary>
-        /// Adjust this to whatever endpoint you implement on server.js.
-        /// Example: POST https://phoenixblaze0.duckdns.org/multiplayer-state
-        /// </summary>
         private const string EndpointUrl = "https://phoenixblaze0.duckdns.org/multiplayer-state";
 
         /// <summary>
@@ -49,6 +45,9 @@ namespace SaberSurgeon
         private static readonly object _lock = new object();
         private static MultiplayerStatePayload _lastSentState;
         private static bool _isSending;
+        private const float HostHeartbeatSeconds = 5f;
+        private static Coroutine _heartbeatCoroutine;
+        private static bool _resendRequested;
 
 
         public static void Init()
@@ -56,24 +55,46 @@ namespace SaberSurgeon
             // Ensure SceneHelper is running its poller
             SceneHelper.Init();
 
-            SceneHelper.MpPlusInRoomChanged += OnMpPlusChanged;
+            SceneHelper.MpPlusInRoomChanged += _ => OnMpPlusChanged();
             SceneHelper.MpPlusRoomInfoChanged += OnMpPlusChanged;
+
+            if (_heartbeatCoroutine == null)
+                _heartbeatCoroutine = CoroutineHost.Instance.StartCoroutine(HostHeartbeatCoroutine());
 
             // Push initial state once
             OnMpPlusChanged();
         }
 
+        public static bool GetLocalControl()
+        {
+            return _control;
+        }
+
+
         private static void OnMpPlusChanged()
         {
-            // If not in room, send empty/false
-            if (!SceneHelper.MpPlusInRoom)
+            bool inRoom = SceneHelper.MpPlusInRoom;
+            string roomCode = inRoom ? (SceneHelper.MpPlusRoomCode ?? string.Empty) : string.Empty;
+            bool isHost = inRoom && SceneHelper.MpPlusIsHost;
+
+            bool canControl =
+                inRoom &&
+                SceneHelper.MpPlusIsHost &&
+                !string.IsNullOrWhiteSpace(SceneHelper.MpPlusRoomCode);
+
+            bool controlToSend = canControl && _control;
+
+            // If not in room, also force host false + room_code empty (matches your existing behavior).
+            if (!inRoom)
             {
-                UpdateState(string.Empty, false, _activeCommand, _control);
-                return;
+                roomCode = string.Empty;
+                isHost = false;
+                controlToSend = false;
             }
 
-            UpdateState(SceneHelper.MpPlusRoomCode, SceneHelper.MpPlusIsHost, _activeCommand, _control);
+            UpdateState(roomCode, isHost, _activeCommand, controlToSend);
         }
+
 
         // Call these from your redeem/effect system:
         public static void SetActiveCommand(string command)
@@ -100,7 +121,7 @@ namespace SaberSurgeon
         /// </param>
         /// <param name="control">Your custom control flag.</param>
         /// 
-        public static void UpdateState(string roomCode, bool isHost, string activeCommand, bool control)
+        public static void UpdateState(string roomCode, bool isHost, string activeCommand, bool control, bool forceSend = false)
         {
             var payload = new MultiplayerStatePayload
             {
@@ -112,19 +133,20 @@ namespace SaberSurgeon
 
             lock (_lock)
             {
-                if (IsSameAsLast(payload))
-                {
-                    // No change; avoid spamming the server.
+                if (!forceSend && IsSameAsLast(payload))
                     return;
-                }
 
                 _lastSentState = payload;
 
-                if (!_isSending)
+                if (_isSending)
                 {
-                    _isSending = true;
-                    CoroutineHost.Instance.StartCoroutine(SendStateCoroutine(payload));
+                    _resendRequested = true;
+                    return;
                 }
+
+                _isSending = true;
+                _resendRequested = false;
+                CoroutineHost.Instance.StartCoroutine(SendStateCoroutine(payload));
             }
         }
 
@@ -138,6 +160,27 @@ namespace SaberSurgeon
                 string.Equals(_lastSentState.ActiveCommand, current.ActiveCommand, StringComparison.Ordinal) &&
                 _lastSentState.Control == current.Control;
         }
+
+        private static IEnumerator HostHeartbeatCoroutine()
+        {
+            while (true)
+            {
+                yield return new WaitForSecondsRealtime(HostHeartbeatSeconds);
+
+                if (!SceneHelper.MpPlusInRoom) continue;
+                if (!SceneHelper.MpPlusIsHost) continue;
+
+                var roomCode = (SceneHelper.MpPlusRoomCode ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(roomCode)) continue;
+
+                // Recompute same logic as OnMpPlusChanged so we don't send invalid control while not host/etc.
+                bool canControl = SceneHelper.MpPlusIsHost && !string.IsNullOrWhiteSpace(SceneHelper.MpPlusRoomCode);
+                bool controlToSend = canControl && _control;
+
+                UpdateState(roomCode, true, _activeCommand, controlToSend, forceSend: true);
+            }
+        }
+
 
         private static IEnumerator SendStateCoroutine(MultiplayerStatePayload payload)
         {
@@ -159,9 +202,15 @@ namespace SaberSurgeon
                 request.uploadHandler = new UploadHandlerRaw(body);
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.SetRequestHeader("Content-Type", "application/json");
+                request.redirectLimit = 0; // debug: do not follow redirects (avoids rewind path)
 
                 // Optional: identify the game/app to your server logs
                 request.SetRequestHeader("X-Client-App", "SaberSurgeon-BS");
+
+                var cid = PluginConfig.Instance?.MpClientId;
+                if (!string.IsNullOrWhiteSpace(cid))
+                    request.SetRequestHeader("X-MP-Client-Id", cid);
+
 
                 Plugin.Log.Debug($"[MultiplayerStateClient] POST {EndpointUrl} body={json}");
 
@@ -170,10 +219,10 @@ namespace SaberSurgeon
                 yield return request.SendWebRequest();
 
                 if (request.result == UnityWebRequest.Result.ConnectionError ||
-                    request.result == UnityWebRequest.Result.ProtocolError)
+                request.result == UnityWebRequest.Result.ProtocolError)
                 {
-                    Plugin.Log.Warn(
-                        $"[MultiplayerStateClient] POST failed: {request.result} {request.responseCode} {request.error}");
+                    Plugin.Log.Warn($"[MultiplayerStateClient] POST failed: {request.result} {request.responseCode} {request.error}");
+                    yield return new WaitForSecondsRealtime(2f); // basic backoff
                 }
                 else
                 {
@@ -186,6 +235,30 @@ namespace SaberSurgeon
             {
                 _isSending = false;
             }
+
+            MultiplayerStatePayload next = null;
+            bool startNext = false;
+
+            lock (_lock)
+            {
+                if (_resendRequested)
+                {
+                    _resendRequested = false;
+                    next = _lastSentState;
+                    startNext = next != null;
+                }
+                else
+                {
+                    _isSending = false;
+                }
+
+                if (startNext)
+                    _isSending = true;
+            }
+
+            if (startNext)
+                CoroutineHost.Instance.StartCoroutine(SendStateCoroutine(next));
+
         }
     }
 }

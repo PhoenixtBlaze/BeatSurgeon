@@ -1,7 +1,7 @@
 ﻿using HarmonyLib;
 using HMUI;
-using SaberSurgeon;
-using SaberSurgeon.Gameplay;
+using BeatSurgeon;
+using BeatSurgeon.Gameplay;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -10,7 +10,7 @@ using System.Reflection;
 using TMPro;
 using UnityEngine;
 
-namespace SaberSurgeon.HarmonyPatches
+namespace BeatSurgeon.HarmonyPatches
 {
     // Runs after ColorNoteVisuals creates the normal note visuals
     [HarmonyPatch(typeof(ColorNoteVisuals), "HandleNoteControllerDidInit")]

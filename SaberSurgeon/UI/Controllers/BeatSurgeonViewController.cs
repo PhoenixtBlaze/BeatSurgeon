@@ -1,9 +1,9 @@
 ﻿using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.ViewControllers;
-using SaberSurgeon.Chat;
-using SaberSurgeon.Twitch;
-using SaberSurgeon.UI.Settings;
+using BeatSurgeon.Chat;
+using BeatSurgeon.Twitch;
+using BeatSurgeon.UI.Settings;
 using System;
 using System.IO;
 using System.Reflection;
@@ -13,11 +13,11 @@ using UnityEngine;
 using UnityEngine.UI;
 
 
-namespace SaberSurgeon.UI.Controllers
+namespace BeatSurgeon.UI.Controllers
 {
-    [ViewDefinition("SaberSurgeon.UI.Views.SaberSurgeonSettings.bsml")]
-    [HotReload(RelativePathToLayout = @"..\Views\SaberSurgeonSettings.bsml")]
-    public class SaberSurgeonViewController : BSMLAutomaticViewController
+    [ViewDefinition("BeatSurgeon.UI.Views.BeatSurgeonSettings.bsml")]
+    [HotReload(RelativePathToLayout = @"..\Views\BeatSurgeonSettings.bsml")]
+    public class BeatSurgeonViewController : BSMLAutomaticViewController
     {
 
         private static Sprite LoadEmbeddedSprite(string resourcePath)
@@ -29,7 +29,7 @@ namespace SaberSurgeon.UI.Controllers
                 {
                     if (stream == null)
                     {
-                        Plugin.Log.Error($"[SaberSurgeon] Failed to find embedded resource '{resourcePath}'");
+                        Plugin.Log.Error($"[BeatSurgeon] Failed to find embedded resource '{resourcePath}'");
                         return null;
                     }
 
@@ -39,7 +39,7 @@ namespace SaberSurgeon.UI.Controllers
                     var tex = new Texture2D(2, 2, TextureFormat.ARGB32, false);
                     if (!tex.LoadImage(bytes, markNonReadable: false))
                     {
-                        Plugin.Log.Error($"[SaberSurgeon] Failed to decode texture from '{resourcePath}'");
+                        Plugin.Log.Error($"[BeatSurgeon] Failed to decode texture from '{resourcePath}'");
                         return null;
                     }
 
@@ -52,14 +52,14 @@ namespace SaberSurgeon.UI.Controllers
                         new Vector2(0.5f, 0.5f),
                         100f
                     );
-                    sprite.name = "SaberSurgeonRainbowIcon";
+                    sprite.name = "BeatSurgeonRainbowIcon";
 
                     return sprite;
                 }
             }
             catch (System.Exception ex)
             {
-                Plugin.Log.Error($"[SaberSurgeon] Exception loading embedded sprite '{resourcePath}': {ex}");
+                Plugin.Log.Error($"[BeatSurgeon] Exception loading embedded sprite '{resourcePath}': {ex}");
                 return null;
             }
         }
@@ -67,57 +67,57 @@ namespace SaberSurgeon.UI.Controllers
 
         // Loaded once from embedded resource
         private static readonly Sprite RainbowOffSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.Rainbow.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.Rainbow.png");
 
         private static readonly Sprite RainbowOnSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.RainbowGB.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.RainbowGB.png");
 
         // DA icons (off = DA, on = DAGB)
         private static readonly Sprite DAOffSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.DA.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.DA.png");
 
         private static readonly Sprite DAOnSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.DAGB.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.DAGB.png");
 
         // Ghost icons (off = GhostNotes, on = GhostNotesGB)
         private static readonly Sprite GhostOffSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.GhostNotes.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.GhostNotes.png");
 
         private static readonly Sprite GhostOnSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.GhostNotesGB.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.GhostNotesGB.png");
 
         //Button Icons ((off = Bomb, on = BombGB)
         private static readonly Sprite BombOffSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.Bomb.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.Bomb.png");
 
         private static readonly Sprite BombOnSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.BombGB.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.BombGB.png");
 
         // Faster icons (off = FasterSong, on = FasterSongGB)
         private static readonly Sprite FasterOffSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.FasterSong.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.FasterSong.png");
         private static readonly Sprite FasterOnSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.FasterSongGB.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.FasterSongGB.png");
 
         // SuperFast icons
         private static readonly Sprite SuperFastOffSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.SuperFastSong.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.SuperFastSong.png");
         private static readonly Sprite SuperFastOnSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.SuperFastSongGB.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.SuperFastSongGB.png");
 
         // Slower icons
         private static readonly Sprite SlowerOffSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.SlowerSong.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.SlowerSong.png");
         private static readonly Sprite SlowerOnSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.SlowerSongGB.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.SlowerSongGB.png");
 
         // Flashbang icons (off = Flashbang, on = FlashbangGB)
         private static readonly Sprite FlashbangOffSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.Flashbang.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.Flashbang.png");
         private static readonly Sprite FlashbangOnSprite =
-            LoadEmbeddedSprite("SaberSurgeon.Assets.FlashbangGB.png");
+            LoadEmbeddedSprite("BeatSurgeon.Assets.FlashbangGB.png");
 
-        public static SaberSurgeonViewController ActiveInstance { get; private set; }
+        public static BeatSurgeonViewController ActiveInstance { get; private set; }
 
 
         private string _twitchChannel = string.Empty;
@@ -559,7 +559,7 @@ namespace SaberSurgeon.UI.Controllers
         private void OnFlashbangButtonClicked()
         {
             FlashbangEnabled = !FlashbangEnabled;
-            Plugin.Log.Info($"SaberSurgeon: Flashbang command enabled = {FlashbangEnabled}");
+            Plugin.Log.Info($"BeatSurgeon: Flashbang command enabled = {FlashbangEnabled}");
         }
 
 
@@ -580,7 +580,7 @@ namespace SaberSurgeon.UI.Controllers
         private void OnSlowerButtonClicked()
         {
             SlowerEnabled = !SlowerEnabled;
-            Plugin.Log.Info($"SaberSurgeon: Slower command enabled = {SlowerEnabled}");
+            Plugin.Log.Info($"BeatSurgeon: Slower command enabled = {SlowerEnabled}");
         }
 
 
@@ -601,7 +601,7 @@ namespace SaberSurgeon.UI.Controllers
         private void OnSFastButtonClicked()
         {
             SuperFastEnabled = !SuperFastEnabled;
-            Plugin.Log.Info($"SaberSurgeon: SuperFast command enabled = {SuperFastEnabled}");
+            Plugin.Log.Info($"BeatSurgeon: SuperFast command enabled = {SuperFastEnabled}");
         }
 
 
@@ -622,7 +622,7 @@ namespace SaberSurgeon.UI.Controllers
         private void OnFasterButtonClicked()
         {
             FasterEnabled = !FasterEnabled;
-            Plugin.Log.Info($"SaberSurgeon: Faster command enabled = {FasterEnabled}");
+            Plugin.Log.Info($"BeatSurgeon: Faster command enabled = {FasterEnabled}");
         }
 
 
@@ -643,7 +643,7 @@ namespace SaberSurgeon.UI.Controllers
         private void OnBombButtonClicked()
         {
             BombEnabled = !BombEnabled;
-            Plugin.Log.Info($"SaberSurgeon: Bomb command enabled = {BombEnabled}");
+            Plugin.Log.Info($"BeatSurgeon: Bomb command enabled = {BombEnabled}");
         }
 
 
@@ -665,7 +665,7 @@ namespace SaberSurgeon.UI.Controllers
         private void OnDAButtonClicked()
         {
             DisappearingEnabled = !DisappearingEnabled;
-            Plugin.Log.Info($"SaberSurgeon: Disappearing command enabled = {DisappearingEnabled}");
+            Plugin.Log.Info($"BeatSurgeon: Disappearing command enabled = {DisappearingEnabled}");
         }
 
 
@@ -705,7 +705,7 @@ namespace SaberSurgeon.UI.Controllers
         private void OnGhostButtonClicked()
         {
             GhostEnabled = !GhostEnabled;
-            Plugin.Log.Info($"SaberSurgeon: Ghost command enabled = {GhostEnabled}");
+            Plugin.Log.Info($"BeatSurgeon: Ghost command enabled = {GhostEnabled}");
         }
 
 
@@ -811,27 +811,27 @@ namespace SaberSurgeon.UI.Controllers
         private void OnRainbowButtonClicked()
         {
             RainbowEnabled = !RainbowEnabled;
-            Plugin.Log.Info($"SaberSurgeon: Rainbow command enabled = {RainbowEnabled}");
+            Plugin.Log.Info($"BeatSurgeon: Rainbow command enabled = {RainbowEnabled}");
         }
 
         [UIAction("OnStartPlayPressed")]
         private void OnStartPlayPressed()
         {
-            Plugin.Log.Info("SaberSurgeon: Start/Play button pressed!");
+            Plugin.Log.Info("BeatSurgeon: Start/Play button pressed!");
             Plugin.Log.Info($"Timer set to: {PlayTime} minutes");
 
-            var gameplayManager = SaberSurgeon.Gameplay.GameplayManager.GetInstance();
+            var gameplayManager = BeatSurgeon.Gameplay.GameplayManager.GetInstance();
 
             if (gameplayManager.IsPlaying())
             {
                 gameplayManager.StopEndlessMode();
-                Plugin.Log.Info("SaberSurgeon: Stopped endless mode");
+                Plugin.Log.Info("BeatSurgeon: Stopped endless mode");
                 ChatManager.GetInstance().SendChatMessage("Saber Surgeon session ended!");
             }
             else
             {
                 gameplayManager.StartEndlessMode(PlayTime);
-                Plugin.Log.Info($"SaberSurgeon: Started endless mode for {PlayTime} minutes");
+                Plugin.Log.Info($"BeatSurgeon: Started endless mode for {PlayTime} minutes");
                 ChatManager.GetInstance().SendChatMessage(
                     $"Saber Surgeon started! Playing for {PlayTime} minutes. Request songs with !bsr <code>");
             }

@@ -8,20 +8,23 @@ using HarmonyLib;
 using IPA;
 using IPA.Config.Stores;
 using IPA.Logging;
-using SaberSurgeon.Chat;
-using SaberSurgeon.Gameplay;
-using SaberSurgeon.Twitch;
-using SaberSurgeon.UI.FlowCoordinators;
-using SaberSurgeon.UI.Settings;
+using BeatSurgeon.Chat;
+using BeatSurgeon.Gameplay;
+using BeatSurgeon.Twitch;
+using BeatSurgeon.UI.FlowCoordinators;
+using BeatSurgeon.UI.Settings;
 using System;
 using System.Collections;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
+using System.IO;
+using System.Collections.Generic;
 
 
 
-namespace SaberSurgeon
+
+namespace BeatSurgeon
 {
     [Plugin(RuntimeOptions.SingleStartInit)]
     public class Plugin
@@ -43,45 +46,55 @@ namespace SaberSurgeon
         private bool _menuButtonRegisteredThisMenu = false;
 
         private MenuButton _menuButton;
-        private SaberSurgeonFlowCoordinator _flowCoordinator;
-        //private SaberSurgeon.UI.FloatingChatOverlay _floatingChatOverlay;
+        private BeatSurgeonFlowCoordinator _flowCoordinator;
+        //private BeatSurgeon.UI.FloatingChatOverlay _floatingChatOverlay;
 
 
         [Init]
         public void Init(IPA.Logging.Logger logger, IPA.Config.Config config)
         {
+            EnsureEmbeddedLibrariesLoaded();
             Log = logger;
             Instance = this;
             Settings = config.Generated<PluginConfig>();
             PluginConfig.Instance = Settings;
-            Log.Info("SaberSurgeon: Init");
+            Log.Info("BeatSurgeon: Init");
 
+            // Ensure stable per-install MP client id
+            if (string.IsNullOrWhiteSpace(Settings.MpClientId))
+            {
+                Settings.MpClientId = Guid.NewGuid().ToString("N"); // 32 hex chars
+                Log.Info($"BeatSurgeon: Generated MpClientId={Settings.MpClientId}");
+            }
         }
 
         [OnStart]
         public void OnApplicationStart()
         {
-            Log.Info("SaberSurgeon: OnApplicationStart");
+            Log.Info("BeatSurgeon: OnApplicationStart");
 
             // Start font bundle load as early as possible
-            SaberSurgeon.Gameplay.FontBundleLoader.CopyBundleFromPluginFolderIfMissing();
-            _ = SaberSurgeon.Gameplay.FontBundleLoader.EnsureLoadedAsync();
+            BeatSurgeon.Gameplay.FontBundleLoader.CopyBundleFromPluginFolderIfMissing();
+            _ = BeatSurgeon.Gameplay.FontBundleLoader.EnsureLoadedAsync();
 
             SceneHelper.Init();
 
             BSEvents.menuSceneActive += OnMenuSceneActive;
+
+            MultiplayerStateClient.Init();
+            MultiplayerRoomSyncClient.Init();
 
             // Bind AudioTimeSyncController (unchanged)
             var audio = Resources.FindObjectsOfTypeAll<AudioTimeSyncController>()
                 .FirstOrDefault();
             if (audio != null)
             {
-                SaberSurgeon.Gameplay.GhostVisualController.Audio = audio;
+                BeatSurgeon.Gameplay.GhostVisualController.Audio = audio;
                 Log.Info("GhostVisualController: bound AudioTimeSyncController ");
             }
 
             // 1) Auth first – loads tokens and may kick off Helix fetch
-            SaberSurgeon.Twitch.TwitchAuthManager.Instance.Initialize();
+            BeatSurgeon.Twitch.TwitchAuthManager.Instance.Initialize();
 
             // 2) Then chat manager (so it can see CachedBroadcasterId if available)
             InitializeChatIntegration();
@@ -90,19 +103,19 @@ namespace SaberSurgeon
             // 3) Gameplay manager
             InitializeGameplayManager();
 
-            _ = SaberSurgeon.Gameplay.PlayFirstSubmitLaterManager.Instance;
+            _ = BeatSurgeon.Gameplay.PlayFirstSubmitLaterManager.Instance;
 
 
-            // Harmony patches - patch ALL SaberSurgeon harmony classes
+            // Harmony patches - patch ALL BeatSurgeon harmony classes
             try
             {
-                var harmony = new Harmony("SaberSurgeon");
+                var harmony = new Harmony("BeatSurgeon");
                 harmony.PatchAll(Assembly.GetExecutingAssembly()); // Catches EndlessHarmonyPatch + LocalNoteModifierPatch
-                Log.Info("SaberSurgeon: All Harmony patches applied");
+                Log.Info("BeatSurgeon: All Harmony patches applied");
             }
             catch (Exception ex)
             {
-                Log.Error($"SaberSurgeon: Harmony patch error: {ex}");
+                Log.Error($"BeatSurgeon: Harmony patch error: {ex}");
             }
         }
 
@@ -110,7 +123,7 @@ namespace SaberSurgeon
         private bool _pfslTabRegistered;
         private void OnMenuSceneActive()
         {
-            Log.Info("SaberSurgeon : menuSceneActive");
+            Log.Info("BeatSurgeon : menuSceneActive");
             _menuButtonRegisteredThisMenu = false;
             surgeonTabRegisteredThisMenu = false;
             pfslTabRegisteredThisMenu = false;
@@ -129,6 +142,58 @@ namespace SaberSurgeon
         }
 
 
+        private static bool _embeddedLibsHooked;
+
+        private static void EnsureEmbeddedLibrariesLoaded()
+        {
+            if (_embeddedLibsHooked) return;
+            _embeddedLibsHooked = true;
+
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
+            {
+                try
+                {
+                    var requested = new AssemblyName(args.Name).Name + ".dll";
+
+                    // Only handle Chaos.NaCl (avoid interfering with other mods)
+                    if (!string.Equals(requested, "Chaos.NaCl.dll", StringComparison.OrdinalIgnoreCase))
+                        return null;
+
+                    var asm = Assembly.GetExecutingAssembly();
+                    var names = asm.GetManifestResourceNames();
+
+                    // Find an embedded resource that ends with "Chaos.NaCl.dll"
+                    string resourceName = null;
+                    foreach (var n in names)
+                    {
+                        if (n.EndsWith("Chaos.NaCl.dll", StringComparison.OrdinalIgnoreCase))
+                        {
+                            resourceName = n;
+                            break;
+                        }
+                    }
+
+                    if (resourceName == null)
+                        return null;
+
+                    using (var stream = asm.GetManifestResourceStream(resourceName))
+                    {
+                        if (stream == null) return null;
+                        using (var ms = new MemoryStream())
+                        {
+                            stream.CopyTo(ms);
+                            return Assembly.Load(ms.ToArray());
+                        }
+                    }
+                }
+                catch
+                {
+                    return null;
+                }
+            };
+        }
+
+
         private IEnumerator RegisterSurgeonGameplaySetupTabWhenReady()
         {
             while (!surgeonTabRegisteredThisMenu)
@@ -142,8 +207,8 @@ namespace SaberSurgeon
 
                     gs.AddTab(
                         "Surgeon",
-                        "SaberSurgeon.UI.Views.SurgeonGameplaySetup.bsml",
-                        SaberSurgeon.UI.Settings.SurgeonGameplaySetupHost.Instance
+                        "BeatSurgeon.UI.Views.SurgeonGameplaySetup.bsml",
+                        BeatSurgeon.UI.Settings.SurgeonGameplaySetupHost.Instance
                     );
 
                     surgeonTabRegisteredThisMenu = true;
@@ -179,8 +244,8 @@ namespace SaberSurgeon
 
                     gs.AddTab(
                         "Submit Later",
-                        "SaberSurgeon.UI.Views.PlayFirstSubmitLaterGameplaySetup.bsml",
-                        SaberSurgeon.UI.Settings.PlayFirstSubmitLaterSettingsHost.Instance
+                        "BeatSurgeon.UI.Views.PlayFirstSubmitLaterGameplaySetup.bsml",
+                        BeatSurgeon.UI.Settings.PlayFirstSubmitLaterSettingsHost.Instance
                     );
 
                     pfslTabRegisteredThisMenu = true;
@@ -215,33 +280,33 @@ namespace SaberSurgeon
                     if (MenuButtons.Instance == null) continue;
 
                     if (_menuButton == null)
-                        _menuButton = new MenuButton("Saber Surgeon", "Open SaberSurgeon settings", ShowFlow);
+                        _menuButton = new MenuButton("Beat Surgeon", "Open BeatSurgeon settings", ShowFlow);
 
                     MenuButtons.Instance.RegisterButton(_menuButton);
                     _menuButtonRegisteredThisMenu = true;
-                    Log.Info("SaberSurgeon: Menu button registered.");
+                    Log.Info("BeatSurgeon: Menu button registered.");
                 }
                 catch (Exception ex)
                 {
-                    Log.Error($"SaberSurgeon: Error registering button: {ex.Message}");
+                    Log.Error($"BeatSurgeon: Error registering button: {ex.Message}");
                     yield break; // Stop trying on error
                 }
             }
 
             if (!_menuButtonRegisteredThisMenu)
             {
-                Log.Warn("SaberSurgeon: Timed out waiting for MenuButtons.Instance");
+                Log.Warn("BeatSurgeon: Timed out waiting for MenuButtons.Instance");
             }
         }
 
 
         private void ShowFlow()
         {
-            Log.Info("SaberSurgeon: ShowFlow called");
+            Log.Info("BeatSurgeon: ShowFlow called");
 
             if (_flowCoordinator == null)
             {
-                _flowCoordinator = BeatSaberUI.CreateFlowCoordinator<SaberSurgeonFlowCoordinator>();
+                _flowCoordinator = BeatSaberUI.CreateFlowCoordinator<BeatSurgeonFlowCoordinator>();
             }
 
             BeatSaberUI.MainFlowCoordinator?.PresentFlowCoordinator(_flowCoordinator);
@@ -255,7 +320,7 @@ namespace SaberSurgeon
             try
             {
                 
-                Log.Info("SaberSurgeon: Initializing chat integration...");
+                Log.Info("BeatSurgeon: Initializing chat integration...");
                 
 
                 // Get ChatManager instance and initialize
@@ -266,13 +331,13 @@ namespace SaberSurgeon
                 CommandHandler.Instance.Initialize();
 
                 
-                Log.Info("SaberSurgeon: Chat integration setup complete!");
+                Log.Info("BeatSurgeon: Chat integration setup complete!");
                 
             }
             catch (Exception ex)
             {
                 
-                Log.Error($"SaberSurgeon: Exception in InitializeChatIntegration!");
+                Log.Error($"BeatSurgeon: Exception in InitializeChatIntegration!");
                 Log.Error($"  Message: {ex.Message}");
                 Log.Error($"  Stack: {ex.StackTrace}");
                 
@@ -283,13 +348,13 @@ namespace SaberSurgeon
         {
             try
             {
-                Plugin.Log.Info("SaberSurgeon: Initializing gameplay manager...");
+                Plugin.Log.Info("BeatSurgeon: Initializing gameplay manager...");
                 var gameplayManager = Gameplay.GameplayManager.GetInstance();
-                Plugin.Log.Info("SaberSurgeon: Gameplay manager initialized!");
+                Plugin.Log.Info("BeatSurgeon: Gameplay manager initialized!");
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error($"SaberSurgeon: Exception initializing gameplay manager: {ex.Message}");
+                Plugin.Log.Error($"BeatSurgeon: Exception initializing gameplay manager: {ex.Message}");
             }
         }
 
@@ -297,22 +362,23 @@ namespace SaberSurgeon
         [OnExit]
         public void OnApplicationQuit()
         {
-            Log.Info("SaberSurgeon: OnApplicationQuit");
+            Log.Info("BeatSurgeon: OnApplicationQuit");
 
             try
             {
                 SceneHelper.Dispose();
                 TwitchApiClient.ClearCache();
                 BSEvents.menuSceneActive -= OnMenuSceneActive;
+                MultiplayerRoomSyncClient.Dispose();
                 BSMLSettings.Instance.RemoveSettingsMenu(PlayFirstSubmitLaterSettingsHost.Instance);
                 CommandHandler.Instance.Shutdown();
                 ChatManager.GetInstance().Shutdown();
                 Gameplay.GameplayManager.GetInstance().Shutdown();
-                Log.Info("SaberSurgeon: Chat integration shut down");
+                Log.Info("BeatSurgeon: Chat integration shut down");
             }
             catch (Exception ex)
             {
-                Log.Error($"SaberSurgeon: Error during shutdown: {ex}");
+                Log.Error($"BeatSurgeon: Error during shutdown: {ex}");
             }
             try
             {
@@ -353,7 +419,7 @@ namespace SaberSurgeon
             }
             catch (Exception ex)
             {
-                Log.Warn($"SaberSurgeon: Error unregistering menu button: {ex}");
+                Log.Warn($"BeatSurgeon: Error unregistering menu button: {ex}");
             }
 
             

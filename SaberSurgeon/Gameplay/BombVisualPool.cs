@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     internal sealed class BombVisualPool : MonoBehaviour
     {
@@ -18,7 +18,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (_instance != null) return _instance;
 
-                _go = new GameObject("SaberSurgeon_BombVisualPool_GO");
+                _go = new GameObject("BeatSurgeon_BombVisualPool_GO");
                 Object.DontDestroyOnLoad(_go);
                 _instance = _go.AddComponent<BombVisualPool>();
                 return _instance;
@@ -65,7 +65,7 @@ namespace SaberSurgeon.Gameplay
 
         private BombVisualInstance CreateNew(GameObject bombPrefabGoOrNull)
         {
-            var root = new GameObject("SaberSurgeon_BombVisual");
+            var root = new GameObject("BeatSurgeon_BombVisual");
             root.transform.SetParent(_go.transform, false);
             root.SetActive(false);
 

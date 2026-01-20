@@ -8,10 +8,10 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
-using SaberSurgeon.Twitch;
+using BeatSurgeon.Twitch;
 
 
-namespace SaberSurgeon.Twitch
+namespace BeatSurgeon.Twitch
 {
     /// <summary>
     /// Twitch auth + identity resolver for the new architecture:
@@ -103,9 +103,9 @@ namespace SaberSurgeon.Twitch
                     await EnsureValidTokenAsync();
                     await EnsureIdentityAsync();
 
-                    
+
                     // Optional: refresh supporter tier cache after identity is known
-                    await TwitchApiClient.Instance.FetchBroadcasterAndSupportInfo();
+                    await TwitchApiClient.Instance.FetchBroadcasterAndEntitlementsAsync();
                     RestoreIdentityFromCache();
 
                     OnTokensUpdated?.Invoke();
@@ -145,7 +145,7 @@ namespace SaberSurgeon.Twitch
                 await PollForBackendToken(state, _loginCts.Token);
 
                 await EnsureIdentityAsync();
-                await TwitchApiClient.Instance.FetchBroadcasterAndSupportInfo();
+                await TwitchApiClient.Instance.FetchBroadcasterAndEntitlementsAsync();
 
                 Plugin.Settings.BackendStatus = "Connected";
                 OnTokensUpdated?.Invoke();
@@ -495,7 +495,7 @@ namespace SaberSurgeon.Twitch
             {
                 // Populate BroadcasterId, BroadcasterName, SupportChannelId
                 // and refresh supporter entitlements + subscription tier.
-                await TwitchApiClient.Instance.FetchBroadcasterAndSupportInfo();
+                await TwitchApiClient.Instance.FetchBroadcasterAndEntitlementsAsync();
             }
             catch (Exception ex)
             {
@@ -508,8 +508,5 @@ namespace SaberSurgeon.Twitch
 
 
         }
-
-
-
     }
 }

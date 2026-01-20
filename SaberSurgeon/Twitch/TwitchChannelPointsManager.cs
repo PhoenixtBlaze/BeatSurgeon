@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace SaberSurgeon.Twitch
+namespace BeatSurgeon.Twitch
 {
     internal sealed class TwitchChannelPointsManager
     {

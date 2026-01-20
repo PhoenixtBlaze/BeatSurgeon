@@ -12,7 +12,7 @@ using UnityEngine;
 // Alias to avoid ambiguity
 using ABTAssetBundleExtensions = AssetBundleLoadingTools.Utilities.AssetBundleExtensions;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     internal static class FontBundleLoader
     {
@@ -20,7 +20,7 @@ namespace SaberSurgeon.Gameplay
         internal const string DefaultFontAssetName = "TiltNeon-Regular-VariableFont_XROT,YROT SDF";
         internal const string DefaultSelectionValue = "Default";
 
-        internal static string FontsDir => Path.Combine(UnityGame.InstallPath, "UserData", "SaberSurgeon", "Fonts");
+        internal static string FontsDir => Path.Combine(UnityGame.InstallPath, "UserData", "BeatSurgeon", "Fonts");
         internal static string BundlePath => Path.Combine(FontsDir, BundleFileName);
 
         internal static TMP_FontAsset BombUsernameFont { get; private set; }
@@ -52,7 +52,7 @@ namespace SaberSurgeon.Gameplay
             if (src == null) return;
 
             File.Copy(src, BundlePath, true);
-            SaberSurgeon.Plugin.Log.Info($"FontBundleLoader: Copied '{src}' -> '{BundlePath}'");
+            BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Copied '{src}' -> '{BundlePath}'");
         }
 
         internal static Task EnsureLoadedAsync()
@@ -69,15 +69,15 @@ namespace SaberSurgeon.Gameplay
 
         internal static string GetSelectedBombFontOption()
         {
-            return SaberSurgeon.Plugin.Settings?.BombFontType ?? DefaultSelectionValue;
+            return BeatSurgeon.Plugin.Settings?.BombFontType ?? DefaultSelectionValue;
         }
 
         internal static void SetSelectedBombFontOption(string selection)
         {
             if (string.IsNullOrWhiteSpace(selection)) selection = DefaultSelectionValue;
 
-            if (SaberSurgeon.Plugin.Settings != null)
-                SaberSurgeon.Plugin.Settings.BombFontType = selection;
+            if (BeatSurgeon.Plugin.Settings != null)
+                BeatSurgeon.Plugin.Settings.BombFontType = selection;
 
             if (_bundle != null)
                 ApplySelectionFromConfig();
@@ -102,21 +102,21 @@ namespace SaberSurgeon.Gameplay
 
             if (!File.Exists(BundlePath))
             {
-                SaberSurgeon.Plugin.Log.Warn($"FontBundleLoader: Missing bundle '{BundlePath}'");
+                BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Missing bundle '{BundlePath}'");
                 return;
             }
 
             if (_bundle == null) _bundle = await ABTAssetBundleExtensions.LoadFromFileAsync(BundlePath);
             if (_bundle == null)
             {
-                SaberSurgeon.Plugin.Log.Warn($"FontBundleLoader: Failed to load AssetBundle '{BundlePath}'");
+                BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Failed to load AssetBundle '{BundlePath}'");
                 return;
             }
 
             TMP_FontAsset[] fonts = _bundle.LoadAllAssets<TMP_FontAsset>();
             if (fonts == null || fonts.Length == 0)
             {
-                SaberSurgeon.Plugin.Log.Warn("FontBundleLoader: No TMP_FontAsset found in bundle");
+                BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: No TMP_FontAsset found in bundle");
                 return;
             }
 
@@ -133,7 +133,7 @@ namespace SaberSurgeon.Gameplay
 
                 else
                 {
-                    SaberSurgeon.Plugin.Log.Warn("FontBundleLoader: Could not find safe TMP shader! Text might render in one eye only.");
+                    BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: Could not find safe TMP shader! Text might render in one eye only.");
                 }
 
 
@@ -144,7 +144,7 @@ namespace SaberSurgeon.Gameplay
                 }
             }
 
-            SaberSurgeon.Plugin.Log.Info($"FontBundleLoader: Fonts in bundle: {string.Join(", ", _fontOptions.Where(x => x != DefaultSelectionValue))}");
+            BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Fonts in bundle: {string.Join(", ", _fontOptions.Where(x => x != DefaultSelectionValue))}");
             ApplySelectionFromConfig();
         }
 
@@ -167,8 +167,8 @@ namespace SaberSurgeon.Gameplay
             }
 
             BombUsernameFont = chosen;
-            if (BombUsernameFont != null) SaberSurgeon.Plugin.Log.Info($"FontBundleLoader: Selected bomb font '{BombUsernameFont.name}' (option='{selection}')");
-            else SaberSurgeon.Plugin.Log.Warn($"FontBundleLoader: No usable font could be selected (option='{selection}')");
+            if (BombUsernameFont != null) BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Selected bomb font '{BombUsernameFont.name}' (option='{selection}')");
+            else BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: No usable font could be selected (option='{selection}')");
         }
 
         internal static async Task ReloadAsync()

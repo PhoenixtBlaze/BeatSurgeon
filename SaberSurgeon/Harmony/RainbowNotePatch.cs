@@ -3,7 +3,7 @@ using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 
-namespace SaberSurgeon.HarmonyPatches
+namespace BeatSurgeon.HarmonyPatches
 {
     [HarmonyPatch(typeof(ColorNoteVisuals))]
     internal static class RainbowNotePatch

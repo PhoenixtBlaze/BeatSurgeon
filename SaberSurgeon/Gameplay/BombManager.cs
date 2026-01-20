@@ -1,8 +1,8 @@
-﻿using SaberSurgeon.Chat;
+﻿using BeatSurgeon.Chat;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     public class BombManager : MonoBehaviour
     {
@@ -62,7 +62,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (_instance == null)
                 {
-                    _go = new GameObject("SaberSurgeon_BombManager_GO");
+                    _go = new GameObject("BeatSurgeon_BombManager_GO");
                     Object.DontDestroyOnLoad(_go);
                     _instance = _go.AddComponent<BombManager>();
 
@@ -89,6 +89,7 @@ namespace SaberSurgeon.Gameplay
             BombArmed = true;
             BombConsumed = false;
 
+            MultiplayerStateClient.SetActiveCommand("bomb");
             LogUtils.Debug(() => $"BombManager: Enqueued bomb for {name} (queue={_pendingBombers.Count})");
             return true;
         }
@@ -165,6 +166,10 @@ namespace SaberSurgeon.Gameplay
 
             string bomberLocal = bomber;
             int queueCount = _pendingBombers.Count;
+
+            if (_pendingBombers.Count == 0 && _bombNotes.Count == 0)
+                MultiplayerStateClient.SetActiveCommand(null);
+
             LogUtils.Debug(() => $"BombManager: Bomb cut by {bomberLocal}! (queue={queueCount})");
             return true;
         }

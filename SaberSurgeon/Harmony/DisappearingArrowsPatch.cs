@@ -1,9 +1,9 @@
 ﻿using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
-using SaberSurgeon.Gameplay;
+using BeatSurgeon.Gameplay;
 
-namespace SaberSurgeon.HarmonyPatches
+namespace BeatSurgeon.HarmonyPatches
 {
     [HarmonyPatch(typeof(ColorNoteVisuals))]
     internal static class DisappearingArrowsPatch

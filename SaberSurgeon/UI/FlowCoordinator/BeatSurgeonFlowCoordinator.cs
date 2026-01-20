@@ -1,16 +1,16 @@
 ﻿using HMUI;
 using BeatSaberMarkupLanguage;
-using SaberSurgeon.UI.Controllers;
+using BeatSurgeon.UI.Controllers;
 using UnityEngine;
 using Zenject;
-using SaberSurgeon.Gameplay;
+using BeatSurgeon.Gameplay;
 
-namespace SaberSurgeon.UI.FlowCoordinators
+namespace BeatSurgeon.UI.FlowCoordinators
 {
-    public class SaberSurgeonFlowCoordinator : FlowCoordinator
+    public class BeatSurgeonFlowCoordinator : FlowCoordinator
     {
-        private SaberSurgeonViewController _viewController;
-        private SaberSurgeonCooldownViewController _cooldownViewController;
+        private BeatSurgeonViewController _viewController;
+        private BeatSurgeonCooldownViewController _cooldownViewController;
 
         [Inject] private GameplaySetupViewController _gameplaySetupViewController;
         [Inject] private MenuTransitionsHelper _menuTransitionsHelper;
@@ -20,11 +20,11 @@ namespace SaberSurgeon.UI.FlowCoordinators
         {
             if (firstActivation)
             {
-                SetTitle("Saber Surgeon");
+                SetTitle("Beat Surgeon");
                 showBackButton = true;
 
-                _viewController = BeatSaberUI.CreateViewController<SaberSurgeonViewController>();
-                _cooldownViewController = BeatSaberUI.CreateViewController<SaberSurgeonCooldownViewController>();
+                _viewController = BeatSaberUI.CreateViewController<BeatSurgeonViewController>();
+                _cooldownViewController = BeatSaberUI.CreateViewController<BeatSurgeonCooldownViewController>();
 
                 GameplayManager.GetInstance().SetDependencies(_menuTransitionsHelper, _environmentsListModel);
             }
@@ -39,7 +39,7 @@ namespace SaberSurgeon.UI.FlowCoordinators
                     playerSettingsPanelLayout: PlayerSettingsPanelController.PlayerSettingsPanelLayout.Singleplayer
                 );
 
-                // center = SaberSurgeon, left = gameplay setup, right = cooldowns
+                // center = BeatSurgeon, left = gameplay setup, right = cooldowns
                 ProvideInitialViewControllers(
                     _viewController,
                     _gameplaySetupViewController,

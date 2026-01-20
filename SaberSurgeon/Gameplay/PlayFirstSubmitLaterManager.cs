@@ -6,13 +6,13 @@ using BS_Utils.Utilities;
 using System.Reflection;
 using BS_Utils;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     public class PlayFirstSubmitLaterManager : MonoBehaviour
     {
         private static PlayFirstSubmitLaterManager _instance;
         private static GameObject _go;
-        private const string SubmissionKey = "SaberSurgeon: SubmitLater";
+        private const string SubmissionKey = "BeatSurgeon: SubmitLater";
 
         // Feature state
         private bool _submissionDisabled = false;
@@ -30,7 +30,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (_instance == null)
                 {
-                    _go = new GameObject("SaberSurgeon_PlayFirstSubmitLater");
+                    _go = new GameObject("BeatSurgeon_PlayFirstSubmitLater");
                     DontDestroyOnLoad(_go);
                     _instance = _go.AddComponent<PlayFirstSubmitLaterManager>();
                     Plugin.Log.Info("PlayFirstSubmitLaterManager: Initialized as standalone module");
@@ -55,7 +55,7 @@ namespace SaberSurgeon.Gameplay
                 }
 
                 // 2) MP+ hook-based signal (new, fast, reliable)
-                return SaberSurgeon.SceneHelper.MpPlusInRoom;
+                return BeatSurgeon.SceneHelper.MpPlusInRoom;
             }
             catch (Exception ex)
             {

@@ -5,12 +5,12 @@ using System.Reflection;
 using BeatSaberPlaylistsLib.Types;
 using PlaylistManager.Utilities;
 
-namespace SaberSurgeon.Integrations
+namespace BeatSurgeon.Integrations
 {
     internal static class EndlessPlaylistService
     {
         internal const string PlaylistName = "Endless Mode";
-        private const string CoverResourcePath = "SaberSurgeon.Assets.Endless.png";
+        private const string CoverResourcePath = "BeatSurgeon.Assets.Endless.png";
 
         internal static IPlaylist GetOrCreate()
         {
@@ -52,9 +52,9 @@ namespace SaberSurgeon.Integrations
             var playlist = pm.CreatePlaylist(
                 PlaylistName,     // fileName
                 PlaylistName,     // title
-                "SaberSurgeon",   // author
+                "BeatSurgeon",   // author
                 coverBase64,      // coverImage
-                "Queue for SaberSurgeon Endless Mode" // description
+                "Queue for BeatSurgeon Endless Mode" // description
             );
 
             if (playlist != null)

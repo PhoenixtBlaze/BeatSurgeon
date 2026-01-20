@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     /// <summary>
     /// Monitors renderer state changes and logs conflicts (non-invasive monitoring).
@@ -13,7 +13,7 @@ namespace SaberSurgeon.Gameplay
         {
             public MeshRenderer mr;
             public bool lastEnabled;
-            public bool isManaged; // true if SaberSurgeon is managing this renderer
+            public bool isManaged; // true if BeatSurgeon is managing this renderer
         }
 
         private readonly List<Entry> _entries = new List<Entry>();
@@ -33,7 +33,7 @@ namespace SaberSurgeon.Gameplay
                 if (r == null) continue;
                 if (_ignoreRoot != null && r.transform.IsChildOf(_ignoreRoot)) continue;
 
-                // Mark NoteCube as managed by SaberSurgeon (bomb effect)
+                // Mark NoteCube as managed by BeatSurgeon (bomb effect)
                 bool isManaged = r.name == "NoteCube";
 
                 _entries.Add(new Entry
@@ -64,7 +64,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (e.mr == null) continue;
 
-                // Only enforce state on renderers SaberSurgeon manages
+                // Only enforce state on renderers BeatSurgeon manages
                 if (e.isManaged && e.mr.name == "NoteCube")
                 {
                     if (e.mr.enabled != false) // Should stay disabled during bomb

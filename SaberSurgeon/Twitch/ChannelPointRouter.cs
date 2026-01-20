@@ -1,14 +1,14 @@
 ﻿using System;
 
-namespace SaberSurgeon.Twitch
+namespace BeatSurgeon.Twitch
 {
     internal static class ChannelPointRouter
     {
-        public static string TryBuildCommandFromReward(global::SaberSurgeon.Twitch.TwitchEventSubClient.ChannelPointRedemption r)
+        public static string TryBuildCommandFromReward(global::BeatSurgeon.Twitch.TwitchEventSubClient.ChannelPointRedemption r)
         {
             if (r == null) return null;
 
-            var cfg = global::SaberSurgeon.Plugin.Settings;
+            var cfg = global::BeatSurgeon.Plugin.Settings;
             if (cfg == null) return null;
 
             bool MatchId(string expectedId) =>
@@ -17,7 +17,7 @@ namespace SaberSurgeon.Twitch
             if (cfg.CpRainbowEnabled && MatchId(cfg.CpRainbowRewardId ?? "")) return "!rainbow";
             if (cfg.CpDisappearEnabled && MatchId(cfg.CpDisappearRewardId ?? "")) return "!disappear";
             if (cfg.CpGhostEnabled && MatchId(cfg.CpGhostRewardId ?? "")) return "!ghost";
-            if (cfg.CpBombEnabled && MatchId(cfg.CpBombRewardId ?? "")) return "!" + (global::SaberSurgeon.Chat.CommandHandler.BombCommandName ?? "bomb");
+            if (cfg.CpBombEnabled && MatchId(cfg.CpBombRewardId ?? "")) return "!" + (global::BeatSurgeon.Chat.CommandHandler.BombCommandName ?? "bomb");
             if (cfg.CpFasterEnabled && MatchId(cfg.CpFasterRewardId ?? "")) return "!faster";
             if (cfg.CpSuperFastEnabled && MatchId(cfg.CpSuperFastRewardId ?? "")) return "!superfast";
             if (cfg.CpSlowerEnabled && MatchId(cfg.CpSlowerRewardId ?? "")) return "!slower";

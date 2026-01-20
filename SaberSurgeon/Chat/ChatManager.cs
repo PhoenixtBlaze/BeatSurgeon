@@ -1,5 +1,5 @@
 ﻿using IPA.Loader;
-using SaberSurgeon.Twitch;
+using BeatSurgeon.Twitch;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -11,7 +11,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using IPA.Utilities.Async;
 
-namespace SaberSurgeon.Chat
+namespace BeatSurgeon.Chat
 {
     public enum ChatBackend
     {
@@ -82,7 +82,7 @@ namespace SaberSurgeon.Chat
         {
             if (_instance == null)
             {
-                _persistentGO = new GameObject("SaberSurgeon_ChatManager_GO");
+                _persistentGO = new GameObject("BeatSurgeon_ChatManager_GO");
                 DontDestroyOnLoad(_persistentGO);
                 _instance = _persistentGO.AddComponent<ChatManager>();
                 Plugin.Log.Info("ChatManager: Created new instance");
@@ -224,7 +224,7 @@ namespace SaberSurgeon.Chat
 
                 // Map rewardId -> command and invoke existing command handler.
                 // Use a fake chat command string to reuse existing code paths. [file:212]
-                string cmd = SaberSurgeon.Twitch.ChannelPointRouter.TryBuildCommandFromReward(redemption);
+                string cmd = BeatSurgeon.Twitch.ChannelPointRouter.TryBuildCommandFromReward(redemption);
                 if (string.IsNullOrEmpty(cmd))
                     return;
 

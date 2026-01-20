@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using UnityEngine;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     public class FireworksExplosionPool : MonoBehaviour
     {
@@ -22,7 +22,7 @@ namespace SaberSurgeon.Gameplay
             get
             {
                 if (_instance != null) return _instance;
-                _go = new GameObject("SaberSurgeonFireworksExplosionPool");
+                _go = new GameObject("BeatSurgeonFireworksExplosionPool");
                 DontDestroyOnLoad(_go);
                 _instance = _go.AddComponent<FireworksExplosionPool>();
                 return _instance;
@@ -60,7 +60,7 @@ namespace SaberSurgeon.Gameplay
         {
             if (_explosionPrefab != null) return;
 
-            string bundlePath = Path.Combine(Environment.CurrentDirectory, "UserData", "SaberSurgeon", "Effects", "surgeoneffects");
+            string bundlePath = Path.Combine(Environment.CurrentDirectory, "UserData", "BeatSurgeon", "Effects", "surgeoneffects");
             if (!File.Exists(bundlePath)) return;
 
             try

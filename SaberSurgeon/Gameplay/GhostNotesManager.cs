@@ -1,8 +1,8 @@
 ﻿using System.Collections;
-using SaberSurgeon.Chat;
+using BeatSurgeon.Chat;
 using UnityEngine;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     /// <summary>
     /// Controls the timed Ghost Notes effect triggered by chat / UI.
@@ -28,7 +28,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (_instance == null)
                 {
-                    _go = new GameObject("SaberSurgeon_GhostNotesManager_GO");
+                    _go = new GameObject("BeatSurgeon_GhostNotesManager_GO");
                     Object.DontDestroyOnLoad(_go);
                     _instance = _go.AddComponent<GhostNotesManager>();
                     Plugin.Log.Info("GhostNotesManager: Created new instance");
@@ -59,6 +59,7 @@ namespace SaberSurgeon.Gameplay
                 _ghostCoroutine = null;
             }
 
+            MultiplayerStateClient.SetActiveCommand("ghost");
             _ghostCoroutine = StartCoroutine(GhostCoroutine(durationSeconds, requesterName));
             return true;
         }
@@ -77,6 +78,7 @@ namespace SaberSurgeon.Gameplay
             if (GhostActive)
             {
                 GhostActive = false;
+                MultiplayerStateClient.SetActiveCommand(null);
                 Plugin.Log.Info("GhostNotesManager: Ghost notes manually stopped");
                 //ChatManager.GetInstance().SendChatMessage("Ghost notes effect has been stopped.");
             }
@@ -110,6 +112,7 @@ namespace SaberSurgeon.Gameplay
             _ghostCoroutine = null;
 
             Plugin.Log.Info("GhostNotesManager: Ghost notes finished");
+            MultiplayerStateClient.SetActiveCommand(null);
             ChatManager.GetInstance().SendChatMessage("!!Ghost notes effect has ended.");
         }
     }

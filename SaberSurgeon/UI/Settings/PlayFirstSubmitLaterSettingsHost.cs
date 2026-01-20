@@ -1,9 +1,9 @@
 ﻿using BeatSaberMarkupLanguage.Attributes;
-using SaberSurgeon.Gameplay;
+using BeatSurgeon.Gameplay;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
-namespace SaberSurgeon.UI.Settings
+namespace BeatSurgeon.UI.Settings
 {
     internal sealed class PlayFirstSubmitLaterSettingsHost : INotifyPropertyChanged
     {
@@ -53,7 +53,7 @@ namespace SaberSurgeon.UI.Settings
             {
                 if (Plugin.Settings != null) Plugin.Settings.ScoreSubmissionEnabled = value;
 
-                // Apply immediately, independent of other SaberSurgeon features:
+                // Apply immediately, independent of other BeatSurgeon features:
                 if (value) PlayFirstSubmitLaterManager.EnableSubmission();
                 else PlayFirstSubmitLaterManager.DisableSubmission();
 

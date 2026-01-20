@@ -3,7 +3,7 @@ using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     /// <summary>
     /// QueueProcessor-equivalent "tick" that runs during gameplay.

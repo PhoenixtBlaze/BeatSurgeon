@@ -3,7 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 
-namespace SaberSurgeon.Integrations
+namespace BeatSurgeon.Integrations
 {
     internal static class SongInstaller
     {

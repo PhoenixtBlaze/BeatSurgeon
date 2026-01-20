@@ -2,10 +2,10 @@
 using BeatSaberMarkupLanguage.Components;
 using BeatSaberMarkupLanguage.Parser;
 using HMUI;
-using SaberSurgeon.Chat;
-using SaberSurgeon.Gameplay;
-using SaberSurgeon.Twitch;
-using SaberSurgeon.UI.Controllers;
+using BeatSurgeon.Chat;
+using BeatSurgeon.Gameplay;
+using BeatSurgeon.Twitch;
+using BeatSurgeon.UI.Controllers;
 using System;
 using System.Reflection;
 using System.Threading;
@@ -14,7 +14,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace SaberSurgeon.UI.Settings
+namespace BeatSurgeon.UI.Settings
 {
     // NotifiableBase implements INotifyPropertyChanged for "~Value" bindings like "~TwitchStatusText"
     // so the UI updates when the property changes.
@@ -89,7 +89,7 @@ namespace SaberSurgeon.UI.Settings
         [UIParams]
         private BSMLParserParams _parserParams;
 
-        // --- Embedded icon sprites (same resource names used by SaberSurgeonViewController) ---
+        // --- Embedded icon sprites (same resource names used by BeatSurgeonViewController) ---
         private static Sprite LoadEmbeddedSprite(string resourcePath)
         {
             try
@@ -129,29 +129,29 @@ namespace SaberSurgeon.UI.Settings
             }
         }
 
-        private static readonly Sprite RainbowOffSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.Rainbow.png");
-        private static readonly Sprite RainbowOnSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.RainbowGB.png");
+        private static readonly Sprite RainbowOffSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.Rainbow.png");
+        private static readonly Sprite RainbowOnSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.RainbowGB.png");
 
-        private static readonly Sprite DAOffSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.DA.png");
-        private static readonly Sprite DAOnSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.DAGB.png");
+        private static readonly Sprite DAOffSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.DA.png");
+        private static readonly Sprite DAOnSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.DAGB.png");
 
-        private static readonly Sprite GhostOffSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.GhostNotes.png");
-        private static readonly Sprite GhostOnSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.GhostNotesGB.png");
+        private static readonly Sprite GhostOffSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.GhostNotes.png");
+        private static readonly Sprite GhostOnSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.GhostNotesGB.png");
 
-        private static readonly Sprite BombOffSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.Bomb.png");
-        private static readonly Sprite BombOnSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.BombGB.png");
+        private static readonly Sprite BombOffSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.Bomb.png");
+        private static readonly Sprite BombOnSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.BombGB.png");
 
-        private static readonly Sprite FasterOffSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.FasterSong.png");
-        private static readonly Sprite FasterOnSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.FasterSongGB.png");
+        private static readonly Sprite FasterOffSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.FasterSong.png");
+        private static readonly Sprite FasterOnSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.FasterSongGB.png");
 
-        private static readonly Sprite SuperFastOffSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.SuperFastSong.png");
-        private static readonly Sprite SuperFastOnSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.SuperFastSongGB.png");
+        private static readonly Sprite SuperFastOffSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.SuperFastSong.png");
+        private static readonly Sprite SuperFastOnSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.SuperFastSongGB.png");
 
-        private static readonly Sprite SlowerOffSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.SlowerSong.png");
-        private static readonly Sprite SlowerOnSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.SlowerSongGB.png");
+        private static readonly Sprite SlowerOffSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.SlowerSong.png");
+        private static readonly Sprite SlowerOnSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.SlowerSongGB.png");
 
-        private static readonly Sprite FlashbangOffSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.Flashbang.png");
-        private static readonly Sprite FlashbangOnSprite = LoadEmbeddedSprite("SaberSurgeon.Assets.FlashbangGB.png");
+        private static readonly Sprite FlashbangOffSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.Flashbang.png");
+        private static readonly Sprite FlashbangOnSprite = LoadEmbeddedSprite("BeatSurgeon.Assets.FlashbangGB.png");
 
         private readonly Color offColor = new Color(0.2f, 0.2f, 0.2f, 1f);
         private readonly Color onColor = new Color(0.18f, 0.7f, 1f, 1f);
@@ -642,7 +642,7 @@ namespace SaberSurgeon.UI.Settings
                 CommandHandler.RainbowEnabled = value;
                 if (Plugin.Settings != null) Plugin.Settings.RainbowEnabled = value;
                 UpdateRainbowButtonVisual();
-                SaberSurgeonViewController.RefreshCommandUiFromExternal();
+                BeatSurgeonViewController.RefreshCommandUiFromExternal();
 
             }
         }
@@ -655,7 +655,7 @@ namespace SaberSurgeon.UI.Settings
                 CommandHandler.DisappearEnabled = value;
                 if (Plugin.Settings != null) Plugin.Settings.DisappearEnabled = value;
                 UpdateDAButtonVisual();
-                SaberSurgeonViewController.RefreshCommandUiFromExternal();
+                BeatSurgeonViewController.RefreshCommandUiFromExternal();
 
             }
         }
@@ -668,7 +668,7 @@ namespace SaberSurgeon.UI.Settings
                 CommandHandler.GhostEnabled = value;
                 if (Plugin.Settings != null) Plugin.Settings.GhostEnabled = value;
                 UpdateGhostButtonVisual();
-                SaberSurgeonViewController.RefreshCommandUiFromExternal();
+                BeatSurgeonViewController.RefreshCommandUiFromExternal();
 
             }
         }
@@ -681,7 +681,7 @@ namespace SaberSurgeon.UI.Settings
                 CommandHandler.BombEnabled = value;
                 if (Plugin.Settings != null) Plugin.Settings.BombEnabled = value;
                 UpdateBombButtonVisual();
-                SaberSurgeonViewController.RefreshCommandUiFromExternal();
+                BeatSurgeonViewController.RefreshCommandUiFromExternal();
 
             }
         }
@@ -694,7 +694,7 @@ namespace SaberSurgeon.UI.Settings
                 CommandHandler.FasterEnabled = value;
                 if (Plugin.Settings != null) Plugin.Settings.FasterEnabled = value;
                 UpdateFasterButtonVisual();
-                SaberSurgeonViewController.RefreshCommandUiFromExternal();
+                BeatSurgeonViewController.RefreshCommandUiFromExternal();
 
             }
         }
@@ -707,7 +707,7 @@ namespace SaberSurgeon.UI.Settings
                 CommandHandler.SuperFastEnabled = value;
                 if (Plugin.Settings != null) Plugin.Settings.SuperFastEnabled = value;
                 UpdateSuperFastButtonVisual();
-                SaberSurgeonViewController.RefreshCommandUiFromExternal();
+                BeatSurgeonViewController.RefreshCommandUiFromExternal();
 
             }
         }
@@ -720,7 +720,7 @@ namespace SaberSurgeon.UI.Settings
                 CommandHandler.SlowerEnabled = value;
                 if (Plugin.Settings != null) Plugin.Settings.SlowerEnabled = value;
                 UpdateSlowerButtonVisual();
-                SaberSurgeonViewController.RefreshCommandUiFromExternal();
+                BeatSurgeonViewController.RefreshCommandUiFromExternal();
 
             }
         }
@@ -733,7 +733,7 @@ namespace SaberSurgeon.UI.Settings
                 CommandHandler.FlashbangEnabled = value;
                 if (Plugin.Settings != null) Plugin.Settings.FlashbangEnabled = value;
                 UpdateFlashbangButtonVisual();
-                SaberSurgeonViewController.RefreshCommandUiFromExternal();
+                BeatSurgeonViewController.RefreshCommandUiFromExternal();
 
             }
         }
@@ -745,56 +745,56 @@ namespace SaberSurgeon.UI.Settings
         private void OnRainbowButtonClicked()
         {
             RainbowEnabled = !RainbowEnabled;
-            LogUtils.Debug(() => $"SaberSurgeon: Rainbow command enabled = {RainbowEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Rainbow command enabled = {RainbowEnabled}");
         }
 
         [UIAction("OnDAButtonClicked")]
         private void OnDAButtonClicked()
         {
             DisappearingEnabled = !DisappearingEnabled;
-            LogUtils.Debug(() => $"SaberSurgeon: Disappearing Arrows command enabled = {DisappearingEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Disappearing Arrows command enabled = {DisappearingEnabled}");
         }
 
         [UIAction("OnGhostButtonClicked")]
         private void OnGhostButtonClicked()
         {
             GhostEnabled = !GhostEnabled;
-            LogUtils.Debug(() => $"SaberSurgeon: Ghost command enabled = {GhostEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Ghost command enabled = {GhostEnabled}");
         }
 
         [UIAction("OnBombButtonClicked")]
         private void OnBombButtonClicked()
         {
             BombEnabled = !BombEnabled;
-            LogUtils.Debug(() => $"SaberSurgeon: Bomb command enabled = {BombEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Bomb command enabled = {BombEnabled}");
         }
 
         [UIAction("OnFasterButtonClicked")]
         private void OnFasterButtonClicked()
         {
             FasterEnabled = !FasterEnabled;
-            LogUtils.Debug(() => $"SaberSurgeon: Faster command enabled = {FasterEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Faster command enabled = {FasterEnabled}");
         }
 
         [UIAction("OnSFastButtonClicked")]
         private void OnSFastButtonClicked()
         {
             SuperFastEnabled = !SuperFastEnabled;
-            LogUtils.Debug(() => $"SaberSurgeon: SuperFast command enabled = {SuperFastEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: SuperFast command enabled = {SuperFastEnabled}");
         }
 
         [UIAction("OnSlowerButtonClicked")]
         private void OnSlowerButtonClicked()
         {
             SlowerEnabled = !SlowerEnabled;
-            LogUtils.Debug(() => $"SaberSurgeon: Slower command enabled = {SlowerEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Slower command enabled = {SlowerEnabled}");
         }
 
         [UIAction("OnFlashbangButtonClicked")]
         private void OnFlashbangButtonClicked()
         {
             FlashbangEnabled = !FlashbangEnabled;
-            LogUtils.Debug(() => $"SaberSurgeon: Flashbang command enabled = {FlashbangEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Flashbang command enabled = {FlashbangEnabled}");
         }
 
 

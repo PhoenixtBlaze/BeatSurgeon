@@ -1,15 +1,15 @@
 ﻿using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.ViewControllers;
-using SaberSurgeon.Gameplay;
+using BeatSurgeon.Gameplay;
 using UnityEngine;
 
-namespace SaberSurgeon.UI.Controllers
+namespace BeatSurgeon.UI.Controllers
 {
     /// <summary>
     /// Standalone ViewController for PlayFirst SubmitLater settings.
     /// Completely independent from other Saber Surgeon UI systems.
     /// </summary>
-    [ViewDefinition("SaberSurgeon.UI.Views.PlayFirstSubmitLaterSettings.bsml")]
+    [ViewDefinition("BeatSurgeon.UI.Views.PlayFirstSubmitLaterSettings.bsml")]
     public class PlayFirstSubmitLaterViewController : BSMLAutomaticViewController
     {
         [UIValue("playFirstSubmitLaterEnabled")]

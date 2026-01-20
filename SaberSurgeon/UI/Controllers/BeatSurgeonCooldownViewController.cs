@@ -3,9 +3,9 @@ using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSaberMarkupLanguage.Components.Settings;
 using HMUI;
-using SaberSurgeon.Chat;
-using SaberSurgeon.Gameplay;
-using SaberSurgeon.Twitch;
+using BeatSurgeon.Chat;
+using BeatSurgeon.Gameplay;
+using BeatSurgeon.Twitch;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -19,11 +19,11 @@ using IPA.Utilities.Async; // for UnityMainThreadTaskScheduler
 
 
 
-namespace SaberSurgeon.UI.Controllers
+namespace BeatSurgeon.UI.Controllers
 {
-    [ViewDefinition("SaberSurgeon.UI.Views.SaberSurgeonCooldowns.bsml")]
-    [HotReload(RelativePathToLayout = @"..\Views\SaberSurgeonCooldowns.bsml")]
-    public class SaberSurgeonCooldownViewController : BSMLAutomaticViewController
+    [ViewDefinition("BeatSurgeon.UI.Views.BeatSurgeonCooldowns.bsml")]
+    [HotReload(RelativePathToLayout = @"..\Views\BeatSurgeonCooldowns.bsml")]
+    public class BeatSurgeonCooldownViewController : BSMLAutomaticViewController
     {
 
 
@@ -213,23 +213,51 @@ namespace SaberSurgeon.UI.Controllers
         [UIAction("OnBombEditVisualsClicked")]
         private void OnBombEditVisualsClicked()
         {
-            if (!ShowBombVisualsButton)
+            _ = OnBombEditVisualsClickedAsync();
+        }
+
+        private async System.Threading.Tasks.Task OnBombEditVisualsClickedAsync()
+        {
+            // Fast local hint (still useful), but server is authoritative
+            if (!TwitchAuthManager.Instance.IsAuthenticated)
             {
-                Plugin.Log.Warn("Bomb visuals clicked while not authorized (no backend or no sub).");
+                Plugin.Log.Warn("Bomb visuals denied: not authenticated.");
                 return;
             }
 
-            if (_bombVisualsModal != null)
+            bool allowed = false;
+            try
             {
-                _bombVisualsModal.Show(true);
-                StartCoroutine(RefreshBombFontDropdown());
-                StartBombFontPreview();
+                allowed = await TwitchApiClient.Instance.CheckVisualsPermissionAsync().ConfigureAwait(false);
             }
-            else
+            catch (Exception ex)
             {
-                Plugin.Log.Warn("Bomb visuals modal was null when trying to show it.");
+                Plugin.Log.Warn("Bomb visuals permission check failed: " + ex.Message);
+                allowed = false;
             }
+
+            if (!allowed)
+            {
+                Plugin.Log.Warn("Bomb visuals denied by server (not Tier1+ or invalid entitlement).");
+                return;
+            }
+
+            // Show modal on Unity main thread
+            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                {
+                    if (_bombVisualsModal != null)
+                    {
+                        _bombVisualsModal.Show(true);
+                        StartCoroutine(RefreshBombFontDropdown());
+                        StartBombFontPreview();
+                    }
+                    else
+                    {
+                        Plugin.Log.Warn("Bomb visuals modal was null when trying to show it.");
+                    }
+                });
         }
+
 
         [UIComponent("bomb-font-preview")]
         private TMP_Text _bombFontPreview;
@@ -416,7 +444,7 @@ namespace SaberSurgeon.UI.Controllers
             _bombFontPreview.text = "PreviewUsername";
 
             // apply selected bomb font (loaded/selected by FontBundleLoader)
-            var font = SaberSurgeon.Gameplay.FontBundleLoader.BombUsernameFont;
+            var font = BeatSurgeon.Gameplay.FontBundleLoader.BombUsernameFont;
             if (font != null)
             {
                 _bombFontPreview.font = font;

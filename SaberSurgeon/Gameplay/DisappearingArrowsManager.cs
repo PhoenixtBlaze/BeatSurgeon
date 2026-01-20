@@ -1,9 +1,9 @@
-﻿// File: SaberSurgeon/Gameplay/DisappearingArrowsManager.cs
+﻿
 using System.Collections;
 using UnityEngine;
-using SaberSurgeon.Chat;
+using BeatSurgeon.Chat;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     public class DisappearingArrowsManager : MonoBehaviour
     {
@@ -19,7 +19,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (_instance == null)
                 {
-                    _go = new GameObject("SaberSurgeonDisappearingArrowsManagerGO");
+                    _go = new GameObject("BeatSurgeonDisappearingArrowsManagerGO");
                     Object.DontDestroyOnLoad(_go);
                     _instance = _go.AddComponent<DisappearingArrowsManager>();
                     Plugin.Log.Info("DisappearingArrowsManager: Created new instance");
@@ -45,6 +45,8 @@ namespace SaberSurgeon.Gameplay
                 _daCoroutine = null;
             }
 
+            MultiplayerStateClient.SetActiveCommand("disappear");
+
             _daCoroutine = StartCoroutine(DisappearingCoroutine(durationSeconds));
             return true;
         }
@@ -63,6 +65,7 @@ namespace SaberSurgeon.Gameplay
 
             DisappearingActive = false;
             _daCoroutine = null;
+            MultiplayerStateClient.SetActiveCommand(null);
             Plugin.Log.Info("DisappearingArrowsManager: Disappearing arrows finished");
             ChatManager.GetInstance().SendChatMessage("!!Disappearing arrows effect has ended.");
         }

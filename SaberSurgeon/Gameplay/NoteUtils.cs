@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     internal static class NoteUtils
     {

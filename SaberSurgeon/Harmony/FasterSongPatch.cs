@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
 
-namespace SaberSurgeon.HarmonyPatches
+namespace BeatSurgeon.HarmonyPatches
 {
     ///
     /// Dynamically scales AudioTimeSyncController's _timeScale and AudioSource.pitch.

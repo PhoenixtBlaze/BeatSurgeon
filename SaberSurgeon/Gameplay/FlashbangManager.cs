@@ -1,10 +1,10 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using SaberSurgeon.Chat;
+using BeatSurgeon.Chat;
 
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     public class FlashbangManager : MonoBehaviour
     {
@@ -26,7 +26,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (_instance == null)
                 {
-                    _go = new GameObject("SaberSurgeon_FlashbangManager_GO");
+                    _go = new GameObject("BeatSurgeon_FlashbangManager_GO");
                     Object.DontDestroyOnLoad(_go);
                     _instance = _go.AddComponent<FlashbangManager>();
                     Plugin.Log.Info("FlashbangManager: Created new instance");
@@ -66,6 +66,7 @@ namespace SaberSurgeon.Gameplay
                 return false;
             }
 
+            MultiplayerStateClient.SetActiveCommand("flashbang");
             _flashCoroutine = StartCoroutine(FlashRoutine(intensityMultiplier, holdSeconds, fadeSeconds));
             return true;
         }
@@ -148,6 +149,7 @@ namespace SaberSurgeon.Gameplay
             RestoreLights();
 
             FlashbangActive = false;
+            MultiplayerStateClient.SetActiveCommand(null);
             _flashCoroutine = null;
             Plugin.Log.Info("FlashbangManager: Flashbang finished.");
         }

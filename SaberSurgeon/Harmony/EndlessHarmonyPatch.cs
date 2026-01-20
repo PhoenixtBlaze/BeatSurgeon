@@ -5,10 +5,10 @@ using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
-using SaberSurgeon.Gameplay;
-using SaberSurgeon;
+using BeatSurgeon.Gameplay;
+using BeatSurgeon;
 
-namespace SaberSurgeon.HarmonyPatches
+namespace BeatSurgeon.HarmonyPatches
 {
     // PATCH 1: PlayFirstSubmitLater
     // Blocks the Finish event so ScoreSaber/BeatLeader never hear about the map ending until we say so.

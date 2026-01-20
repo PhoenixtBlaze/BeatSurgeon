@@ -5,11 +5,11 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using IPA.Loader;
-using SaberSurgeon.Gameplay; // CoroutineHost
+using BeatSurgeon.Gameplay; // CoroutineHost
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace SaberSurgeon
+namespace BeatSurgeon
 {
     internal static class SceneHelper
     {

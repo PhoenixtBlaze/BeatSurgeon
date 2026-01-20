@@ -1,4 +1,4 @@
-﻿namespace SaberSurgeon.Chat
+﻿namespace BeatSurgeon.Chat
 {
     /// <summary>
     /// Metadata for a single chat message, extracted from ChatPlex IChatMessage.

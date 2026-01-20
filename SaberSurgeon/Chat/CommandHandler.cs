@@ -1,11 +1,11 @@
-﻿using SaberSurgeon.Gameplay;
+﻿using BeatSurgeon.Gameplay;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using UnityEngine;
 
-namespace SaberSurgeon.Chat
+namespace BeatSurgeon.Chat
 {
     public class CommandHandler
     {
@@ -29,7 +29,7 @@ namespace SaberSurgeon.Chat
         // Bomb command keyword (without leading '!')
         public static string BombCommandName { get; set; } = "bomb";
 
-        // Settings controlled by the SaberSurgeon menu
+        // Settings controlled by the BeatSurgeon menu
         public static bool PerCommandCooldownsEnabled { get; set; } = false;
 
         // Global cooldown (applies to all commands if enabled)
@@ -233,6 +233,54 @@ namespace SaberSurgeon.Chat
             }
             Plugin.Log.Info($"CommandHandler: Registered !{name}");
         }
+
+        public bool ExecuteSyncedCommand(string commandName)
+        {
+            if (string.IsNullOrWhiteSpace(commandName))
+                return false;
+
+            string name = commandName.Trim();
+            if (name.StartsWith("!")) name = name.Substring(1);
+            name = name.ToLowerInvariant();
+
+            // Apply bomb alias mapping (same behavior as ProcessCommand)
+            string bombCmdName = BombCommandName;
+            if (!string.Equals(bombCmdName, "bomb", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(name, bombCmdName, StringComparison.OrdinalIgnoreCase))
+            {
+                name = "bomb";
+            }
+
+            CommandDelegate handler;
+            lock (_lock)
+            {
+                if (!_commands.TryGetValue(name, out handler) || handler == null)
+                    return false;
+            }
+
+            // Provide a non-null context so existing handlers don’t reject it
+            var ctx = new ChatContext
+            {
+                SenderName = "RoomHost",
+                MessageText = "!" + name,
+                IsBroadcaster = true,
+                IsModerator = true,
+                IsSubscriber = true,
+                Source = ChatSource.Unknown,
+                IsChannelPoint = true
+            };
+
+            try
+            {
+                return handler(ctx, "!" + name);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"ExecuteSyncedCommand failed for !{name}: {ex}");
+                return false;
+            }
+        }
+
 
         /// <summary>
         /// Entry point called by ChatManager when a chat line starting with '!' is received.
@@ -642,7 +690,7 @@ namespace SaberSurgeon.Chat
             string globalStatus = GlobalDisableActive ? " [GLOBALLY DISABLED]" : "";
 
 
-            return $"!SaberSurgeon v{version}{globalStatus} | Enabled Commands: {commandsPart} | {noteColorHelp}";
+            return $"!BeatSurgeon v{version}{globalStatus} | Enabled Commands: {commandsPart} | {noteColorHelp}";
 
         }
 
@@ -740,7 +788,7 @@ namespace SaberSurgeon.Chat
                 "faster",
                 FasterMultiplier,
                 SpeedEffectSeconds,
-                "SaberSurgeon Faster");
+                "BeatSurgeon Faster");
 
             if (!started)
             {
@@ -797,7 +845,7 @@ namespace SaberSurgeon.Chat
                 "superfast",
                 SuperFastMultiplier,          // +50%
                 SpeedEffectSeconds,
-                "SaberSurgeon SuperFast");
+                "BeatSurgeon SuperFast");
 
             if (!started)
             {
@@ -852,7 +900,7 @@ namespace SaberSurgeon.Chat
                 "slower",
                 SlowerMultiplier,         // -15%
                 SpeedEffectSeconds,
-                "SaberSurgeon Slower");
+                "BeatSurgeon Slower");
 
             if (!started)
             {
@@ -1507,7 +1555,7 @@ namespace SaberSurgeon.Chat
             string newStatus = enable ? "enabled" : "disabled";
             SendResponse(
                 $"Surgeon: !{targetCommand} {newStatus} by {ctx?.SenderName ?? "Unknown"}",
-                $"!!SaberSurgeon: !{targetCommand} is now {newStatus}");
+                $"!!BeatSurgeon: !{targetCommand} is now {newStatus}");
 
             Plugin.Log.Info($"[CommandHandler] !{targetCommand} toggled to {newStatus} by {ctx?.SenderName}");
             return true;

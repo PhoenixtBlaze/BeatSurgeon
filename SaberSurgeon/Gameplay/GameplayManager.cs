@@ -1,7 +1,7 @@
 ﻿using IPA.Utilities;
-using SaberSurgeon.Chat;
-using SaberSurgeon.HarmonyPatches;
-using SaberSurgeon.Integrations;
+using BeatSurgeon.Chat;
+using BeatSurgeon.HarmonyPatches;
+using BeatSurgeon.Integrations;
 using SongCore;
 using SongCore.Utilities;
 using UnityEngine.SceneManagement;
@@ -18,7 +18,7 @@ using Zenject;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.ToolTip;
 
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     /// <summary>
     /// Manages the endless mode gameplay loop:
@@ -128,7 +128,7 @@ namespace SaberSurgeon.Gameplay
         {
             if (_instance == null)
             {
-                _persistentGO = new GameObject("SaberSurgeon_GameplayManager_GO");
+                _persistentGO = new GameObject("BeatSurgeon_GameplayManager_GO");
                 DontDestroyOnLoad(_persistentGO);
                 _instance = _persistentGO.AddComponent<GameplayManager>();
                 // Create the in-level tick processor once and keep it alive across scenes

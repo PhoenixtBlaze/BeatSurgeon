@@ -8,8 +8,8 @@
     <ProjectGuid>{4A538B7B-B362-415E-863F-0F7640F6558F}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>SaberSurgeon</RootNamespace>
-    <AssemblyName>SaberSurgeon</AssemblyName>
+    <RootNamespace>BeatSurgeon</RootNamespace>
+    <AssemblyName>BeatSurgeon</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <DebugSymbols>true</DebugSymbols>
@@ -116,6 +116,10 @@
       <Private>False</Private>
       <HintPath>$(BeatSaberDir)\Libs\CatCore.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="Chaos.NaCl, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>libs\Chaos.NaCl.dll</HintPath>
     </Reference>
     <Reference Include="ChatPlexSDK_BS, Version=6.4.2.0, Culture=en, processorArchitecture=MSIL">
       <Private>False</Private>
@@ -324,7 +328,7 @@
     <Compile Include="Gameplay\PlayFirstSubmitLaterManager.cs" />
     <Compile Include="Gameplay\RainbowManager.cs" />
     <Compile Include="Gameplay\RendererWatchdog.cs" />
-    <Compile Include="Gameplay\SaberSurgeonTextMover.cs" />
+    <Compile Include="Gameplay\BeatSurgeonTextMover.cs" />
     <Compile Include="Gameplay\SongRequest.cs" />
     <Compile Include="Harmony\BombNotePatch.cs" />
     <Compile Include="Harmony\DisappearingArrowsPatch.cs" />
@@ -336,8 +340,10 @@
     <Compile Include="Integrations\EndlessPlaylistService.cs" />
     <Compile Include="Integrations\SongInstaller.cs" />
     <Compile Include="Multiplayer\Multiplayer.cs" />
+    <Compile Include="Multiplayer\MultiplayerRoomSyncClient.cs" />
     <Compile Include="Twitch\ChannelPointRouter.cs" />
     <Compile Include="Twitch\EntitlementsState.cs" />
+    <Compile Include="Twitch\JwtEd25519.cs" />
     <Compile Include="Twitch\TwitchChannelPointsManager.cs" />
     <Compile Include="UI\Settings\SurgeonGameplaySetupHost.cs" />
     <Compile Include="Utils\LogUtils.cs" />
@@ -349,9 +355,9 @@
     <Compile Include="Twitch\TwitchAuthManager.cs" />
     <Compile Include="Twitch\TwitchEventSubClient.cs" />
     <Compile Include="UI\Controllers\PlayFirstSubmitLaterViewController.cs" />
-    <Compile Include="UI\Controllers\SaberSurgeonCooldownViewController.cs" />
-    <Compile Include="UI\Controllers\SaberSurgeonViewController.cs" />
-    <Compile Include="UI\FlowCoordinator\SaberSurgeonFlowCoordinator.cs" />
+    <Compile Include="UI\Controllers\BeatSurgeonCooldownViewController.cs" />
+    <Compile Include="UI\Controllers\BeatSurgeonViewController.cs" />
+    <Compile Include="UI\FlowCoordinator\BeatSurgeonFlowCoordinator.cs" />
     <Compile Include="UI\Settings\PlayFirstSubmitLaterSettingsHost.cs" />
     <Compile Include="Utils\SceneHelper.cs" />
   </ItemGroup>
@@ -360,9 +366,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Directory.Build.props" Condition="Exists('Directory.Build.props')" />
-    <None Include="SaberSurgeon.csproj.user" Condition="Exists('SaberSurgeon.csproj.user')" />
-    <EmbeddedResource Include="UI\Views\SaberSurgeonSettings.bsml" />
-    <EmbeddedResource Include="UI\Views\SaberSurgeonCooldowns.bsml" />
+    <None Include="BeatSurgeon.csproj.user" Condition="Exists('SaberSurgeon.csproj.user')" />
+    <EmbeddedResource Include="UI\Views\BeatSurgeonSettings.bsml" />
+    <EmbeddedResource Include="UI\Views\BeatSurgeonCooldowns.bsml" />
     <EmbeddedResource Include="UI\Views\PlayFirstSubmitLaterGameplaySetup.bsml" />
     <EmbeddedResource Include="UI\Views\SurgeonGameplaySetup.bsml" />
   </ItemGroup>
@@ -411,6 +417,7 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Assets\Endless.png" />
+    <EmbeddedResource Include="libs\Chaos.NaCl.dll" />
     <Content Include="server.js" />
   </ItemGroup>
   <ItemGroup />

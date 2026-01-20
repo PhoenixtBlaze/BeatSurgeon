@@ -16,7 +16,7 @@
 				<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
 					<!-- Root: left = main controls, right = cooldowns -->
 					<horizontal spacing="5" pad="2">
-						<!-- LEFT: main SaberSurgeon controls -->
+						<!-- LEFT: main BeatSurgeon controls -->
 						<vertical vertical-fit="PreferredSize" spacing="2" pad="2">
 
 							<!-- Command toggles row: Rainbow + DA + Ghost + Bomb + Faster -->

@@ -1,8 +1,8 @@
 ﻿using System.Collections;
-using SaberSurgeon.Chat;
+using BeatSurgeon.Chat;
 using UnityEngine;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     public class RainbowManager : MonoBehaviour
     {
@@ -26,7 +26,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (_instance == null)
                 {
-                    _go = new GameObject("SaberSurgeon_RainbowManager_GO");
+                    _go = new GameObject("BeatSurgeon_RainbowManager_GO");
                     Object.DontDestroyOnLoad(_go);
                     _instance = _go.AddComponent<RainbowManager>();
                     Plugin.Log.Info("RainbowManager: Created new instance");
@@ -62,6 +62,7 @@ namespace SaberSurgeon.Gameplay
                 _rainbowCoroutine = null;
             }
 
+            MultiplayerStateClient.SetActiveCommand("rainbow");
             _rainbowCoroutine = StartCoroutine(RainbowCoroutine(durationSeconds));
             return true;
         }
@@ -115,6 +116,7 @@ namespace SaberSurgeon.Gameplay
             RainbowActive = false;
             _rainbowCoroutine = null;
             Plugin.Log.Info("RainbowManager: Rainbow finished");
+            MultiplayerStateClient.SetActiveCommand(null);
             ChatManager.GetInstance().SendChatMessage("!!Rainbow notes effect has ended.");
         }
 

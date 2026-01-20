@@ -1,7 +1,7 @@
 ﻿{
   "$schema": "https://raw.githubusercontent.com/bsmg/BSIPA-MetadataFileSchema/master/Schema.json",
-  "id": "SaberSurgeon",
-  "name": "SaberSurgeon",
+  "id": "BeatSurgeon",
+  "name": "BeatSurgeon",
   "author": "PhoenixBlaze0",
   "version": "0.2.1",
   "description": "Twitch chat-driven gameplay modifiers: rainbow/RGB note colors, custom note colors, ghost notes, disappearing arrows, bomb pranks, speed changes (faster/superfast/slower), flashbang lights, moderator controls, command management, and endless play sessions.",

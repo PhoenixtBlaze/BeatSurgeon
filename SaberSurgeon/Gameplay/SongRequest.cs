@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     public class SongRequest
     {

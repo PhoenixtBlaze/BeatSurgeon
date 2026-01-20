@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("SaberSurgeon")]
-[assembly: AssemblyDescription("Twitch chat-driven Beat Saber modifiers (SaberSurgeon).")]
-[assembly: AssemblyConfiguration("SaberSurgeon")]
+[assembly: AssemblyTitle("BeatSurgeon")]
+[assembly: AssemblyDescription("Twitch chat-driven Beat Saber modifiers (BeatSurgeon).")]
+[assembly: AssemblyConfiguration("BeatSurgeon")]
 [assembly: AssemblyCompany("Phoenixblaze0")]
-[assembly: AssemblyProduct("SaberSurgeon")]
+[assembly: AssemblyProduct("BeatSurgeon")]
 [assembly: AssemblyCopyright(
     "Copyright © PhoenixBlaze0 2025 - "
     + "All rights reserved. No modifications without explicit permission.")]

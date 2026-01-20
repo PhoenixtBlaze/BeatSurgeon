@@ -1,7 +1,7 @@
 ﻿using System.Text.RegularExpressions;
 using UnityEngine.Networking;
 
-namespace SaberSurgeon.Integrations
+namespace BeatSurgeon.Integrations
 {
     internal static class BeatSaverClient
     {

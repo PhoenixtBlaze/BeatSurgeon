@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace SaberSurgeon
+namespace BeatSurgeon
 {
     public static class LogUtils
     {

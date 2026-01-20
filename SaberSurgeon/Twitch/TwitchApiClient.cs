@@ -1,19 +1,21 @@
 ﻿using Newtonsoft.Json.Linq;
-using SaberSurgeon.UI.Controllers;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Networking;
 
-namespace SaberSurgeon.Twitch
+namespace BeatSurgeon.Twitch
 {
-    public class TwitchApiClient
+    public sealed class TwitchApiClient
     {
         public static event Action OnSubscriberStatusChanged;
 
         private static readonly Dictionary<string, Sprite> _spriteCache = new Dictionary<string, Sprite>();
+        private static readonly HttpClient _http = new HttpClient();
 
         private static TwitchApiClient _instance;
         public static TwitchApiClient Instance
@@ -21,18 +23,21 @@ namespace SaberSurgeon.Twitch
             get
             {
                 if (_instance == null)
+                {
                     _instance = new TwitchApiClient();
+                }
                 return _instance;
             }
         }
 
         public string BroadcasterId { get; private set; }
         public string BroadcasterName { get; private set; }
-        public string SupportChannelId { get; private set; }
 
         private const string HelixUrl = "https://api.twitch.tv/helix";
-
         private const string BackendEntitlementsUrl = "https://phoenixblaze0.duckdns.org/entitlements";
+        private const string BackendBaseUrl = "https://phoenixblaze0.duckdns.org";
+
+        private TwitchApiClient() { }
 
         public static IEnumerator GetSpriteFromUrl(string url, Action<Sprite> callback)
         {
@@ -42,201 +47,176 @@ namespace SaberSurgeon.Twitch
                 yield break;
             }
 
-            // 1. Check Cache
-            if (_spriteCache.TryGetValue(url, out var cachedSprite))
+            if (_spriteCache.TryGetValue(url, out var cached) && cached != null)
             {
-                if (cachedSprite != null)
-                {
-                    callback?.Invoke(cachedSprite);
-                    yield break;
-                }
-                else
-                {
-                    _spriteCache.Remove(url); // Clean dead entry
-                }
+                callback?.Invoke(cached);
+                yield break;
             }
 
-            // 2. Download
-            using (var www = UnityEngine.Networking.UnityWebRequestTexture.GetTexture(url))
+            using (var req = UnityWebRequestTexture.GetTexture(url))
             {
-                yield return www.SendWebRequest();
+                yield return req.SendWebRequest();
 
-                if (www.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+                if (req.result != UnityWebRequest.Result.Success)
                 {
-                    var texture = UnityEngine.Networking.DownloadHandlerTexture.GetContent(www);
-                    if (texture != null)
-                    {
-                        // Create Sprite
-                        var sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f));
-
-                        // Add to cache
-                        _spriteCache[url] = sprite;
-
-                        callback?.Invoke(sprite);
-                    }
-                }
-                else
-                {
-                    // Log error sparingly
                     callback?.Invoke(null);
+                    yield break;
                 }
+
+                var texture = DownloadHandlerTexture.GetContent(req);
+                if (texture == null)
+                {
+                    callback?.Invoke(null);
+                    yield break;
+                }
+
+                var sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f));
+                _spriteCache[url] = sprite;
+                callback?.Invoke(sprite);
             }
         }
 
-        // Call this on Plugin.OnApplicationQuit or Level Change to free memory
         public static void ClearCache()
         {
             foreach (var sprite in _spriteCache.Values)
             {
-                if (sprite != null && sprite.texture != null)
-                {
-                    UnityEngine.Object.Destroy(sprite.texture);
-                    UnityEngine.Object.Destroy(sprite);
-                }
+                if (sprite == null) continue;
+                if (sprite.texture != null) UnityEngine.Object.Destroy(sprite.texture);
+                UnityEngine.Object.Destroy(sprite);
             }
             _spriteCache.Clear();
         }
 
+        public async Task FetchBroadcasterAndEntitlementsAsync()
+        {
+            await TwitchAuthManager.Instance.EnsureValidTokenAsync();
 
-        private async Task CheckEntitlementsAsync(HttpClient client, string token)
+            var token = TwitchAuthManager.Instance.GetAccessToken();
+            if (string.IsNullOrEmpty(token)) return;
+
+            // Identity (Helix /users)
+            await FetchIdentityAsync(token).ConfigureAwait(false);
+
+            // Entitlements (backend /entitlements -> JWT)
+            await RefreshEntitlementsAsync(token).ConfigureAwait(false);
+        }
+
+        private async Task FetchIdentityAsync(string userAccessToken)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, HelixUrl + "/users");
+            req.Headers.Add("Client-Id", TwitchAuthManager.Instance.ClientId);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
+
+            var resp = await _http.SendAsync(req).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) return;
+
+            var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var json = JObject.Parse(text);
+            var data = json["data"]?[0];
+            if (data == null) return;
+
+            BroadcasterId = data["id"]?.ToString();
+            BroadcasterName = data["login"]?.ToString();
+
+            Plugin.Settings.CachedBroadcasterId = BroadcasterId;
+            Plugin.Settings.CachedBotUserId = BroadcasterId;
+            Plugin.Settings.CachedBotUserLogin = BroadcasterName;
+            Plugin.Settings.CachedBroadcasterLogin = BroadcasterName;
+        }
+
+        private async Task RefreshEntitlementsAsync(string userAccessToken)
         {
             var req = new HttpRequestMessage(HttpMethod.Get, BackendEntitlementsUrl);
-            req.Headers.Add("Authorization", "Bearer " + token);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
 
-            var resp = await client.SendAsync(req);
-            var body = await resp.Content.ReadAsStringAsync();
+            var resp = await _http.SendAsync(req).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
 
             if (!resp.IsSuccessStatusCode)
             {
-                Plugin.Log.Warn($"TwitchAPI: /entitlements failed status={resp.StatusCode} body={body}");
+                EntitlementsState.Clear();
+                OnSubscriberStatusChanged?.Invoke();
                 return;
             }
 
             var json = JObject.Parse(body);
-            var payload = json["payload"];
+            var entitlementToken = json["entitlementToken"]?.ToString();
 
-            bool supporter =
-                payload?["features"]?["supporter"]?.Value<bool>() ?? false;
+            if (!TryVerifyAndParseEntitlement(entitlementToken, out var snapshot))
+            {
+                EntitlementsState.Clear();
+                OnSubscriberStatusChanged?.Invoke();
+                return;
+            }
 
-            // Map boolean entitlement to your existing tier model
-            Plugin.Settings.CachedSupporterTier = supporter ? 1 : 0;
-            SupporterState.CurrentTier = supporter ? SupporterTier.Tier1 : SupporterTier.None;
-
+            EntitlementsState.Set(snapshot);
+            Plugin.Settings.CachedSupporterTier = (int)snapshot.Tier;
             OnSubscriberStatusChanged?.Invoke();
         }
 
-
-
-        public async Task FetchBroadcasterAndSupportInfo()
+        public async Task<bool> CheckVisualsPermissionAsync()
         {
-            string token = TwitchAuthManager.Instance.GetAccessToken();
-            if (string.IsNullOrEmpty(token)) return;
+            await TwitchAuthManager.Instance.EnsureValidTokenAsync().ConfigureAwait(false);
 
-            using (var client = new HttpClient())
+            var accessToken = TwitchAuthManager.Instance.GetAccessToken();
+            if (string.IsNullOrEmpty(accessToken)) return false;
+
+            // Must have a verified entitlement token already stored
+            var entitlement = EntitlementsState.Current.SignedEntitlementToken;
+            if (string.IsNullOrEmpty(entitlement)) return false;
+
+            var req = new HttpRequestMessage(HttpMethod.Get, BackendBaseUrl + "/visuals/permission");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            req.Headers.Add("X-Entitlement", entitlement);
+
+            var resp = await _http.SendAsync(req).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!resp.IsSuccessStatusCode) return false;
+
+            try
             {
-                client.DefaultRequestHeaders.Add("Client-Id", TwitchAuthManager.Instance.ClientId);
-                client.DefaultRequestHeaders.Add("Authorization", "Bearer " + token);
-
-                // 1. Get Broadcaster Info
-                var userRes = await client.GetAsync(HelixUrl + "/users");
-                Plugin.Log.Info($"TwitchAPI: /users status={userRes.StatusCode}");
-                if (userRes.IsSuccessStatusCode)
-                {
-                    var text = await userRes.Content.ReadAsStringAsync();
-                    Plugin.Log.Info($"TwitchAPI: /users body={text}");
-                    var json = JObject.Parse(text);
-                    var data = json["data"]?[0];
-
-                    if (data != null)
-                    {
-                        BroadcasterId = data["id"]?.ToString();
-                        BroadcasterName = data["login"]?.ToString();
-                        Plugin.Log.Info($"TwitchAPI: Raw user data id={BroadcasterId}, login={BroadcasterName}");
-
-                        Plugin.Settings.CachedBroadcasterId = BroadcasterId;
-                        Plugin.Settings.CachedBotUserId = BroadcasterId;
-                        Plugin.Settings.CachedBotUserLogin = BroadcasterName;
-                        Plugin.Settings.CachedBroadcasterLogin = BroadcasterName;
-                        Plugin.Log.Info("TwitchAPI: Logged in as " + BroadcasterName);
-                    }
-                    else
-                    {
-                        Plugin.Log.Warn("TwitchAPI: /users returned no data array.");
-                    }
-                }
-                else
-                {
-                    var errBody = await userRes.Content.ReadAsStringAsync();
-                    Plugin.Log.Warn($"TwitchAPI: /users failed status={userRes.StatusCode} body={errBody}");
-                }
-
-                await CheckEntitlementsAsync(client, token);
-                // 2. Get Support Channel Info
-                var supportRes = await client.GetAsync(HelixUrl + "/users?login=" + TwitchAuthManager.SupportChannelName);
-                if (supportRes.IsSuccessStatusCode)
-                {
-                    var json = JObject.Parse(await supportRes.Content.ReadAsStringAsync());
-                    var data = json["data"]?[0];
-                    if (data != null)
-                    {
-                        SupportChannelId = data["id"]?.ToString();
-                        Plugin.Log.Info("TwitchAPI: Support Channel ID resolved: " + SupportChannelId);
-                    }
-                }
-
-                // 3. Check Subscription
-                if (!string.IsNullOrEmpty(BroadcasterId) && !string.IsNullOrEmpty(SupportChannelId))
-                {
-                    await CheckSupporterStatus(client, token);
-                }
-                Plugin.Log.Info($"TwitchAPI: Finished Helix fetch. Name={BroadcasterName}, Tier={Plugin.Settings.CachedSupporterTier}");
+                var json = JObject.Parse(body);
+                return json["allowed"]?.Value<bool>() == true;
+            }
+            catch
+            {
+                return false;
             }
         }
 
-        private async Task CheckSupporterStatus(HttpClient client, string token)
+        private static bool TryVerifyAndParseEntitlement(string signedToken, out EntitlementsSnapshot snapshot)
         {
-            string url = HelixUrl + "/subscriptions/user?broadcaster_id=" + SupportChannelId + "&user_id=" + BroadcasterId;
-            var response = await client.GetAsync(url);
+            snapshot = default;
 
-            if (response.IsSuccessStatusCode)
+            if (!JwtEd25519.TryVerify(signedToken, out var verified))
+                return false;
+
+            var payload = verified.Payload;
+
+            // Standard claims
+            long exp = payload["exp"]?.Value<long>() ?? 0;
+            string sub = payload["sub"]?.ToString(); // Twitch user id on server
+
+            if (exp <= 0) return false;
+            if (string.IsNullOrEmpty(sub)) return false;
+
+            // Ensure token is for THIS logged-in user
+            string expectedUserId = TwitchAuthManager.Instance.BroadcasterId;
+            if (!string.IsNullOrEmpty(expectedUserId) && !string.Equals(sub, expectedUserId, StringComparison.Ordinal))
+                return false;
+
+            // Tier claim (you set this server-side)
+            int tierInt = payload["tier"]?.Value<int>() ?? 0;
+            if (tierInt < 0 || tierInt > 3) return false;
+
+            snapshot = new EntitlementsSnapshot
             {
-                var json = JObject.Parse(await response.Content.ReadAsStringAsync());
-                var data = json["data"]?[0];
-                if (data != null)
-                {
-                    string tierString = data["tier"]?.ToString();
-
-                    int tier = 0;
-                    if (tierString == "1000") tier = 1;
-                    else if (tierString == "2000") tier = 2;
-                    else if (tierString == "3000") tier = 3;
-
-                    Plugin.Settings.CachedSupporterTier = tier;
-                    SupporterState.CurrentTier = (SupporterTier)tier;
-
-                    Plugin.Log.Info("TwitchAPI: User is Tier " + tier + " Supporter!");
-
-
-                }
-                // Invoke the static event so any listening ViewControllers can update
-                OnSubscriberStatusChanged?.Invoke();
-                Plugin.Log.Info("TwitchAPI: Subscriber status changed event fired ");
-
-
-            }
-            else
-            {
-                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                {
-                    Plugin.Log.Info("TwitchAPI: Not subscribed.");
-                    Plugin.Settings.CachedSupporterTier = 0;
-                    SupporterState.CurrentTier = SupporterTier.None;
-                }
-                else
-                {
-                    Plugin.Log.Warn("TwitchAPI: Failed to check sub status. Code: " + response.StatusCode);
-                }
-            }
+                Tier = (SupporterTier)tierInt,
+                ExpiresAtUtc = DateTimeOffset.FromUnixTimeSeconds(exp).UtcDateTime,
+                SignedEntitlementToken = signedToken
+            };
+            return true;
         }
     }
 }

@@ -2,7 +2,7 @@
 using Newtonsoft.Json;
 using UnityEngine;
 
-namespace SaberSurgeon
+namespace BeatSurgeon
 {
     // Must be public or internal with public virtual properties for BSIPA Generated<T>()
     public class PluginConfig
@@ -103,15 +103,14 @@ namespace SaberSurgeon
 
         /// Optional: allow old command name.
         public virtual bool BsrCommandAliasEnabled { get; set; } = true;
-
-
         public virtual bool PlayFirstSubmitLaterEnabled { get; set; } = true;
         public virtual bool ScoreSubmissionEnabled { get; set; } = true;
         public virtual bool AutoPauseOnMapEnd { get; set; } = true;
-
-
         public virtual bool DebugMode { get; set; } = false;
 
+
+        // --- Multiplayer / Backend Identity ---
+        public virtual string MpClientId { get; set; } = "";
 
 
         // ===== Channel Points (per-command) =====

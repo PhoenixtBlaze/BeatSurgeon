@@ -1,9 +1,10 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using SaberSurgeon.Chat;
+using BeatSurgeon.Chat;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
@@ -11,7 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace SaberSurgeon.Twitch
+namespace BeatSurgeon.Twitch
 {
     /// <summary>
     /// Direct Twitch EventSub WebSocket client (no backend needed).
@@ -267,8 +268,10 @@ namespace SaberSurgeon.Twitch
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error($"TwitchEventSubClient: Failed parsing WS message: {ex.Message}");
+                Plugin.Log.Error($"TwitchEventSubClient: Failed parsing WS message: {ex}");
+                Plugin.Log.Error($"TwitchEventSubClient: Offending JSON (first 2000): {json?.Substring(0, Math.Min(2000, json.Length))}");
             }
+
         }
 
         private void HandleSessionWelcome(JObject obj)
@@ -278,7 +281,7 @@ namespace SaberSurgeon.Twitch
 
             Plugin.Log.Info($"TwitchEventSubClient: session_welcome session_id={_sessionId}, keepalive_timeout_seconds={keepaliveTimeout}");
 
-            // IMPORTANT: Twitch expects you to subscribe shortly after welcome (about 10s by default) [web docs].
+            // IMPORTANT: Twitch expects you to subscribe shortly after welcome (about 10s by default) [web docs] .
             _ = Task.Run(async () =>
             {
                 try
@@ -523,24 +526,39 @@ namespace SaberSurgeon.Twitch
         private void HandleChatMessage(JToken eventData)
         {
             string senderName = (string)eventData["chatter_user_name"] ?? "Unknown";
-            string messageText = (string)eventData["message"]?["text"] ?? string.Empty;
+
+            // message is an object; still safer to cast
+            var messageObj = eventData["message"] as JObject;
+            string messageText = (string)messageObj?["text"] ?? string.Empty;
+
             string chatterId = (string)eventData["chatter_user_id"];
+
+            // IMPORTANT: cheer can be null (JValue), so cast to JObject first
+            var cheerObj = eventData["cheer"] as JObject;
+            int bits = (int?)cheerObj?["bits"] ?? 0;
+
+            var badges = eventData["badges"] as JArray;
+            bool HasBadge(string setId) =>
+                badges != null && badges.Any(b =>
+                    string.Equals((string)b?["set_id"], setId, StringComparison.OrdinalIgnoreCase));
 
             var ctx = new ChatContext
             {
                 SenderName = senderName,
                 MessageText = messageText,
-                IsBroadcaster = chatterId == _broadcasterId,
-                // Role flags are not reliably present without extra Helix calls; keep false here.
-                IsModerator = false,
-                IsSubscriber = false,
-                IsVip = false,
-                Bits = 0,
+                IsBroadcaster = (!string.IsNullOrEmpty(chatterId) && chatterId == _broadcasterId) || HasBadge("broadcaster"),
+                IsModerator = HasBadge("moderator"),
+                IsVip = HasBadge("vip"),
+                IsSubscriber = HasBadge("subscriber") || HasBadge("founder"),
+                Bits = bits,
                 Source = ChatSource.NativeTwitch
             };
 
             OnChatMessage?.Invoke(ctx);
         }
+
+
+
 
         private void HandleFollow(JToken eventData)
         {

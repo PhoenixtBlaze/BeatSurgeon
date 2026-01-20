@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     public class CoroutineHost : MonoBehaviour
     {
@@ -12,7 +12,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (_instance == null)
                 {
-                    var go = new GameObject("SaberSurgeon_CoroutineHost");
+                    var go = new GameObject("BeatSurgeon_CoroutineHost");
                     Object.DontDestroyOnLoad(go);
                     _instance = go.AddComponent<CoroutineHost>();
                 }

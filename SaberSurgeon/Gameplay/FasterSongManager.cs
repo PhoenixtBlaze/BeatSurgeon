@@ -1,10 +1,10 @@
 ﻿using System.Collections;
 using System.Linq;
 using BS_Utils.Gameplay;
-using SaberSurgeon.HarmonyPatches;
+using BeatSurgeon.HarmonyPatches;
 using UnityEngine;
 
-namespace SaberSurgeon.Gameplay
+namespace BeatSurgeon.Gameplay
 {
     /// <summary>
     /// Handles the !faster effect:
@@ -20,7 +20,7 @@ namespace SaberSurgeon.Gameplay
             {
                 if (_instance == null)
                 {
-                    var go = new GameObject("SaberSurgeon_FasterSongManager");
+                    var go = new GameObject("BeatSurgeon_FasterSongManager");
                     Object.DontDestroyOnLoad(go);
                     _instance = go.AddComponent<FasterSongManager>();
                 }
@@ -69,8 +69,10 @@ namespace SaberSurgeon.Gameplay
                 // Already active: just change speed and mark the new effect
                 FasterSongPatch.Multiplier = multiplier;
                 _activeEffectKey = effectKey;
+
             }
 
+            MultiplayerStateClient.SetActiveCommand(effectKey); // "faster" / "superfast" / "slower"
             // Reset / extend timer
             if (_routine != null)
                 StopCoroutine(_routine);
@@ -91,6 +93,7 @@ namespace SaberSurgeon.Gameplay
             _active = false;
             _activeEffectKey = null;
             _routine = null;
+            MultiplayerStateClient.SetActiveCommand(null);
             Plugin.Log.Info("[FasterSongManager] Speed effect disabled (multiplier reset).");
         }
     }
