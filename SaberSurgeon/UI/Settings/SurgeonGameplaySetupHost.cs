@@ -13,6 +13,9 @@ using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using IPA.Utilities.Async;
+
+
 
 namespace BeatSurgeon.UI.Settings
 {
@@ -275,11 +278,111 @@ namespace BeatSurgeon.UI.Settings
             // Initialize visuals for the command buttons.
             UpdateAllCommandButtonVisuals();
             LoadCpFromConfig();
+
+            NotifyPropertyChanged(nameof(RainbowCpEnabled));
+            NotifyPropertyChanged(nameof(RainbowCpCostText));
+            NotifyPropertyChanged(nameof(RainbowCpCooldownSeconds));
+            NotifyPropertyChanged(nameof(RainbowCpBackgroundColor));
+
+            NotifyPropertyChanged(nameof(GhostCpEnabled));
+            NotifyPropertyChanged(nameof(GhostCpCostText));
+            NotifyPropertyChanged(nameof(GhostCpCooldownSeconds));
+            NotifyPropertyChanged(nameof(GhostCpBackgroundColor));
+
+            NotifyPropertyChanged(nameof(BombCpEnabled));
+            NotifyPropertyChanged(nameof(BombCpCostText));
+            NotifyPropertyChanged(nameof(BombCpCooldownSeconds));
+            NotifyPropertyChanged(nameof(BombCpBackgroundColor));
+
+            NotifyPropertyChanged(nameof(DaCpEnabled));
+            NotifyPropertyChanged(nameof(DaCpCostText));
+            NotifyPropertyChanged(nameof(DaCpCooldownSeconds));
+            NotifyPropertyChanged(nameof(DaCpBackgroundColor));
+
+            NotifyPropertyChanged(nameof(FasterCpEnabled));
+            NotifyPropertyChanged(nameof(FasterCpCostText));
+            NotifyPropertyChanged(nameof(FasterCpCooldownSeconds));
+            NotifyPropertyChanged(nameof(FasterCpBackgroundColor));
+
+            NotifyPropertyChanged(nameof(SuperFastCpEnabled));
+            NotifyPropertyChanged(nameof(SuperFastCpCostText));
+            NotifyPropertyChanged(nameof(SuperFastCpCooldownSeconds));
+            NotifyPropertyChanged(nameof(SuperFastCpBackgroundColor));
+
+            NotifyPropertyChanged(nameof(SlowerCpEnabled));
+            NotifyPropertyChanged(nameof(SlowerCpCostText));
+            NotifyPropertyChanged(nameof(SlowerCpCooldownSeconds));
+            NotifyPropertyChanged(nameof(SlowerCpBackgroundColor));
+
+            NotifyPropertyChanged(nameof(FlashbangCpEnabled));
+            NotifyPropertyChanged(nameof(FlashbangCpCostText));
+            NotifyPropertyChanged(nameof(FlashbangCpCooldownSeconds));
+            NotifyPropertyChanged(nameof(FlashbangCpBackgroundColor));
+
             UpdateTwitchCpButtonVisuals();
             // Initialize status text and supporter UI visibility.
             InitTwitchIconsIndependent();
             RefreshTwitchStatusText();
             UpdateSupporterUi();
+        }
+
+        private void RefreshCpModalValues(string key)
+        {
+            LoadCpFromConfig();
+
+            // Force BSML-bound controls to pull the latest values
+            NotifyCpChanged(key);
+
+            switch (key)
+            {
+                case "rainbow":
+                    NotifyPropertyChanged(nameof(RainbowCpCostText));
+                    NotifyPropertyChanged(nameof(RainbowCpCooldownSeconds));
+                    NotifyPropertyChanged(nameof(RainbowCpBackgroundColor));
+                    break;
+
+                case "disappear":
+                    NotifyPropertyChanged(nameof(DaCpCostText));
+                    NotifyPropertyChanged(nameof(DaCpCooldownSeconds));
+                    NotifyPropertyChanged(nameof(DaCpBackgroundColor));
+                    break;
+
+                case "ghost":
+                    NotifyPropertyChanged(nameof(GhostCpCostText));
+                    NotifyPropertyChanged(nameof(GhostCpCooldownSeconds));
+                    NotifyPropertyChanged(nameof(GhostCpBackgroundColor));
+                    break;
+
+                case "bomb":
+                    NotifyPropertyChanged(nameof(BombCpCostText));
+                    NotifyPropertyChanged(nameof(BombCpCooldownSeconds));
+                    NotifyPropertyChanged(nameof(BombCpBackgroundColor));
+                    break;
+
+                case "faster":
+                    NotifyPropertyChanged(nameof(FasterCpCostText));
+                    NotifyPropertyChanged(nameof(FasterCpCooldownSeconds));
+                    NotifyPropertyChanged(nameof(FasterCpBackgroundColor));
+                    break;
+
+                case "superfast":
+                    NotifyPropertyChanged(nameof(SuperFastCpCostText));
+                    NotifyPropertyChanged(nameof(SuperFastCpCooldownSeconds));
+                    NotifyPropertyChanged(nameof(SuperFastCpBackgroundColor));
+                    break;
+
+                case "slower":
+                    NotifyPropertyChanged(nameof(SlowerCpCostText));
+                    NotifyPropertyChanged(nameof(SlowerCpCooldownSeconds));
+                    NotifyPropertyChanged(nameof(SlowerCpBackgroundColor));
+                    break;
+
+                case "flashbang":
+                    NotifyPropertyChanged(nameof(FlashbangCpCostText));
+                    NotifyPropertyChanged(nameof(FlashbangCpCooldownSeconds));
+                    NotifyPropertyChanged(nameof(FlashbangCpBackgroundColor));
+                    break;
+            }
         }
 
         private static (string Title, string Prompt, string BgHex) GetRewardText(string key)
@@ -473,6 +576,7 @@ namespace BeatSurgeon.UI.Settings
                 var t = GetRewardText(key);
 
                 await SyncRewardAsync(
+                    key: key,
                     title: t.Title,
                     prompt: t.Prompt,
                     cost: cost,
@@ -494,6 +598,7 @@ namespace BeatSurgeon.UI.Settings
 
 
         private async Task SyncRewardAsync(
+        string key,
         string title,
         string prompt,
         int cost,
@@ -501,29 +606,29 @@ namespace BeatSurgeon.UI.Settings
         bool enabled,
         Func<string> getId,
         Action<string> setId,
-        string backgroundColorHex = null)
+        string backgroundColorHex = null,
+        CancellationToken externalCt = default)
         {
-                var ct = new CancellationTokenSource(TimeSpan.FromSeconds(15)).Token;
+            var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(externalCt, timeoutCts.Token);
 
-                var id = await TwitchChannelPointsManager.Instance.EnsureRewardAsync(
-                    new TwitchChannelPointsManager.RewardSpec
-                    {
-                        Title = title,
-                        Prompt = prompt,
-                        Cost = cost,
-                        CooldownSeconds = cooldown,
-                        BackgroundColorHex = backgroundColorHex
-                    },
-                    storedRewardId: getId?.Invoke() ?? "",
-                    saveRewardId: setId,
-                    enabled: enabled,
-                    ct: ct
-                );
+            var id = await TwitchChannelPointsManager.Instance.EnsureRewardAsync(
+                new TwitchChannelPointsManager.RewardSpec
+                {
+                    Key = key,
+                    Title = title,
+                    Prompt = prompt,
+                    Cost = cost,
+                    CooldownSeconds = cooldown,
+                    BackgroundColorHex = backgroundColorHex,
+                },
+                storedRewardId: getId?.Invoke() ?? "",
+                saveRewardId: setId,
+                enabled: enabled,
+                ct: linkedCts.Token);
 
-                setId?.Invoke(id);
+            setId?.Invoke(id);
         }
-
-
 
 
         private void LoadCpFromConfig()
@@ -581,12 +686,16 @@ namespace BeatSurgeon.UI.Settings
             _slowerCpBackgroundColor = cfg.CpSlowerBackgroundColor;
             _flashbangCpBackgroundColor = cfg.CpFlashbangBackgroundColor;
 
+            // Force BSML to refresh bindings:
+            NotifyPropertyChanged(string.Empty);
 
+            // Optional, but keeps the icon buttons consistent too:
+            UpdateTwitchCpButtonVisuals();
         }
 
         private void UpdateTwitchCpButtonVisuals()
         {
-            // Use GB sprite when CP is enabled for that command.
+            // Use GB sprite when CP is enabled for that command. 
             SetButtonVisual(_twitchRainbowButton, _twitchRainbowIcon, _rainbowCpEnabled, RainbowOnSprite, RainbowOffSprite);
             SetButtonVisual(_twitchDAButton, _twitchDAIcon, _daCpEnabled, DAOnSprite, DAOffSprite);
             SetButtonVisual(_twitchGhostButton, _twitchGhostIcon, _ghostCpEnabled, GhostOnSprite, GhostOffSprite);
@@ -804,6 +913,14 @@ namespace BeatSurgeon.UI.Settings
             // because all UIComponent references will be null.
             Instance?.UpdateAllCommandButtonVisuals();
         }
+        private static readonly TimeSpan RewardSyncDebounce = TimeSpan.FromMilliseconds(500);
+
+        private readonly object _rewardDebounceLock = new object();
+        private readonly System.Collections.Generic.Dictionary<string, CancellationTokenSource> _rewardDebounce =
+            new System.Collections.Generic.Dictionary<string, CancellationTokenSource>();
+
+        // Optional but strongly recommended: serialize Helix reward writes (see next section)
+        private readonly SemaphoreSlim _rewardSyncGate = new SemaphoreSlim(1, 1);
 
         private void QueueRewardSync(
         string key,
@@ -814,55 +931,194 @@ namespace BeatSurgeon.UI.Settings
         Action<string> setId,
         string logPrefix)
         {
-            _ = Task.Run(async () =>
+            CancellationTokenSource cts;
+
+            lock (_rewardDebounceLock)
             {
+                if (_rewardDebounce.TryGetValue(key, out var oldCts))
+                {
+                    oldCts.Cancel();
+                    oldCts.Dispose();
+                }
+
+                cts = new CancellationTokenSource();
+                _rewardDebounce[key] = cts;
+            }
+
+            _ = DebouncedRewardSyncWorkerAsync(
+                key, cost, cooldown, enabled, getId, setId, logPrefix, cts.Token);
+        }
+
+        private async Task DebouncedRewardSyncWorkerAsync(
+            string key,
+            int cost,
+            int cooldown,
+            bool enabled,
+            Func<string> getId,
+            Action<string> setId,
+            string logPrefix,
+            CancellationToken ct)
+        {
+            try
+            {
+                await Task.Delay(RewardSyncDebounce, ct);
+
+                // Optional: prevent concurrent reward updates (recommended)
+                await _rewardSyncGate.WaitAsync(ct);
                 try
                 {
                     var t = GetRewardText(key);
                     await SyncRewardAsync(
-                        title: t.Title,
-                        prompt: t.Prompt,
-                        cost: cost,
-                        cooldown: cooldown,
-                        enabled: enabled,
-                        getId: getId,
-                        setId: setId,
-                        backgroundColorHex: t.BgHex
-                    );
+                    key: key,
+                    title: t.Title,
+                    prompt: t.Prompt,
+                    cost: cost,
+                    cooldown: cooldown,
+                    enabled: enabled,
+                    getId: getId,
+                    setId: setId,
+                    backgroundColorHex: t.BgHex,
+                    externalCt: ct);
                 }
-                catch (Exception ex)
+                finally
                 {
-                    Plugin.Log.Warn($"{logPrefix} CP SyncRewardAsync failed: {ex}");
+                    _rewardSyncGate.Release();
                 }
-            });
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when user keeps typing / adjusting.
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"{logPrefix} CP Debounced sync failed: {ex.Message}");
+            }
         }
 
 
 
+
         // --- UIActions to open/close modals ---
-        [UIAction("OpenTwitchRainbowModal")] private void OpenTwitchRainbowModal() => _twitchRainbowModal?.Show(true);
-        [UIAction("CloseTwitchRainbowModal")] private void CloseTwitchRainbowModal() => _twitchRainbowModal?.Hide(true);
+        [UIAction("OpenTwitchRainbowModal")]
+        private void OpenTwitchRainbowModal()
+        {
+            LoadCpFromConfig();
+            RefreshCpModalValues("rainbow");
+            _twitchRainbowModal?.Show(true);
+        }
+        [UIAction("CloseTwitchRainbowModal")]
+        private void CloseTwitchRainbowModal()
+        {
 
-        [UIAction("OpenTwitchGhostModal")] private void OpenTwitchGhostModal() => _twitchGhostModal?.Show(true);
-        [UIAction("CloseTwitchGhostModal")] private void CloseTwitchGhostModal() => _twitchGhostModal?.Hide(true);
+            _twitchRainbowModal?.Hide(true);
+        }
 
-        [UIAction("OpenTwitchBombModal")] private void OpenTwitchBombModal() => _twitchBombModal?.Show(true);
-        [UIAction("CloseTwitchBombModal")] private void CloseTwitchBombModal() => _twitchBombModal?.Hide(true);
 
-        [UIAction("OpenTwitchDAModal")] private void OpenTwitchDAModal() => _twitchDAModal?.Show(true);
-        [UIAction("CloseTwitchDAModal")] private void CloseTwitchDAModal() => _twitchDAModal?.Hide(true);
 
-        [UIAction("OpenTwitchFasterModal")] private void OpenTwitchFasterModal() => _twitchFasterModal?.Show(true);
-        [UIAction("CloseTwitchFasterModal")] private void CloseTwitchFasterModal() => _twitchFasterModal?.Hide(true);
+        [UIAction("OpenTwitchGhostModal")]
+        private void OpenTwitchGhostModal()
+        {
+            LoadCpFromConfig();
+            RefreshCpModalValues("ghost");
+            _twitchGhostModal?.Show(true);
+        }
 
-        [UIAction("OpenTwitchSuperFastModal")] private void OpenTwitchSuperFastModal() => _twitchSuperFastModal?.Show(true);
-        [UIAction("CloseTwitchSuperFastModal")] private void CloseTwitchSuperFastModal() => _twitchSuperFastModal?.Hide(true);
+        [UIAction("CloseTwitchGhostModal")] 
+        private void CloseTwitchGhostModal() 
+        { 
 
-        [UIAction("OpenTwitchSlowerModal")] private void OpenTwitchSlowerModal() => _twitchSlowerModal?.Show(true);
-        [UIAction("CloseTwitchSlowerModal")] private void CloseTwitchSlowerModal() => _twitchSlowerModal?.Hide(true);
+            _twitchGhostModal?.Hide(true); 
+        }
 
-        [UIAction("OpenTwitchFlashbangModal")] private void OpenTwitchFlashbangModal() => _twitchFlashbangModal?.Show(true);
-        [UIAction("CloseTwitchFlashbangModal")] private void CloseTwitchFlashbangModal() => _twitchFlashbangModal?.Hide(true);
+
+
+        [UIAction("OpenTwitchBombModal")]
+        private void OpenTwitchBombModal()
+        {
+            LoadCpFromConfig();
+            RefreshCpModalValues("bomb");
+            _twitchBombModal?.Show(true);
+        }
+        [UIAction("CloseTwitchBombModal")]
+        private void CloseTwitchBombModal()
+        {
+            _twitchBombModal?.Hide(true);
+        }
+
+
+
+        [UIAction("OpenTwitchDAModal")]
+        private void OpenTwitchDAModal()
+        {
+            LoadCpFromConfig();
+            RefreshCpModalValues("disappear");
+            _twitchDAModal?.Show(true);
+        }
+        [UIAction("CloseTwitchDAModal")]
+        private void CloseTwitchDAModal()
+        {
+            _twitchDAModal?.Hide(true);
+        }
+
+
+
+        [UIAction("OpenTwitchFasterModal")] 
+        private void OpenTwitchFasterModal()
+        {
+            LoadCpFromConfig();
+            RefreshCpModalValues("faster");
+            _twitchFasterModal?.Show(true);
+        }
+        [UIAction("CloseTwitchFasterModal")]
+        private void CloseTwitchFasterModal()
+        {
+            _twitchFasterModal?.Hide(true);
+        }
+
+
+
+        [UIAction("OpenTwitchSuperFastModal")]
+        private void OpenTwitchSuperFastModal()
+        {
+            LoadCpFromConfig();
+            RefreshCpModalValues("superfast");
+            _twitchSuperFastModal?.Show(true);
+        }
+        [UIAction("CloseTwitchSuperFastModal")]
+        private void CloseTwitchSuperFastModal()
+        {
+            _twitchSuperFastModal?.Hide(true);
+        }
+
+
+
+        [UIAction("OpenTwitchSlowerModal")]
+        private void OpenTwitchSlowerModal()
+        {
+            LoadCpFromConfig();
+            RefreshCpModalValues("slower");
+            _twitchSlowerModal?.Show(true);
+        }
+        [UIAction("CloseTwitchSlowerModal")]
+        private void CloseTwitchSlowerModal()
+        {
+            _twitchSlowerModal?.Hide(true);
+        }
+
+
+
+        [UIAction("OpenTwitchFlashbangModal")]
+        private void OpenTwitchFlashbangModal()
+        {
+            LoadCpFromConfig();
+            RefreshCpModalValues("flashbang");
+            _twitchFlashbangModal?.Show(true);
+        }
+        [UIAction("CloseTwitchFlashbangModal")]
+        private void CloseTwitchFlashbangModal()
+        {
+            _twitchFlashbangModal?.Hide(true);
+        }
 
 
         // --- Twitch UI bits (your BSML uses "~TwitchStatusText") ---
@@ -880,6 +1136,8 @@ namespace BeatSurgeon.UI.Settings
             }
         }
 
+
+        /*
         // Keep this action even if your current BSML doesn’t expose a button for it yet.
         [UIAction("OnConnectTwitchClicked")]
         private void OnConnectTwitchClicked() => _ = ConnectTwitchAsync();
@@ -899,25 +1157,18 @@ namespace BeatSurgeon.UI.Settings
             chatManager.Initialize();
         }
 
+        */
+
+        internal static void SetTwitchStatusFromBeatSurgeon(string statusText)
+        {
+            if (Instance == null) return;
+            Instance.TwitchStatusText = statusText;
+        }
+
+
         private void RefreshTwitchStatusText()
         {
-            if (Plugin.Settings?.TwitchReauthRequired == true)
-            {
-                TwitchStatusText = "Please Reauthorize";
-                return;
-            }
-
-            if (!TwitchAuthManager.Instance.IsAuthenticated)
-            {
-                TwitchStatusText = "Not connected";
-                return;
-            }
-
-            var name = TwitchApiClient.Instance.BroadcasterName
-                       ?? Plugin.Settings?.CachedBroadcasterLogin
-                       ?? "Unknown";
-
-            TwitchStatusText = $"Connected ({name})";
+            SurgeonGameplaySetupHost.SetTwitchStatusFromBeatSurgeon(TwitchStatusText);
         }
 
         // --- Supporter UI ---
@@ -1020,7 +1271,7 @@ namespace BeatSurgeon.UI.Settings
                 _rainbowCpEnabled = value;
 
                 var cfg = Plugin.Settings;
-                if (cfg != null) 
+                if (cfg != null)
                 {
                     cfg.CpRainbowEnabled = value;
                     QueueRewardSync("rainbow", _rainbowCpCost, _rainbowCpCooldownSeconds, _rainbowCpEnabled,
@@ -1076,6 +1327,15 @@ namespace BeatSurgeon.UI.Settings
                     _rainbowCpCost = parsed;
                     var cfg = Plugin.Settings;
                     if (cfg != null) cfg.CpRainbowCost = _rainbowCpCost;
+
+                    if (cfg != null && _rainbowCpEnabled)
+                    {
+                        QueueRewardSync("rainbow", _rainbowCpCost, _rainbowCpCooldownSeconds, _rainbowCpEnabled,
+                            () => cfg.CpRainbowRewardId,
+                            id => cfg.CpRainbowRewardId = id,
+                            "Rainbow");
+                    }
+
                 }
 
 

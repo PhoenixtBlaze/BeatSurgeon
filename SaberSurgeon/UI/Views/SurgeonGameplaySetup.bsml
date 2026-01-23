@@ -271,18 +271,21 @@
 
 				<toggle-setting text="Enable as Channel Point"
 							   value="rainbowCpEnabled"
+								bind-value="true"
 								align="Center"
 								apply-on-change="true"
 								hover-hint="Will Disable !bomb command and Enable/Make Channel point redeem on your twitch channel"/>
 
 				<color-setting text="Background color"
 							  value="rainbowCpBackgroundColor"
+							   bind-value="true"
 							   align="Center"
 							  apply-on-change="true" />
 
 				<!-- "Numerical input" via keyboard: user types a number -->
 				<string-setting text="Cost"
 							   value="rainbowCpCostText"
+								bind-value="true"
 							   apply-on-change="true"
 							   align="Center"
 							   max-length="7"
@@ -291,6 +294,7 @@
 				<!-- Inc/Dec control -->
 				<increment-setting text="Cooldown (sec)"
 								   value="rainbowCpCooldownSeconds"
+								   bind-value="true"
 								   min="0"
 								   max="3600"
 								   align="Center"
@@ -301,7 +305,7 @@
 			</vertical>
 		</settings-scroll-view>
 
-		<!-- Footer -->
+		<!-- Footer  -->
 		<horizontal child-align="MiddleCenter" pad-top="65">
 			<button text="Close" pref-width="20" on-click="CloseTwitchRainbowModal" />
 		</horizontal>
@@ -327,17 +331,20 @@
 					  pref-width="75">
 
 				<toggle-setting text="Enable as Channel Point"
+								bind-value="true"
 								value="ghostCpEnabled"
 								align="Center"
 								apply-on-change="true" />
 
 				<color-setting text="Background color"
+							   bind-value="true"
 							   value="ghostCpBackgroundColor"
 							   align="Center"
 							   apply-on-change="true" />
 
 				<string-setting text="Cost"
 								value="ghostCpCostText"
+								bind-value="true"
 								apply-on-change="true"
 								align="Center"
 								max-length="7"
@@ -348,6 +355,7 @@
 								   min="0"
 								   max="3600"
 								   align="Center"
+								   bind-value="true"
 								   increment="5"
 								   integer-only="true"
 								   apply-on-change="true" />
@@ -381,16 +389,19 @@
 				<toggle-setting text="Enable as Channel Point"
 								value="bombCpEnabled"
 								align="Center"
+								bind-value="true"
 								apply-on-change="true" />
 
 				<color-setting text="Background color"
 							   value="bombCpBackgroundColor"
+							   bind-value="true"
 							   align="Center"
 							   apply-on-change="true" />
 
 				<string-setting text="Cost"
 								value="bombCpCostText"
 								apply-on-change="true"
+								bind-value="true"
 								align="Center"
 								max-length="7"
 								hover-hint="Numbers only (e.g. 500)." />
@@ -399,6 +410,7 @@
 								   value="bombCpCooldownSeconds"
 								   min="0"
 								   max="3600"
+								   bind-value="true"
 								   align="Center"
 								   increment="5"
 								   integer-only="true"
@@ -432,11 +444,13 @@
 
 				<toggle-setting text="Enable as Channel Point"
 								value="daCpEnabled"
+								bind-value="true"
 								align="Center"
 								apply-on-change="true" />
 
 				<color-setting text="Background color"
 							   value="daCpBackgroundColor"
+							   bind-value="true"
 							   align="Center"
 							   apply-on-change="true" />
 
@@ -444,6 +458,7 @@
 								value="daCpCostText"
 								apply-on-change="true"
 								align="Center"
+								bind-value="true"
 								max-length="7"
 								hover-hint="Numbers only (e.g. 500)." />
 
@@ -451,6 +466,7 @@
 								   value="daCpCooldownSeconds"
 								   min="0"
 								   max="3600"
+								   bind-value="true"
 								   align="Center"
 								   increment="5"
 								   integer-only="true"
@@ -484,17 +500,20 @@
 
 				<toggle-setting text="Enable as Channel Point"
 								value="fasterCpEnabled"
+								bind-value="true"
 								align="Center"
 								apply-on-change="true" />
 
 				<color-setting text="Background color"
 							   value="fasterCpBackgroundColor"
 							   align="Center"
+							   bind-value="true"
 							   apply-on-change="true" />
 
 				<string-setting text="Cost"
 								value="fasterCpCostText"
 								apply-on-change="true"
+								bind-value="true"
 								align="Center"
 								max-length="7"
 								hover-hint="Numbers only (e.g. 500)." />
@@ -502,6 +521,7 @@
 				<increment-setting text="Cooldown (sec)"
 								   value="fasterCpCooldownSeconds"
 								   min="0"
+								   bind-value="true"
 								   max="3600"
 								   align="Center"
 								   increment="5"
@@ -536,10 +556,12 @@
 
 				<toggle-setting text="Enable as Channel Point"
 								value="superFastCpEnabled"
+								bind-value="true"
 								align="Center"
 								apply-on-change="true" />
 
 				<color-setting text="Background color"
+							   bind-value="true"
 							   value="superFastCpBackgroundColor"
 							   align="Center"
 							   apply-on-change="true" />
@@ -548,6 +570,7 @@
 								value="superFastCpCostText"
 								apply-on-change="true"
 								align="Center"
+								bind-value="true"
 								max-length="7"
 								hover-hint="Numbers only (e.g. 500)." />
 
@@ -555,6 +578,7 @@
 								   value="superFastCpCooldownSeconds"
 								   min="0"
 								   max="3600"
+								   bind-value="true"
 								   align="Center"
 								   increment="5"
 								   integer-only="true"
@@ -588,17 +612,20 @@
 
 				<toggle-setting text="Enable as Channel Point"
 								value="slowerCpEnabled"
+								bind-value="true"
 								align="Center"
 								apply-on-change="true" />
 
 				<color-setting text="Background color"
 							   value="slowerCpBackgroundColor"
 							   align="Center"
+							   bind-value="true"
 							   apply-on-change="true" />
 
 				<string-setting text="Cost"
 								value="slowerCpCostText"
 								apply-on-change="true"
+								bind-value="true"
 								align="Center"
 								max-length="7"
 								hover-hint="Numbers only (e.g. 500)." />
@@ -607,6 +634,7 @@
 								   value="slowerCpCooldownSeconds"
 								   min="0"
 								   max="3600"
+								   bind-value="true"
 								   align="Center"
 								   increment="5"
 								   integer-only="true"
@@ -641,15 +669,18 @@
 				<toggle-setting text="Enable as Channel Point"
 								value="flashbangCpEnabled"
 								align="Center"
+								bind-value="true"
 								apply-on-change="true" />
 
 				<color-setting text="Background color"
 							   value="flashbangCpBackgroundColor"
+							   bind-value="true"
 							   align="Center"
 							   apply-on-change="true" />
 
 				<string-setting text="Cost"
 								value="flashbangCpCostText"
+								bind-value="true"
 								apply-on-change="true"
 								align="Center"
 								max-length="7"
@@ -661,6 +692,7 @@
 								   max="3600"
 								   align="Center"
 								   increment="5"
+								   bind-value="true"
 								   integer-only="true"
 								   apply-on-change="true" />
 

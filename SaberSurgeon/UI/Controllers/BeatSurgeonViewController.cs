@@ -502,6 +502,7 @@ namespace BeatSurgeon.UI.Controllers
             UpdateSlowerButtonVisual();
             UpdateFlashbangButtonVisual();
             RefreshTwitchStatusText();
+            
 
         }
 
@@ -744,12 +745,14 @@ namespace BeatSurgeon.UI.Controllers
             if (Plugin.Settings?.TwitchReauthRequired == true)
             {
                 TwitchStatusText = "<color=#FFFF44>Please Reauthorize</color>";
+                SurgeonGameplaySetupHost.SetTwitchStatusFromBeatSurgeon(TwitchStatusText);
                 return;
             }
 
             if (!IsTwitchConnected())
             {
                 TwitchStatusText = "<color=#FF4444>Not connected</color>";
+                SurgeonGameplaySetupHost.SetTwitchStatusFromBeatSurgeon(TwitchStatusText);
                 return;
             }
 
@@ -760,9 +763,15 @@ namespace BeatSurgeon.UI.Controllers
             int tier = Plugin.Settings.CachedSupporterTier;
 
             if (tier > 0)
+            {
                 TwitchStatusText = $"<color=#44FF44>Connected (Tier {tier})</color>";
+                SurgeonGameplaySetupHost.SetTwitchStatusFromBeatSurgeon(TwitchStatusText);
+            }
             else
+            {
                 TwitchStatusText = "<color=#44FF44>Connected</color>";
+                SurgeonGameplaySetupHost.SetTwitchStatusFromBeatSurgeon(TwitchStatusText);
+            }
         }
 
 
