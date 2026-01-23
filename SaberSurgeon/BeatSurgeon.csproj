@@ -341,6 +341,7 @@
     <Compile Include="Integrations\SongInstaller.cs" />
     <Compile Include="Multiplayer\Multiplayer.cs" />
     <Compile Include="Multiplayer\MultiplayerRoomSyncClient.cs" />
+    <Compile Include="Twitch\ChannelPointCommandExecutor.cs" />
     <Compile Include="Twitch\ChannelPointRouter.cs" />
     <Compile Include="Twitch\EntitlementsState.cs" />
     <Compile Include="Twitch\JwtEd25519.cs" />

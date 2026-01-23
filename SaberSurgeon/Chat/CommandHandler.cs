@@ -285,16 +285,16 @@ namespace BeatSurgeon.Chat
         /// <summary>
         /// Entry point called by ChatManager when a chat line starting with '!' is received.
         /// </summary>
-        public void ProcessCommand(string messageText, ChatContext context)
+        public bool ProcessCommand(string messageText, ChatContext context)
         {
             try
             {
                 if (string.IsNullOrEmpty(messageText) || !messageText.StartsWith("!"))
-                    return;
+                    return false;
 
                 var parts = messageText.Substring(1).Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length == 0)
-                    return;
+                    return false;
 
                 var commandName = parts[0].ToLower();
 
@@ -316,7 +316,7 @@ namespace BeatSurgeon.Chat
                     {
                         // Optional: Log debug only to avoid spam
                         // Plugin.Log.Debug($"CommandHandler: Unknown command: !{commandName}");
-                        return;
+                        return false;
                     }
                     handler = _commands[commandName];
                 }
@@ -338,11 +338,8 @@ namespace BeatSurgeon.Chat
                 {
                     Plugin.Log.Info($"CommandHandler: !{commandName} on cooldown for {remainingTime.TotalSeconds:F0}s");
                     ChatManager.GetInstance().SendChatMessage($"!Command !{commandName} is on cooldown. Try again in {remainingTime.TotalSeconds:F0}s.");
-                    return;
+                    return false;
                 }
-
-
-
 
                 if (!isChannelPoint)
                 {
@@ -363,11 +360,10 @@ namespace BeatSurgeon.Chat
                         if (cpBlocks && !string.Equals(commandName, "surgeon", StringComparison.OrdinalIgnoreCase))
                         {
                             ChatManager.GetInstance().SendChatMessage($"!!Use Channel Points for !{commandName} (chat command disabled).");
-                            return;
+                            return false;
                         }
                     }
                 }
-
 
                 // Log execution
                 string sourceLabel = context?.Source.ToString() ?? "Unknown";
@@ -386,6 +382,7 @@ namespace BeatSurgeon.Chat
                 catch (Exception ex)
                 {
                     Plugin.Log.Error($"CommandHandler: Error executing command !{commandName}: {ex}");
+                    return false;
                 }
 
                 // 5. Apply Cooldown (Thread-safe)
@@ -396,12 +393,16 @@ namespace BeatSurgeon.Chat
                         SetCommandCooldown(commandName);
                     }
                 }
+
+                return succeeded;
             }
             catch (Exception ex)
             {
                 Plugin.Log.Error($"CommandHandler: Critical error in ProcessCommand: {ex.Message}");
+                return false;
             }
         }
+
 
 
 

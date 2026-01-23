@@ -60,12 +60,14 @@ namespace BeatSurgeon.Twitch
         public event Action<string, int> OnRaid;
         public sealed class ChannelPointRedemption
         {
+            public string RedemptionId;      // ADD THIS LINE
             public string RewardId;
             public string RewardTitle;
             public string UserName;
             public string UserId;
             public string UserInput;
         }
+
 
         public event Action<ChannelPointRedemption> OnChannelPointRedeemed;
 
@@ -591,6 +593,9 @@ namespace BeatSurgeon.Twitch
         {
             try
             {
+                // ADD THIS LINE - Extract redemption ID
+                string redemptionId = (string)eventData["id"] ?? "";
+
                 string userName = (string)eventData["user_name"] ?? "Unknown";
                 string userId = (string)eventData["user_id"] ?? "";
                 string userInput = (string)eventData["user_input"] ?? "";
@@ -603,6 +608,7 @@ namespace BeatSurgeon.Twitch
 
                 OnChannelPointRedeemed?.Invoke(new ChannelPointRedemption
                 {
+                    RedemptionId = redemptionId,  // ADD THIS LINE
                     RewardId = rewardId,
                     RewardTitle = rewardTitle,
                     UserName = userName,
@@ -615,6 +621,7 @@ namespace BeatSurgeon.Twitch
                 Plugin.Log.Warn("TwitchEventSubClient: Failed parsing channel points redemption: " + ex.Message);
             }
         }
+
 
 
         /// <summary>

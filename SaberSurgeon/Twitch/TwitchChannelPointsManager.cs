@@ -207,6 +207,69 @@ namespace BeatSurgeon.Twitch
                 throw new Exception($"SetRewardEnabled failed HTTP={(int)resp.StatusCode} body={body}");
         }
 
+
+        /// <summary>
+        /// Updates the status of a custom reward redemption.
+        /// Status can be "FULFILLED" or "CANCELED" (CANCELED refunds the points).
+        /// Requires channel:manage:redemptions scope.
+        /// </summary>
+        public async Task UpdateRedemptionStatusAsync(
+            string rewardId,
+            string redemptionId,
+            string status, // "FULFILLED" or "CANCELED"
+            CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(rewardId))
+                throw new ArgumentException("Reward ID is required", nameof(rewardId));
+
+            if (string.IsNullOrWhiteSpace(redemptionId))
+                throw new ArgumentException("Redemption ID is required", nameof(redemptionId));
+
+            if (status != "FULFILLED" && status != "CANCELED")
+                throw new ArgumentException("Status must be FULFILLED or CANCELED", nameof(status));
+
+            var client = await CreateAuthedClientAsync(ct);
+            string broadcasterId = RequireBroadcasterId();
+
+            var payload = new JObject
+            {
+                ["status"] = status
+            };
+
+            string url =
+                $"{HelixBase}/channel_points/custom_rewards/redemptions" +
+                $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
+                $"&reward_id={Uri.EscapeDataString(rewardId)}" +
+                $"&id={Uri.EscapeDataString(redemptionId)}";
+
+            var req = new HttpRequestMessage(new HttpMethod("PATCH"), url)
+            {
+                Content = new StringContent(payload.ToString(), Encoding.UTF8, "application/json")
+            };
+
+            var resp = await client.SendAsync(req, ct);
+            string body = await resp.Content.ReadAsStringAsync();
+
+            if (!resp.IsSuccessStatusCode)
+                throw new Exception($"UpdateRedemptionStatus failed HTTP={(int)resp.StatusCode} body={body}");
+        }
+
+        /// <summary>
+        /// Convenience method to cancel/refund a redemption.
+        /// </summary>
+        public async Task RefundRedemptionAsync(string rewardId, string redemptionId, CancellationToken ct)
+        {
+            await UpdateRedemptionStatusAsync(rewardId, redemptionId, "CANCELED", ct);
+        }
+
+        /// <summary>
+        /// Convenience method to fulfill a redemption.
+        /// </summary>
+        public async Task FulfillRedemptionAsync(string rewardId, string redemptionId, CancellationToken ct)
+        {
+            await UpdateRedemptionStatusAsync(rewardId, redemptionId, "FULFILLED", ct);
+        }
+
         /// <summary>
         /// Signature that matches your SurgeonGameplaySetupHost call site (storedRewardId/saveRewardId). [file:223]
         /// </summary>

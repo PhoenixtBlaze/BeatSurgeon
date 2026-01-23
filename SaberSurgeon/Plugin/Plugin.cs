@@ -44,7 +44,7 @@ namespace BeatSurgeon
         internal static PluginConfig Settings { get; private set; }
 
         private bool _menuButtonRegisteredThisMenu = false;
-
+        private TwitchEventSubClient _eventSubClient;
         private MenuButton _menuButton;
         private BeatSurgeonFlowCoordinator _flowCoordinator;
         //private BeatSurgeon.UI.FloatingChatOverlay _floatingChatOverlay;
@@ -99,18 +99,19 @@ namespace BeatSurgeon
             // 2) Then chat manager (so it can see CachedBroadcasterId if available)
             InitializeChatIntegration();
 
-            
+            // ADD THIS LINE - Initialize EventSub and channel point executor
+            InitializeTwitchEventSub();
+
             // 3) Gameplay manager
             InitializeGameplayManager();
 
             _ = BeatSurgeon.Gameplay.PlayFirstSubmitLaterManager.Instance;
 
-
             // Harmony patches - patch ALL BeatSurgeon harmony classes
             try
             {
                 var harmony = new Harmony("BeatSurgeon");
-                harmony.PatchAll(Assembly.GetExecutingAssembly()); // Catches EndlessHarmonyPatch + LocalNoteModifierPatch
+                harmony.PatchAll(Assembly.GetExecutingAssembly());
                 Log.Info("BeatSurgeon: All Harmony patches applied");
             }
             catch (Exception ex)
@@ -118,6 +119,7 @@ namespace BeatSurgeon
                 Log.Error($"BeatSurgeon: Harmony patch error: {ex}");
             }
         }
+
 
 
         private bool _pfslTabRegistered;
@@ -299,6 +301,56 @@ namespace BeatSurgeon
             }
         }
 
+        /// <summary>
+        /// Initialize Twitch EventSub connection and channel point executor
+        /// </summary>
+        private void InitializeTwitchEventSub()
+        {
+            try
+            {
+                Log.Info("BeatSurgeon: Initializing Twitch EventSub...");
+
+                // Fire and forget: connect in background
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    try
+                    {
+                        // Wait for auth to be ready
+                        await TwitchAuthManager.Instance.EnsureReadyAsync();
+
+                        string token = TwitchAuthManager.Instance.GetAccessToken();
+                        string clientId = TwitchAuthManager.Instance.ClientId;
+                        string broadcasterId = TwitchAuthManager.Instance.BroadcasterId;
+                        string botUserId = TwitchAuthManager.Instance.BotUserId;
+
+                        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(broadcasterId))
+                        {
+                            Log.Warn("BeatSurgeon: Cannot initialize EventSub - missing auth credentials");
+                            return;
+                        }
+
+                        // Create EventSub client
+                        _eventSubClient = new TwitchEventSubClient(token, clientId, broadcasterId, botUserId);
+
+                        // Initialize the command executor to handle redemptions
+                        ChannelPointCommandExecutor.Instance.Initialize(_eventSubClient);
+
+                        // Connect to Twitch WebSocket
+                        await _eventSubClient.ConnectAsync();
+
+                        Log.Info("BeatSurgeon: Twitch EventSub connected and channel point executor initialized!");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"BeatSurgeon: Failed to initialize EventSub: {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"BeatSurgeon: Exception in InitializeTwitchEventSub: {ex.Message}");
+            }
+        }
 
         private void ShowFlow()
         {
@@ -374,6 +426,13 @@ namespace BeatSurgeon
                 CommandHandler.Instance.Shutdown();
                 ChatManager.GetInstance().Shutdown();
                 Gameplay.GameplayManager.GetInstance().Shutdown();
+                ChannelPointCommandExecutor.Instance.Shutdown();
+                if (_eventSubClient != null)
+                {
+                    _eventSubClient.Shutdown();
+                    _eventSubClient = null;
+                }
+
                 Log.Info("BeatSurgeon: Chat integration shut down");
             }
             catch (Exception ex)
