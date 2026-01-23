@@ -169,6 +169,8 @@ namespace BeatSurgeon
         public virtual string CpFlashbangRewardId { get; set; } = "";
         public virtual Color CpFlashbangBackgroundColor { get; set; } = Color.white;
 
+        public virtual float RainbowCycleSpeed { get; set; } = 0.1f; // 0.5 = one full cycle every 2 seconds
+
 
     }
 }

@@ -129,7 +129,7 @@ namespace BeatSurgeon.Chat
 
         public const float FlashbangHoldSeconds = 1f;
         public const float FlashbangFadeSeconds = 3f;
-        public const float FlashbangIntensityMultiplier = 25f;
+        public const float FlashbangIntensityMultiplier = 90f;
 
 
         private CommandHandler()
@@ -192,6 +192,8 @@ namespace BeatSurgeon.Chat
                     SuperFastCooldownSeconds = cfg.SuperFastCooldownSeconds;
                     SlowerCooldownSeconds = cfg.SlowerCooldownSeconds;
                     FlashbangCooldownSeconds = cfg.FlashbangCooldownSeconds;
+
+                    Gameplay.RainbowManager.RainbowCycleSpeed = cfg.RainbowCycleSpeed;
 
                     _isInitialized = true;
                     Plugin.Log.Info($"CommandHandler: Ready! ({_commands.Count} commands registered)");

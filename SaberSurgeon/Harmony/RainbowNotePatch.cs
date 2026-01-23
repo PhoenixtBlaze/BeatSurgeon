@@ -10,10 +10,6 @@ namespace BeatSurgeon.HarmonyPatches
     {
         private static readonly Type TargetType = typeof(ColorNoteVisuals);
 
-        /// <summary>
-        /// Try to find a field by any of the provided names using reflection directly
-        /// (bypasses Harmony warnings for fields that don't exist).
-        /// </summary>
         private static FieldInfo TryGetField(Type t, params string[] names)
         {
             const BindingFlags flags =
@@ -28,7 +24,6 @@ namespace BeatSurgeon.HarmonyPatches
             return null;
         }
 
-        // Initialize fields via custom TryGetField to avoid Harmony warnings
         private static readonly FieldInfo MpbField =
             TryGetField(TargetType, "materialPropertyBlockControllers", "_materialPropertyBlockControllers");
 
@@ -42,16 +37,13 @@ namespace BeatSurgeon.HarmonyPatches
         [HarmonyPatch("HandleNoteControllerDidInit")]
         private static void Postfix(ColorNoteVisuals __instance, NoteControllerBase noteController)
         {
-
-            // Apply when either mode is active
+            // Only apply when rainbow or notecolor mode is active
             if (!Gameplay.RainbowManager.RainbowActive && !Gameplay.RainbowManager.NoteColorActive)
                 return;
 
-            
-
             if (MpbField == null || DefaultAlphaField == null || ColorIdField == null)
             {
-                Plugin.Log.Warn("RainbowNotePatch: Failed to find ColorNoteVisuals fields (mpb/alpha/colorId).");
+                Plugin.Log.Warn("RainbowNotePatch: Failed to find ColorNoteVisuals fields.");
                 return;
             }
 
@@ -61,53 +53,72 @@ namespace BeatSurgeon.HarmonyPatches
 
             float defaultAlpha = (float)DefaultAlphaField.GetValue(__instance);
 
-            // Handle both static and instance colorId field (version compatibility)
+            // Get colorId (handle both static and instance)
             int colorId;
             if (ColorIdField.IsStatic)
                 colorId = (int)ColorIdField.GetValue(null);
             else
                 colorId = (int)ColorIdField.GetValue(__instance);
 
-            Color finalColor;
+            var noteData = noteController?.noteData;
+            if (noteData == null)
+                return;
+
+            // Convert controllers array to MaterialPropertyBlockController[]
+            var controllers = new MaterialPropertyBlockController[controllersObj.Length];
+            for (int i = 0; i < controllersObj.Length; i++)
+            {
+                controllers[i] = controllersObj.GetValue(i) as MaterialPropertyBlockController;
+            }
 
             if (Gameplay.RainbowManager.RainbowActive)
             {
-                finalColor = UnityEngine.Random.ColorHSV(0f, 1f, 0.7f, 1f, 0.8f, 1f);
+                // Register note for continuous rainbow color updates
+                Gameplay.RainbowManager.Instance.RegisterNote(
+                    __instance,
+                    noteData.colorType,
+                    controllers,
+                    colorId,
+                    defaultAlpha
+                );
             }
-            else
+            else if (Gameplay.RainbowManager.NoteColorActive)
             {
-                var data = noteController?.noteData;
-                if (data == null)
-                    return;
-
-                // ColorA = left (saberA), ColorB = right (saberB)
-                finalColor = (data.colorType == ColorType.ColorA)
+                // Static color mode - set once
+                Color finalColor = (noteData.colorType == ColorType.ColorA)
                     ? Gameplay.RainbowManager.LeftColor
                     : Gameplay.RainbowManager.RightColor;
+
+                foreach (var controller in controllers)
+                {
+                    if (controller == null)
+                        continue;
+
+                    try
+                    {
+                        var mpb = controller.materialPropertyBlock;
+                        if (mpb != null)
+                        {
+                            mpb.SetColor(colorId, finalColor.ColorWithAlpha(defaultAlpha));
+                            controller.ApplyChanges();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Log.Error($"RainbowNotePatch: Error setting static color: {ex.Message}");
+                    }
+                }
             }
+        }
 
-            foreach (var ctrlObj in controllersObj)
+        // NEW: Unregister notes when they're destroyed
+        [HarmonyPostfix]
+        [HarmonyPatch("OnDestroy")]
+        private static void OnDestroyPostfix(ColorNoteVisuals __instance)
+        {
+            if (Gameplay.RainbowManager.RainbowActive)
             {
-                if (ctrlObj == null)
-                    continue;
-
-                var ctrlType = ctrlObj.GetType();
-
-                var mpbProp = ctrlType.GetProperty("materialPropertyBlock",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-
-                var applyMethod = ctrlType.GetMethod("ApplyChanges",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-
-                if (mpbProp == null || applyMethod == null)
-                    continue;
-
-                var mpb = mpbProp.GetValue(ctrlObj) as MaterialPropertyBlock;
-                if (mpb == null)
-                    continue;
-
-                mpb.SetColor(colorId, finalColor.ColorWithAlpha(defaultAlpha));
-                applyMethod.Invoke(ctrlObj, null);
+                Gameplay.RainbowManager.Instance.UnregisterNote(__instance);
             }
         }
     }
