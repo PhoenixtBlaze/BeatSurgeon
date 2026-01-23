@@ -24,7 +24,10 @@ namespace BeatSurgeon.UI.Settings
     internal sealed class SurgeonGameplaySetupHost : NotifiableBase
     {
 
-        // ===== Twitch Channel Point settings (Rainbow) =====
+        // ===== Twitch Channel Point settings =====
+
+
+        private bool _hasInitializedRewards = false;
 
         private bool _rainbowCpEnabled;
         private Color _rainbowCpBackgroundColor = Color.white;
@@ -276,7 +279,14 @@ namespace BeatSurgeon.UI.Settings
 
 
             // Initialize visuals for the command buttons.
+
             UpdateAllCommandButtonVisuals();
+            if (!_hasInitializedRewards)
+            {
+                _hasInitializedRewards = true;
+                _ = SyncAllEnabledRewardsOnStartup();
+            }
+
             LoadCpFromConfig();
 
             NotifyPropertyChanged(nameof(RainbowCpEnabled));
@@ -325,6 +335,113 @@ namespace BeatSurgeon.UI.Settings
             RefreshTwitchStatusText();
             UpdateSupporterUi();
         }
+
+
+        /// <summary>
+        /// On first activation, sync all enabled rewards with Twitch.
+        /// This ensures rewards that were enabled before game restart are actually live.
+        /// </summary>
+        private async Task SyncAllEnabledRewardsOnStartup()
+        {
+            var cfg = Plugin.Settings;
+            if (cfg == null) return;
+
+            Plugin.Log.Info("SurgeonGameplaySetupHost: Syncing all enabled channel point rewards...");
+
+            try
+            {
+                // Use a timeout for the entire operation
+                var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+                // Sync each enabled reward
+                if (cfg.CpRainbowEnabled)
+                {
+                    Plugin.Log.Info("Syncing Rainbow reward...");
+                    var t = GetRewardText("rainbow");
+                    await SyncRewardAsync("rainbow", t.Title, t.Prompt, cfg.CpRainbowCost,
+                        cfg.CpRainbowCooldownSeconds, true,
+                        () => cfg.CpRainbowRewardId, id => cfg.CpRainbowRewardId = id,
+                        t.BgHex, cts.Token);
+                }
+
+                if (cfg.CpDisappearEnabled)
+                {
+                    Plugin.Log.Info("Syncing Disappear reward...");
+                    var t = GetRewardText("disappear");
+                    await SyncRewardAsync("disappear", t.Title, t.Prompt, cfg.CpDisappearCost,
+                        cfg.CpDisappearCooldownSeconds, true,
+                        () => cfg.CpDisappearRewardId, id => cfg.CpDisappearRewardId = id,
+                        t.BgHex, cts.Token);
+                }
+
+                if (cfg.CpGhostEnabled)
+                {
+                    Plugin.Log.Info("Syncing Ghost reward...");
+                    var t = GetRewardText("ghost");
+                    await SyncRewardAsync("ghost", t.Title, t.Prompt, cfg.CpGhostCost,
+                        cfg.CpGhostCooldownSeconds, true,
+                        () => cfg.CpGhostRewardId, id => cfg.CpGhostRewardId = id,
+                        t.BgHex, cts.Token);
+                }
+
+                if (cfg.CpBombEnabled)
+                {
+                    Plugin.Log.Info("Syncing Bomb reward...");
+                    var t = GetRewardText("bomb");
+                    await SyncRewardAsync("bomb", t.Title, t.Prompt, cfg.CpBombCost,
+                        cfg.CpBombCooldownSeconds, true,
+                        () => cfg.CpBombRewardId, id => cfg.CpBombRewardId = id,
+                        t.BgHex, cts.Token);
+                }
+
+                if (cfg.CpFasterEnabled)
+                {
+                    Plugin.Log.Info("Syncing Faster reward...");
+                    var t = GetRewardText("faster");
+                    await SyncRewardAsync("faster", t.Title, t.Prompt, cfg.CpFasterCost,
+                        cfg.CpFasterCooldownSeconds, true,
+                        () => cfg.CpFasterRewardId, id => cfg.CpFasterRewardId = id,
+                        t.BgHex, cts.Token);
+                }
+
+                if (cfg.CpSuperFastEnabled)
+                {
+                    Plugin.Log.Info("Syncing SuperFast reward...");
+                    var t = GetRewardText("superfast");
+                    await SyncRewardAsync("superfast", t.Title, t.Prompt, cfg.CpSuperFastCost,
+                        cfg.CpSuperFastCooldownSeconds, true,
+                        () => cfg.CpSuperFastRewardId, id => cfg.CpSuperFastRewardId = id,
+                        t.BgHex, cts.Token);
+                }
+
+                if (cfg.CpSlowerEnabled)
+                {
+                    Plugin.Log.Info("Syncing Slower reward...");
+                    var t = GetRewardText("slower");
+                    await SyncRewardAsync("slower", t.Title, t.Prompt, cfg.CpSlowerCost,
+                        cfg.CpSlowerCooldownSeconds, true,
+                        () => cfg.CpSlowerRewardId, id => cfg.CpSlowerRewardId = id,
+                        t.BgHex, cts.Token);
+                }
+
+                if (cfg.CpFlashbangEnabled)
+                {
+                    Plugin.Log.Info("Syncing Flashbang reward...");
+                    var t = GetRewardText("flashbang");
+                    await SyncRewardAsync("flashbang", t.Title, t.Prompt, cfg.CpFlashbangCost,
+                        cfg.CpFlashbangCooldownSeconds, true,
+                        () => cfg.CpFlashbangRewardId, id => cfg.CpFlashbangRewardId = id,
+                        t.BgHex, cts.Token);
+                }
+
+                Plugin.Log.Info("SurgeonGameplaySetupHost: All enabled rewards synced successfully!");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"SurgeonGameplaySetupHost: Failed to sync rewards on startup: {ex.Message}");
+            }
+        }
+
 
         private void RefreshCpModalValues(string key)
         {
