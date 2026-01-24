@@ -362,5 +362,4 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /SaberSurgeon/server.js
-/SaberSurgeon/server.js
-/SaberSurgeon/server.js
+/BeatSurgeon/server.js
