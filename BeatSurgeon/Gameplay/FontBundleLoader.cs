@@ -97,8 +97,8 @@ namespace BeatSurgeon.Gameplay
             _fontOptions.Add(DefaultSelectionValue);
 
             // Find a safe shader from the game to fix Single Pass Instanced issues
-            _safeTmpShader = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(s => s.name.Contains("TextMeshPro/Distance Field")); // Standard TMP shader usually works if game loaded it
-            if (_safeTmpShader == null) _safeTmpShader = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(s => s.name.Contains("Distance Field")); // Fallback
+            _safeTmpShader = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(s => s.name.Contains("TextMeshPro/Distance Field"));
+            if (_safeTmpShader == null) _safeTmpShader = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(s => s.name.Contains("Distance Field"));
 
             if (!File.Exists(BundlePath))
             {
@@ -120,32 +120,196 @@ namespace BeatSurgeon.Gameplay
                 return;
             }
 
+            int successCount = 0;
             foreach (var font in fonts.Where(f => f != null))
             {
-                if (font.atlasTexture == null || font.material == null) continue;
-
-                if (font.material.mainTexture == null) font.material.mainTexture = font.atlasTexture;
-
-                // *** CRITICAL FIX: Replace shader with the game's safe shader ***
-                // This fixes the "Left Eye Only" bug caused by using a bundle-baked shader that doesn't support SPI.
-                // Shader fix (keep this)
-                if (_safeTmpShader != null) font.material.shader = _safeTmpShader;
-
-                else
+                if (font.atlasTexture == null)
                 {
-                    BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: Could not find safe TMP shader! Text might render in one eye only.");
+                    BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Font '{font.name}' has no atlasTexture, skipping");
+                    continue;
                 }
 
+                // *** NEW: Get or create material (works for both old and new versions) ***
+                Material fontMaterial = GetOrCreateFontMaterial(font);
+
+                if (fontMaterial == null)
+                {
+                    BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Font '{font.name}' - could not get/create material, skipping");
+                    continue;
+                }
+
+                // Ensure texture is assigned
+                if (fontMaterial.mainTexture == null)
+                    fontMaterial.mainTexture = font.atlasTexture;
+
+                // *** CRITICAL: Replace shader with the game's safe shader ***
+                if (_safeTmpShader != null)
+                    fontMaterial.shader = _safeTmpShader;
+                else
+                    BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: Could not find safe TMP shader! Text might render in one eye only.");
 
                 _fontsByName[font.name] = font;
                 if (!string.Equals(font.name, DefaultFontAssetName, StringComparison.OrdinalIgnoreCase))
                 {
                     if (!_fontOptions.Contains(font.name)) _fontOptions.Add(font.name);
                 }
+                successCount++;
+                BeatSurgeon.Plugin.Log.Debug($"FontBundleLoader: Successfully loaded font '{font.name}'");
             }
 
-            BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Fonts in bundle: {string.Join(", ", _fontOptions.Where(x => x != DefaultSelectionValue))}");
+            BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Loaded {successCount}/{fonts.Length} fonts from bundle");
+            BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Available fonts: {string.Join(", ", _fontOptions.Where(x => x != DefaultSelectionValue))}");
             ApplySelectionFromConfig();
+        }
+
+        /// <summary>
+        /// Gets existing material or creates a new one. Works for both old and new Unity/TMP versions.
+        /// </summary>
+        internal static Material GetOrCreateFontMaterial(TMP_FontAsset font)
+        {
+            if (font == null) return null;
+
+            // STEP 1: Try to get existing material via reflection (old versions)
+            Material existingMat = TryGetExistingMaterial(font);
+            if (existingMat != null)
+            {
+                BeatSurgeon.Plugin.Log.Debug($"FontBundleLoader: Found existing material for '{font.name}'");
+                return existingMat;
+            }
+
+            // STEP 2: Material doesn't exist or isn't accessible - create a new one (new versions)
+            BeatSurgeon.Plugin.Log.Debug($"FontBundleLoader: Creating new material for '{font.name}'");
+
+            if (font.atlasTexture == null)
+            {
+                BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Cannot create material for '{font.name}' - no atlas texture");
+                return null;
+            }
+
+            // Find a TMP shader to use
+            Shader tmpShader = _safeTmpShader;
+            if (tmpShader == null)
+            {
+                // Try to find any TMP shader
+                tmpShader = Shader.Find("TextMeshPro/Distance Field");
+                if (tmpShader == null)
+                    tmpShader = Shader.Find("TextMeshPro/Mobile/Distance Field");
+                if (tmpShader == null)
+                    tmpShader = Resources.FindObjectsOfTypeAll<Shader>()
+                        .FirstOrDefault(s => s.name.Contains("TextMeshPro") || s.name.Contains("Distance Field"));
+            }
+
+            if (tmpShader == null)
+            {
+                BeatSurgeon.Plugin.Log.Error($"FontBundleLoader: Cannot create material for '{font.name}' - no TMP shader found");
+                return null;
+            }
+
+            // Create new material
+            Material newMat = new Material(tmpShader);
+            newMat.name = $"{font.name} Material";
+            newMat.mainTexture = font.atlasTexture;
+
+            // Try to assign it back to the font via reflection
+            TrySetMaterial(font, newMat);
+
+            BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Created new material for '{font.name}'");
+            return newMat;
+        }
+
+        /// <summary>
+        /// Attempts to get existing material via reflection (for old versions).
+        /// </summary>
+        private static Material TryGetExistingMaterial(TMP_FontAsset font)
+        {
+            if (font == null) return null;
+
+            try
+            {
+                // Try 1: TMP_FontAsset.material property (most common in older versions)
+                var fontAssetProp = typeof(TMP_FontAsset).GetProperty("material",
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (fontAssetProp != null && fontAssetProp.CanRead)
+                {
+                    var mat = fontAssetProp.GetValue(font) as Material;
+                    if (mat != null) return mat;
+                }
+
+                // Try 2: TMP_Asset base class field
+                var assetField = typeof(TMP_Asset).GetField("material",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (assetField != null)
+                {
+                    var mat = assetField.GetValue(font) as Material;
+                    if (mat != null) return mat;
+                }
+
+                // Try 3: m_material backing field
+                var backingField = typeof(TMP_Asset).GetField("m_material",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+                if (backingField != null)
+                {
+                    var mat = backingField.GetValue(font) as Material;
+                    if (mat != null) return mat;
+                }
+
+                // Try 4: Check if there's a "sourceMaterial" property (some TMP versions)
+                var sourceMaterialProp = typeof(TMP_FontAsset).GetProperty("sourceMaterial",
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (sourceMaterialProp != null && sourceMaterialProp.CanRead)
+                {
+                    var mat = sourceMaterialProp.GetValue(font) as Material;
+                    if (mat != null) return mat;
+                }
+            }
+            catch (Exception ex)
+            {
+                BeatSurgeon.Plugin.Log.Debug($"FontBundleLoader: Reflection attempt failed for '{font.name}': {ex.Message}");
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Attempts to set material on font via reflection.
+        /// </summary>
+        private static void TrySetMaterial(TMP_FontAsset font, Material material)
+        {
+            if (font == null || material == null) return;
+
+            try
+            {
+                // Try setting via property
+                var materialProp = typeof(TMP_FontAsset).GetProperty("material",
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (materialProp != null && materialProp.CanWrite)
+                {
+                    materialProp.SetValue(font, material);
+                    return;
+                }
+
+                // Try setting via field
+                var materialField = typeof(TMP_Asset).GetField("material",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (materialField != null)
+                {
+                    materialField.SetValue(font, material);
+                    return;
+                }
+
+                // Try m_material backing field
+                var backingField = typeof(TMP_Asset).GetField("m_material",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+                if (backingField != null)
+                {
+                    backingField.SetValue(font, material);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                BeatSurgeon.Plugin.Log.Debug($"FontBundleLoader: Could not set material via reflection: {ex.Message}");
+            }
         }
 
         private static void ApplySelectionFromConfig()

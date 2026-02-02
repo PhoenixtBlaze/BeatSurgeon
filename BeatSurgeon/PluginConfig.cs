@@ -16,6 +16,8 @@ namespace BeatSurgeon
 
         // Command toggles
         public virtual bool RainbowEnabled { get; set; } = true;
+        public virtual float RainbowCycleSpeed { get; set; } = 0.1f; // 0.5 = one full cycle every 2 seconds
+        public virtual bool RainbowGradientFadeEnabled { get; set; } = true;
         public virtual bool DisappearEnabled { get; set; } = true;
         public virtual bool GhostEnabled { get; set; } = true;
         public virtual bool BombEnabled { get; set; } = true;
@@ -24,13 +26,14 @@ namespace BeatSurgeon
         public virtual float BombSpawnDistance { get; set; } = 20.0f; // units forward from player
         public virtual string BombFontType { get; set; } = "Default"; // dropdown selection
         public virtual string BombFireworksTextureType { get; set; }
-
         public virtual Color BombGradientStart { get; set; } = Color.blue;
         public virtual Color BombGradientEnd { get; set; } = Color.red;
         public virtual bool FasterEnabled { get; set; } = false;
         public virtual bool SuperFastEnabled { get; set; } = false;
         public virtual bool SlowerEnabled { get; set; } = true;
         public virtual bool FlashbangEnabled { get; set; } = true;
+        public virtual int FlashbangBrightnessMultiplier { get; set; } = 90;
+
 
         // Global + per‑command cooldowns
         public virtual bool GlobalCooldownEnabled { get; set; } = true;
@@ -169,7 +172,7 @@ namespace BeatSurgeon
         public virtual string CpFlashbangRewardId { get; set; } = "";
         public virtual Color CpFlashbangBackgroundColor { get; set; } = Color.white;
 
-        public virtual float RainbowCycleSpeed { get; set; } = 0.1f; // 0.5 = one full cycle every 2 seconds
+        
 
 
     }

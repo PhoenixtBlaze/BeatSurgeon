@@ -124,7 +124,7 @@ namespace BeatSurgeon.Twitch
             Plugin.Settings.CachedBroadcasterLogin = BroadcasterName;
         }
 
-        private async Task RefreshEntitlementsAsync(string userAccessToken)
+        public async Task RefreshEntitlementsAsync(string userAccessToken)
         {
             var req = new HttpRequestMessage(HttpMethod.Get, BackendEntitlementsUrl);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
@@ -161,9 +161,25 @@ namespace BeatSurgeon.Twitch
             var accessToken = TwitchAuthManager.Instance.GetAccessToken();
             if (string.IsNullOrEmpty(accessToken)) return false;
 
-            // Must have a verified entitlement token already stored
-            var entitlement = EntitlementsState.Current.SignedEntitlementToken;
-            if (string.IsNullOrEmpty(entitlement)) return false;
+            // Check if entitlement is expired or missing 
+            var current = EntitlementsState.Current;
+            if (string.IsNullOrEmpty(current.SignedEntitlementToken) ||
+                DateTime.UtcNow >= current.ExpiresAtUtc.AddMinutes(-5)) // Refresh 5 min early
+            {
+                Plugin.Log.Info("Entitlement token expired or missing, refreshing...");
+                await RefreshEntitlementsAsync(accessToken).ConfigureAwait(false);
+
+                // Re-check after refresh
+                current = EntitlementsState.Current;
+                if (string.IsNullOrEmpty(current.SignedEntitlementToken))
+                {
+                    Plugin.Log.Warn("Failed to refresh entitlement token");
+                    return false;
+                }
+            }
+
+            var entitlement = current.SignedEntitlementToken;
+            // *** END CHANGE ***
 
             var req = new HttpRequestMessage(HttpMethod.Get, BackendBaseUrl + "/visuals/permission");
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -172,7 +188,11 @@ namespace BeatSurgeon.Twitch
             var resp = await _http.SendAsync(req).ConfigureAwait(false);
             var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-            if (!resp.IsSuccessStatusCode) return false;
+            if (!resp.IsSuccessStatusCode)
+            {
+                Plugin.Log.Warn($"CheckVisualsPermission failed: {resp.StatusCode} - {body}");
+                return false;
+            }
 
             try
             {

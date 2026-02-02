@@ -148,9 +148,16 @@ namespace BeatSurgeon.UI.Controllers
             if (firstActivation)
             {
                 TwitchApiClient.OnSubscriberStatusChanged += HandleSubscriberStatusChanged;
+                // Ensure font bundle is loaded before modal opens
+                _ = FontBundleLoader.EnsureLoadedAsync();
+                //StartCoroutine(PreInitializeModal());
             }
 
             UpdateBombVisualsButtonVisibility();
+            UpdateRainbowVisualsButtonVisibility();
+            UpdateGhostVisualsButtonVisibility();
+            UpdateDisappearVisualsButtonVisibility();
+            UpdateFlashbangVisualsButtonVisibility();
         }
 
         protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
@@ -169,6 +176,10 @@ namespace BeatSurgeon.UI.Controllers
             UnityMainThreadTaskScheduler.Factory.StartNew(() =>
             {
                 UpdateBombVisualsButtonVisibility();
+                UpdateRainbowVisualsButtonVisibility();
+                UpdateGhostVisualsButtonVisibility();
+                UpdateDisappearVisualsButtonVisibility();
+                UpdateFlashbangVisualsButtonVisibility();
                 // Optional – if you ever bind `show_bomb_visuals_button` directly in BSML:
                 // NotifyPropertyChanged(nameof(ShowBombVisualsButton));
             });
@@ -183,7 +194,43 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
+        private void UpdateRainbowVisualsButtonVisibility()
+        {
+            if (_rainbowEditButton != null)
+            {
+                bool allowed = ShowBombVisualsButton; // Reuse same logic
+                _rainbowEditButton.gameObject.SetActive(allowed);
+            }
+        }
 
+        private void UpdateGhostVisualsButtonVisibility()
+        {
+            if (_ghostEditButton != null)
+            {
+                bool allowed = ShowBombVisualsButton;
+                _ghostEditButton.gameObject.SetActive(allowed);
+            }
+        }
+
+        private void UpdateDisappearVisualsButtonVisibility()
+        {
+            if (_disappearEditButton != null)
+            {
+                bool allowed = ShowBombVisualsButton;
+                _disappearEditButton.gameObject.SetActive(allowed);
+            }
+        }
+
+        private void UpdateFlashbangVisualsButtonVisibility()
+        {
+            if (_flashbangEditButton != null)
+            {
+                bool allowed = ShowBombVisualsButton;
+                _flashbangEditButton.gameObject.SetActive(allowed);
+            }
+        }
+
+        // ==================== BOMB VISUALS ====================
 
         [UIComponent("bomb-visuals-modal")]
         private ModalView _bombVisualsModal;
@@ -242,20 +289,27 @@ namespace BeatSurgeon.UI.Controllers
                 return;
             }
 
-            // Show modal on Unity main thread
+            // Show modal on Unity main thread - simple and direct
             await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
-                {
-                    if (_bombVisualsModal != null)
-                    {
-                        _bombVisualsModal.Show(true);
-                        StartCoroutine(RefreshBombFontDropdown());
-                        StartBombFontPreview();
-                    }
-                    else
-                    {
-                        Plugin.Log.Warn("Bomb visuals modal was null when trying to show it.");
-                    }
-                });
+            {
+                ShowBombModal();
+            });
+        }
+
+        private void ShowBombModal()
+        {
+            if (_bombVisualsModal == null)
+            {
+                Plugin.Log.Warn("Bomb visuals modal was null when trying to show it.");
+                return;
+            }
+
+            // Show modal immediately - BSML handles initialization
+            _bombVisualsModal.Show(true);
+
+            // Start coroutines after modal is shown
+            StartCoroutine(RefreshBombFontDropdown());
+            StartBombFontPreview();
         }
 
 
@@ -328,9 +382,42 @@ namespace BeatSurgeon.UI.Controllers
             get => FontBundleLoader.GetSelectedBombFontOption();
             set
             {
+                StopBombFontPreview();
+
                 FontBundleLoader.SetSelectedBombFontOption(value);
                 NotifyPropertyChanged(nameof(BombFontSelected));
-                ApplyBombFontPreviewStatic();
+                // Stop current preview animation
+                
+                StartCoroutine(ApplyFontChangeDelayed());
+                
+            }
+        }
+
+        private IEnumerator ApplyFontChangeDelayed()
+        {
+            // Disable the component to prevent layout calculations during transition
+            if (_bombFontPreview != null)
+            {
+                _bombFontPreview.enabled = false;
+            }
+
+            // Wait 2 frames to ensure FontBundleLoader updates BombUsernameFont
+            yield return null;
+            yield return null;
+
+            // Now apply the new font fresh
+            ApplyBombFontPreviewStatic();
+
+            // Re-enable the component
+            if (_bombFontPreview != null)
+            {
+                _bombFontPreview.enabled = true;
+            }
+
+            // Restart the color animation
+            if (_bombFontPreview != null && _bombFontPreview.gameObject.activeInHierarchy)
+            {
+                _bombFontPreviewCoroutine = StartCoroutine(BombFontPreviewRoutine());
             }
         }
 
@@ -392,12 +479,297 @@ namespace BeatSurgeon.UI.Controllers
 
         */
 
+        // ==================== RAINBOW VISUALS ====================
+
+        [UIComponent("rainbow-edit-button")]
+        private UnityEngine.UI.Button _rainbowEditButton;
+
+        [UIComponent("rainbow-visuals-modal")]
+        private ModalView _rainbowVisualsModal;
+
+        [UIComponent("rainbow-note-preview-container")]
+        private Transform _rainbowNotePreviewContainer;
+
+        private GameObject _previewLeftNote;
+        private GameObject _previewRightNote;
+        private Coroutine _rainbowPreviewCoroutine;
+        private Renderer _leftNoteRenderer;
+        private Renderer _rightNoteRenderer;
+
+        [UIValue("rainbow_gradient_fade_enabled")]
+        public bool RainbowGradientFadeEnabled
+        {
+            get => Plugin.Settings?.RainbowGradientFadeEnabled ?? true;
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.RainbowGradientFadeEnabled = value;
+                NotifyPropertyChanged(nameof(RainbowGradientFadeEnabled));
+            }
+        }
+
+        [UIValue("rainbow_gradient_cycle_speed")]
+        public float RainbowGradientCycleSpeed
+        {
+            get => Plugin.Settings?.RainbowCycleSpeed ?? 0.1f;
+            set
+            {
+                float clamped = Mathf.Clamp(value, 0.01f, 5f);
+                if (Plugin.Settings != null)
+                    Plugin.Settings.RainbowCycleSpeed = clamped;
+
+                // Apply to manager immediately
+                Gameplay.RainbowManager.RainbowCycleSpeed = clamped;
+
+                NotifyPropertyChanged(nameof(RainbowGradientCycleSpeed));
+            }
+        }
+
+        [UIAction("OnRainbowEditVisualsClicked")]  // ← THIS ATTRIBUTE IS CRITICAL
+        private void OnRainbowEditVisualsClicked()
+        {
+            if (_rainbowVisualsModal != null)
+            {
+                _rainbowVisualsModal.Show(true);
+                StartRainbowNotePreview();
+            }
+            else
+            {
+                Plugin.Log.Warn("Rainbow visuals modal was null when trying to show it.");
+            }
+        }
+
+        [UIAction("CloseRainbowVisuals")]
+        private void CloseRainbowVisuals()
+        {
+            if (_rainbowVisualsModal != null)
+                _rainbowVisualsModal.Hide(true);
+
+            StopRainbowNotePreview();
+        }
+
+        private void StartRainbowNotePreview()
+        {
+            StopRainbowNotePreview();
+
+            if (_rainbowNotePreviewContainer == null)
+            {
+                Plugin.Log.Warn("Rainbow note preview container is null");
+                return;
+            }
+
+            _previewLeftNote = CreatePreviewCube(new Vector3(-1.5f, 0f, 0f), out _leftNoteRenderer);
+            _previewRightNote = CreatePreviewCube(new Vector3(1.5f, 0f, 0f), out _rightNoteRenderer);
+
+            if (_previewLeftNote != null && _previewRightNote != null)
+            {
+                _rainbowPreviewCoroutine = StartCoroutine(RainbowPreviewRoutine());
+            }
+        }
+
+        private GameObject CreatePreviewCube(Vector3 localPosition, out Renderer renderer)
+        {
+            renderer = null;
+
+            try
+            {
+                var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cube.transform.SetParent(_rainbowNotePreviewContainer, false);
+                cube.transform.localPosition = localPosition;
+                cube.transform.localRotation = Quaternion.Euler(45f, 45f, 0f);
+                cube.transform.localScale = Vector3.one * 2.0f;
+
+                renderer = cube.GetComponent<Renderer>();
+                if (renderer != null)
+                {
+                    renderer.material = new Material(Shader.Find("Custom/Glowing") ??
+                                                    Shader.Find("BeatSaber/Lit Glow") ??
+                                                    Shader.Find("Standard"));
+
+                    renderer.material.EnableKeyword("_EMISSION");
+                    renderer.material.SetColor("_Color", Color.white);
+                    renderer.material.SetColor("_EmissionColor", Color.white);
+                }
+
+                var collider = cube.GetComponent<Collider>();
+                if (collider != null)
+                    GameObject.Destroy(collider);
+
+                Plugin.Log.Info($"Created preview cube at {localPosition}");
+                return cube;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"Failed to create preview cube: {ex.Message}");
+                return null;
+            }
+        }
+
+        private IEnumerator RainbowPreviewRoutine()
+        {
+            while (_previewLeftNote != null && _previewRightNote != null &&
+                   _rainbowNotePreviewContainer != null &&
+                   _rainbowNotePreviewContainer.gameObject.activeInHierarchy)
+            {
+                float cycleProgress = (Time.unscaledTime * RainbowGradientCycleSpeed) % 1f;
+
+                float leftHue = cycleProgress;
+                float rightHue = (cycleProgress + 0.5f) % 1f;
+
+                Color leftRainbowColor = Color.HSVToRGB(leftHue, 0.85f, 1f);
+                Color rightRainbowColor = Color.HSVToRGB(rightHue, 0.85f, 1f);
+
+                if (_leftNoteRenderer != null && _leftNoteRenderer.material != null)
+                {
+                    _leftNoteRenderer.material.SetColor("_Color", leftRainbowColor);
+                    _leftNoteRenderer.material.SetColor("_EmissionColor", leftRainbowColor * 2f);
+                }
+
+                if (_rightNoteRenderer != null && _rightNoteRenderer.material != null)
+                {
+                    _rightNoteRenderer.material.SetColor("_Color", rightRainbowColor);
+                    _rightNoteRenderer.material.SetColor("_EmissionColor", rightRainbowColor * 2f);
+                }
+
+                if (_previewLeftNote != null)
+                    _previewLeftNote.transform.Rotate(Vector3.up, 30f * Time.unscaledDeltaTime);
+                if (_previewRightNote != null)
+                    _previewRightNote.transform.Rotate(Vector3.up, 30f * Time.unscaledDeltaTime);
+
+                yield return null;
+            }
+
+            _rainbowPreviewCoroutine = null;
+        }
+
+        private void StopRainbowNotePreview()
+        {
+            if (_rainbowPreviewCoroutine != null)
+            {
+                StopCoroutine(_rainbowPreviewCoroutine);
+                _rainbowPreviewCoroutine = null;
+            }
+
+            if (_previewLeftNote != null)
+            {
+                GameObject.Destroy(_previewLeftNote);
+                _previewLeftNote = null;
+            }
+
+            if (_previewRightNote != null)
+            {
+                GameObject.Destroy(_previewRightNote);
+                _previewRightNote = null;
+            }
+
+            _leftNoteRenderer = null;
+            _rightNoteRenderer = null;
+        }
+
+        // ==================== GHOST NOTES VISUALS ====================
+
+        [UIComponent("ghost-edit-button")]
+        private UnityEngine.UI.Button _ghostEditButton;
+
+        [UIComponent("ghost-visuals-modal")]
+        private ModalView _ghostVisualsModal;
+
+        [UIAction("OnGhostEditVisualsClicked")]
+        private void OnGhostEditVisualsClicked()
+        {
+            if (_ghostVisualsModal != null)
+            {
+                _ghostVisualsModal.Show(true);
+            }
+            else
+            {
+                Plugin.Log.Warn("Ghost visuals modal was null when trying to show it.");
+            }
+        }
+
+        [UIAction("CloseGhostVisuals")]
+        private void CloseGhostVisuals()
+        {
+            if (_ghostVisualsModal != null)
+                _ghostVisualsModal.Hide(true);
+        }
+
+        // ==================== DISAPPEARING ARROWS VISUALS ====================
+
+        [UIComponent("disappear-edit-button")]
+        private UnityEngine.UI.Button _disappearEditButton;
+
+        [UIComponent("disappear-visuals-modal")]
+        private ModalView _disappearVisualsModal;
+
+        [UIAction("OnDisappearEditVisualsClicked")]
+        private void OnDisappearEditVisualsClicked()
+        {
+            if (_disappearVisualsModal != null)
+            {
+                _disappearVisualsModal.Show(true);
+            }
+            else
+            {
+                Plugin.Log.Warn("Disappear visuals modal was null when trying to show it.");
+            }
+        }
+
+        [UIAction("CloseDisappearVisuals")]
+        private void CloseDisappearVisuals()
+        {
+            if (_disappearVisualsModal != null)
+                _disappearVisualsModal.Hide(true);
+        }
+
+        // ==================== FLASHBANG VISUALS ====================
+
+        [UIComponent("flashbang-edit-button")]
+        private UnityEngine.UI.Button _flashbangEditButton;
+
+        [UIComponent("flashbang-visuals-modal")]
+        private ModalView _flashbangVisualsModal;
+
+        [UIValue("flashbang_brightness_multiplier")]
+        public int FlashbangBrightnessMultiplier
+        {
+            get => Plugin.Settings?.FlashbangBrightnessMultiplier ?? 90;
+            set
+            {
+                int clamped = Mathf.Clamp(value, 1, 200);
+                if (Plugin.Settings != null)
+                    Plugin.Settings.FlashbangBrightnessMultiplier = clamped;
+                NotifyPropertyChanged(nameof(FlashbangBrightnessMultiplier));
+            }
+        }
+
+        [UIAction("OnFlashbangEditVisualsClicked")]
+        private void OnFlashbangEditVisualsClicked()
+        {
+            if (_flashbangVisualsModal != null)
+            {
+                _flashbangVisualsModal.Show(true);
+            }
+            else
+            {
+                Plugin.Log.Warn("Flashbang visuals modal was null when trying to show it.");
+            }
+        }
+
+        [UIAction("CloseFlashbangVisuals")]
+        private void CloseFlashbangVisuals()
+        {
+            if (_flashbangVisualsModal != null)
+                _flashbangVisualsModal.Hide(true);
+        }
+
 
 
         private IEnumerator RefreshBombFontDropdown()
         {
+            
             // If you don’t care about hot-swapping bundles during runtime, you can use EnsureLoadedAsync() instead.
-            var task = FontBundleLoader.ReloadAsync();
+            var task = FontBundleLoader.EnsureLoadedAsync();
             while (!task.IsCompleted) yield return null;
 
             // Update BSML-bound properties
@@ -440,24 +812,43 @@ namespace BeatSurgeon.UI.Controllers
             if (_bombFontPreview == null)
                 return;
 
-            // sample text
-            _bombFontPreview.text = "PreviewUsername";
-
-            // apply selected bomb font (loaded/selected by FontBundleLoader)
+            // Get the newly selected font
             var font = BeatSurgeon.Gameplay.FontBundleLoader.BombUsernameFont;
-            if (font != null)
+            if (font == null)
             {
-                _bombFontPreview.font = font;
-                _bombFontPreview.fontSharedMaterial = font.material;
+                Plugin.Log.Warn("BombUsernameFont is null in ApplyBombFontPreviewStatic");
+                return;
             }
 
-            // mimic gameplay “shape” controls
+            // *** VERSION-SAFE: Use reflection helper instead of direct .material access ***
+            // NEW:
+            Material fontMaterial = BeatSurgeon.Gameplay.FontBundleLoader.GetOrCreateFontMaterial(font);
+            if (fontMaterial == null)
+            {
+                Plugin.Log.Warn($"Could not get material for font '{font.name}' in ApplyBombFontPreviewStatic");
+                return;
+            }
+
+            // Apply font and material
+            _bombFontPreview.font = font;
+            _bombFontPreview.fontSharedMaterial = fontMaterial;  //Use the reflection-retrieved material
+
+            // Set text (do this AFTER setting font)
+            _bombFontPreview.text = "PreviewUsername";
+
+            // Mimic gameplay "shape" controls
             _bombFontPreview.rectTransform.localScale = new Vector3(BombTextWidth, BombTextHeight, 1f);
 
-            // optional styling similar to your in-game text
+            // Optional styling similar to your in-game text
             _bombFontPreview.outlineWidth = 0.2f;
             _bombFontPreview.outlineColor = Color.black;
+
+            // *** CRITICAL: Force TextMeshPro to regenerate mesh with new font ***
+            _bombFontPreview.SetAllDirty();
+            _bombFontPreview.ForceMeshUpdate();
         }
+
+
 
         private IEnumerator BombFontPreviewRoutine()
         {
@@ -477,7 +868,7 @@ namespace BeatSurgeon.UI.Controllers
 
                 // If user changes options while it’s open, keep it in sync.
                 // (Cheap enough to do every frame)
-                ApplyBombFontPreviewStatic();
+                //ApplyBombFontPreviewStatic();
 
                 yield return null;
             }
@@ -538,13 +929,6 @@ namespace BeatSurgeon.UI.Controllers
         }
 
         // Button click handler
-        [UIAction("OnRainbowEditVisualsClicked")]
-        private void OnRainbowEditVisualsClicked()
-        {
-            // Open your visuals editor, or just log for now
-            Plugin.Log.Info("Rainbow Edit Visuals button clicked");
-        }
-
 
 
         [UIValue("ghost_cd_seconds")]

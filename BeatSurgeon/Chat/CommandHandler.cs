@@ -129,7 +129,10 @@ namespace BeatSurgeon.Chat
 
         public const float FlashbangHoldSeconds = 1f;
         public const float FlashbangFadeSeconds = 3f;
-        public const float FlashbangIntensityMultiplier = 90f;
+        public static float FlashbangIntensityMultiplier
+        {
+            get => Plugin.Settings?.FlashbangBrightnessMultiplier ?? 90f;
+        }
 
 
         private CommandHandler()

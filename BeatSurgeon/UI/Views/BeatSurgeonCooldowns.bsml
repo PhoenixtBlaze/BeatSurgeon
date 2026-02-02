@@ -4,7 +4,7 @@
     <!-- RIGHT: cooldown configuration -->
 		<vertical vertical-fit="PreferredSize" spacing="2" pad="2" pref-width="110">
 
-			<text text="Cooldown Settings" align="Center" font-size="5" />
+			<text text="Cooldowns and Effect Settings" align="Center" font-size="5" />
 
 			<!-- Global cooldown -->
 			<toggle-setting
@@ -106,11 +106,12 @@
 					integer-only="true"
 					apply-on-change="true" />
 
-				<!--  
-				<button text="Edit Visuals"
-						on-click="OnRainbowEditVisualsClicked"
-						pref-width="18"
-						pref-height="8" /> -->
+				<button id="rainbow-edit-button"
+					text="Edit Visuals"
+					on-click="OnRainbowEditVisualsClicked"
+					pref-width="18"
+					pref-height="8"
+					hover-hint="Edit rainbow visuals" />
 			</horizontal> 
 
 			<!-- Ghost -->
@@ -124,6 +125,13 @@
                     increment="5"
                     integer-only="true"
                     apply-on-change="true" />
+				
+				<button id="ghost-edit-button"
+					text="Edit Visuals"
+					on-click="OnGhostEditVisualsClicked"
+					pref-width="18"
+					pref-height="8"
+					hover-hint="Edit ghost notes visuals" />
 			</horizontal>
 
 			<!-- Disappear -->
@@ -186,6 +194,13 @@
 					increment="5"
 					integer-only="true"
 					apply-on-change="true" />
+				
+				<button id="flashbang-edit-button"
+					text="Edit Visuals"
+					on-click="OnFlashbangEditVisualsClicked"
+					pref-width="18"
+					pref-height="8"
+					hover-hint="Edit flashbang visuals" />
 			</horizontal>
 			<!-- Optional: BSR -->
 			<text text="!bsr never use cooldowns."
@@ -297,5 +312,134 @@
 		<horizontal child-force-expand-width="false" pad-top="50" pad-right="85">
 			<button text="Close" pref-width="20" on-click="CloseBombVisuals" />
 		</horizontal>
+	</modal>
+	<modal id="rainbow-visuals-modal"
+       click-off-closes="true"
+       move-to-center="true"
+       size-delta-x="110"
+       size-delta-y="60">
+			<!-- Title -->
+		<horizontal pad-bottom="50">
+			<text text="Rainbow Visuals" align="Center" font-size="5" />
+		</horizontal>
+		<vertical pad-right="55">
+			<horizontal id="rainbow-note-preview-container"
+					pref-height="40"
+					pref-width="50"
+					bg="round-rect-panel"
+					pad="2">
+			</horizontal>
+		</vertical>
+		<vertical pad-left="55" pref-width="50" pad="2" pref-height="40" align="Center">
+			<horizontal >
+				<text text="Gradient fade" align="Center"></text>
+			</horizontal>
+			<horizontal >
+				<toggle-setting
+					align="Center"
+					text=""
+					value="rainbow_gradient_fade_enabled"
+					apply-on-change="true"
+					hover-hint="Enable smooth color gradient transitions" />
+			</horizontal>
+			<horizontal>
+				<text text="Cycle Speed" align="Center"></text>
+			</horizontal>
+			<horizontal>
+				<slider-setting
+					text=""
+					value="rainbow_gradient_cycle_speed"
+					min="0.01"
+					max="5"
+					increment="0.05"
+					apply-on-change="true"
+					hover-hint="Speed of rainbow color cycling (lower = slower)" />
+			</horizontal>
+		</vertical>
+			<!-- Close Button -->
+			<horizontal child-force-expand-width="false" pad-top="50" pad-right="85">
+				<button text="Close" pref-width="20" on-click="CloseRainbowVisuals" />
+			</horizontal>
+	</modal>
+
+
+
+	<!-- GHOST NOTES VISUALS MODAL -->
+	<modal id="ghost-visuals-modal"
+       clicker-dismiss="true"
+       moveable="true"
+       size-delta-x="110"
+       size-delta-y="60">
+		<horizontal pad-bottom="50">
+			<text text="Ghost Notes Visuals" align="Center" font-size="5" />
+		</horizontal>
+		<settings-scroll-view pad-left="45" pad-top="5">
+			<vertical vertical-fit="PreferredSize" horizontal-fit="PreferredSize" spacing="2" pad="2" pref-width="60">
+
+				<!-- Placeholder -->
+				<text text="Settings coming soon..." align="Center" font-size="4" />
+
+			</vertical>
+		</settings-scroll-view>
+
+		<horizontal child-force-expand-width="false" pad-top="50" pad-right="85">
+			<button text="Close" pref-width="20" on-click="CloseGhostVisuals" />
+		</horizontal>
+	</modal>
+
+	<!-- DISAPPEARING ARROWS VISUALS MODAL -->
+	<modal id="disappear-visuals-modal"
+       clicker-dismiss="true"
+       moveable="true"
+       size-delta-x="110"
+       size-delta-y="60">
+		<horizontal pad-bottom="50">
+			<text text="Disappearing Arrows Visuals" align="Center" font-size="5" />
+		</horizontal>
+		<settings-scroll-view pad-left="45" pad-top="5">
+			<vertical vertical-fit="PreferredSize" horizontal-fit="PreferredSize" spacing="2" pad="2" pref-width="60">
+
+				<!-- Placeholder -->
+				<text text="Settings coming soon..." align="Center" font-size="4" />
+
+			</vertical>
+		</settings-scroll-view>
+
+		<horizontal child-force-expand-width="false" pad-top="50" pad-right="85">
+			<button text="Close" pref-width="20" on-click="CloseDisappearVisuals" />
+		</horizontal>
+	</modal>
+
+	<!-- FLASHBANG VISUALS MODAL -->
+	<modal id="flashbang-visuals-modal"
+       click-off-closes="true"
+       move-to-center="true"
+       size-delta-x="110"
+       size-delta-y="60">
+		<vertical pad="2" spacing="2">
+			<!-- Title -->
+			<text text="Flashbang Visuals" align="Center" font-size="6" />
+
+			<!-- Settings Section -->
+			<vertical pref-height="40" spacing="2" pad-top="2">
+				<!-- Brightness multiplier -->
+				<slider-setting
+					text="Brightness Multiplier"
+					value="flashbang_brightness_multiplier"
+					min="1"
+					max="200"
+					increment="5"
+					integer-only="true"
+					apply-on-change="true"
+					hover-hint="Intensity of the flashbang effect (higher = brighter)" />
+			</vertical>
+
+			<!-- Close Button -->
+			<horizontal child-force-expand-width="false" pad-top="50" pad-right="85">
+				<button text="Close"
+						pref-width="20"
+						on-click="CloseFlashbangVisuals" />
+			</horizontal>
+		</vertical>
 	</modal>
 </bg>

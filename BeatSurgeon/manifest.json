@@ -5,16 +5,15 @@
   "author": "PhoenixBlaze0",
   "version": "0.2.1",
   "description": "Twitch chat-driven gameplay modifiers: rainbow/RGB note colors, custom note colors, ghost notes, disappearing arrows, bomb pranks, speed changes (faster/superfast/slower), flashbang lights, moderator controls, command management, and endless play sessions.",
-  "gameVersion": "1.40.8",
+  "gameVersion": "1.42.1",
   "dependsOn": {
     "BSIPA": "^4.3.6",
     "BeatSaberMarkupLanguage": "^1.12.5",
     "BS Utils": "^1.14.2",
-    "ChatPlexSDK_BS": "^6.4.2"
+    "AssetBundleLoadingTools": "^1.1.10"
   },
   "loadAfter": [
     "SongCore",
-    "CatCore",
     "ChatPlexSDK_BS"
   ]
 }

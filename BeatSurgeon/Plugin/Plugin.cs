@@ -29,6 +29,64 @@ namespace BeatSurgeon
     [Plugin(RuntimeOptions.SingleStartInit)]
     public class Plugin
     {
+        static Plugin()
+        {
+            // Hook AssemblyResolve BEFORE IPA tries to load any dependencies
+            AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
+        }
+
+        private static Assembly OnAssemblyResolve(object sender, ResolveEventArgs args)
+        {
+            try
+            {
+                var requested = new AssemblyName(args.Name);
+
+                // Only handle Chaos.NaCl
+                if (!requested.Name.Equals("Chaos.NaCl", StringComparison.OrdinalIgnoreCase))
+                    return null;
+
+                var asm = Assembly.GetExecutingAssembly();
+                var names = asm.GetManifestResourceNames();
+
+                // Log all embedded resources for debugging
+                if (Log != null)
+                {
+                    Log.Debug($"BeatSurgeon: Looking for Chaos.NaCl.dll in embedded resources:");
+                    foreach (var n in names)
+                        Log.Debug($"  - {n}");
+                }
+
+                // Find embedded resource
+                string resourceName = names.FirstOrDefault(n =>
+                    n.EndsWith("Chaos.NaCl.dll", StringComparison.OrdinalIgnoreCase));
+
+                if (resourceName == null)
+                {
+                    if (Log != null)
+                        Log.Error("BeatSurgeon: Chaos.NaCl.dll not found in embedded resources!");
+                    return null;
+                }
+
+                using (var stream = asm.GetManifestResourceStream(resourceName))
+                {
+                    if (stream == null) return null;
+
+                    byte[] assemblyData = new byte[stream.Length];
+                    stream.Read(assemblyData, 0, assemblyData.Length);
+
+                    var loaded = Assembly.Load(assemblyData);
+                    if (Log != null)
+                        Log.Info($"BeatSurgeon: Loaded Chaos.NaCl.dll from embedded resource '{resourceName}'");
+                    return loaded;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (Log != null)
+                    Log.Error($"BeatSurgeon: Failed to load Chaos.NaCl: {ex.Message}");
+                return null;
+            }
+        }
         internal static Plugin Instance { get; private set; }
         internal static IPA.Logging.Logger Log { get; private set; }
 
@@ -53,7 +111,7 @@ namespace BeatSurgeon
         [Init]
         public void Init(IPA.Logging.Logger logger, IPA.Config.Config config)
         {
-            EnsureEmbeddedLibrariesLoaded();
+            
             Log = logger;
             Instance = this;
             Settings = config.Generated<PluginConfig>();
