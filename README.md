@@ -1,6 +1,6 @@
 # Beat Surgeon
 
-**Beat Surgeon** is a Beat Saber mod that empowers your Twitch chat to directly interact with your gameplay in real time. It turns your stream into a collaborative (and chaotic) experience by allowing viewers to trigger visual effects, "pranks," and modifiers using simple chat commands—all while you maintain full control over cooldowns and permissions.
+**Beat Surgeon** is a Beat Saber mod that empowers your Twitch chat to directly interact with your gameplay in real time. It turns your stream into a collaborative (and chaotic) experience by allowing viewers to trigger visual effects like rainbow, flashbang, note bombs and modifiers using simple chat commands or Channel Point Redeems—all while letting you maintain full control over cooldowns and if command is enabled or not As a bonus i've also added my own custom version of Play First Submit Later which pauses the map at the end.
 
 ## What this mod does
 
@@ -54,7 +54,8 @@ You can fully configure **Beat Surgeon** from within Beat Saber using the mod se
 *   **Command Toggles:** Individually enable or disable specific commands (e.g., if you want `!rainbow` enabled but don't want `!flashbangs`).
 *   **Global Disable State:** View the current state of the global kill-switch (Enabled/Disabled).
 
-<img width="1107" height="766" alt="Mod Setting Screen" src="https://github.com/user-attachments/assets/4adcdad5-16a6-4e0c-b297-5e9194d1a424" />
+<img width="1052" height="710" alt="image" src="https://github.com/user-attachments/assets/447ca616-7c2d-4ee1-ba0c-d945ca26c7ff" />
+
 
 ### 2. Cooldowns Panel
 Control how often chat can trigger effects to balance chaos with playability.
@@ -72,23 +73,101 @@ Control how often chat can trigger effects to balance chaos with playability.
 
 <img width="1337" height="803" alt="Cooldowns Panel" src="https://github.com/user-attachments/assets/b1d54b4e-3a22-465d-9562-88b24db369f7" />
 
+
+### 3. Play First, Submit Later Tab
+Control score submission behavior for practice sessions and stream content without impacting your leaderboard rankings.
+
+<img width="877" height="664" alt="image" src="https://github.com/user-attachments/assets/7be734e9-4cc1-41cf-a88f-677a58330458" />
+
+
+*   **Enable Module:**
+    *   **Toggle:** Activates the Play First, Submit Later system independently of other Beat Surgeon features.
+    *   **Status Display:** Shows current module state and submission status in real-time.
+*   **Enable Score Submission:**
+    *   **Toggle:** When enabled, scores from your plays will be submitted to leaderboards (ScoreSaber, BeatLeader, etc.).
+    *   **When disabled:** Allows you to practice or play with chat effects without affecting your rankings.
+*   **Auto-Pause on Map End:**
+    *   **Toggle:** Automatically pauses the game when a map finishes, giving you time to review results before continuing.
+    *   **Note:** This option is automatically disabled in multiplayer sessions (both native multiplayer and Multiplayer+ lobbies).
+
+### 4. Surgeon Tab
+Quick access to command and channel point controls directly from the gameplay setup screen—perfect for adjusting settings on the fly before starting a map.
+
+This tab contains two sub-tabs:
+
+#### **Surgeon Commands Sub-Tab**
+Enable or disable individual chat commands and effects with visual icon toggles.
+
+<img width="922" height="774" alt="image" src="https://github.com/user-attachments/assets/681596ed-5e37-4656-a30c-d701f5ac1779" />
+
+
+*   **Command Toggles:** Click each icon button to enable/disable that specific command:
+    *   `!rainbow` / `!notecolor` - RGB note colors
+    *   `!disappear` - Disappearing arrows
+    *   `!ghost` - Transparent notes
+    *   `!bomb` - Convert random note to bomb
+    *   `!faster` - Increase song speed
+    *   `!superfast` - Dramatically increase song speed
+    *   `!slower` - Decrease song speed
+    *   `!flashbang` - Environmental flash effect
+*   **Visual Feedback:** Enabled commands show in color with a highlighted icon; disabled commands appear grayed out.
+
+
+#### **Twitch Sub-Tab**
+Configure Twitch Channel Point rewards for each effect without leaving the game.
+**For Channel Points to work Commands need to be enabled**
+   
+<img width="1023" height="716" alt="image" src="https://github.com/user-attachments/assets/8cd0606c-0aae-4fde-98c3-2f0f37e83250" />   
+
+*   **Connection Status:** Real-time display showing your Twitch connection state.
+
+<img width="980" height="712" alt="image" src="https://github.com/user-attachments/assets/1a1c3647-39bb-4340-9df5-366e90cc3986" />
+
+*   **Channel Point Configuration:** Click any effect icon to open its settings modal:
+    *   **Enable as Channel Point:** Toggle to create/enable or disable the reward on your Twitch channel.
+    *   **Cost:** Set the channel point price for the reward (numeric input).
+    *   **Cooldown:** Define per-user cooldown in seconds (0-3600).
+    *   **Background Color:** Customize the reward's appearance on Twitch with a color picker.
+      
 ---
 
-## Supporter Benefits
+## Supporter Exclusive Features
 
 To say thank you to those who support the development of Beat Surgeon, I've added exclusive customization options for **Supporters**!
 
 **Note:** To activate these benefits, you must connect to the **Beat Surgeon Backend** via the Twitch tab in the mod settings (see *Twitch Chat Setup* below). This allows the mod to verify your Twitch subscription status securely.
 
-If you are a supporter (currently via **Twitch Subscription**), you gain access to the **Edit Visuals Button** in the cooldown settings page, which currently allows you to customize the **Bomb Text** effect:
+If you are a supporter (currently via **Twitch Subscription**), you gain access to **Edit Visuals buttons** throughout the mod. Each effect that supports visual customization will have its own **Edit Visuals button**, allowing you to personalize how the effect looks to match your style.
 
-*   **Custom Bomb Text Color:** Change the color of the text that appears when a bomb is cut (default is blue fading to white).
-*   **Custom Bomb Fonts:** Choose from a variety of unique fonts for the bomb message to make it stand out even more.
-*   **Exclusive Effects:** Tier 2 and higher supporters can request custom fonts or effects to be added in future updates!
+### Current supporter-exclusive customization features:
 
-**More exclusive cosmetic features are planned for future updates, so please check back soon!**
+#### **Bomb Text Effect**
+- **Custom Bomb Text Color, Height and Width:** Change the color of the text that appears when a bomb is cut (default is blue fading to white)
+- **Custom Bomb Fonts:** Choose from a variety of unique fonts for the bomb message to make it stand out even more
+- **Custom Explosion Effects:** Coming soon...
 
-<img width="1031" height="594" alt="Supporter Features" src="https://github.com/user-attachments/assets/53faa9a6-3e0b-436c-8569-f34e29474712" />
+#### **Rainbow Effects**
+- **Gradient Fade:** Rainbow effect changes to gradient colour mode instead of a new random colour each block (Is enabled by default even for non supporting users with new update)
+- **Cycle Speed:** Change how fast the Gradient in rainbow changes if enabled. (lower = slower)
+
+#### **Flashbang Effects**
+- **Brightness Multiplier:** Changed how bright your flashbang is. Default is 100 
+
+  
+---
+
+**More exclusive cosmetic features and additional effects with Edit Visuals buttons are planned for future updates, so please check back soon!**
+
+**Current supporter exclusive cosmetic features are displayed below:**
+
+<img width="1128" height="762" alt="image" src="https://github.com/user-attachments/assets/2abf4c51-6721-4fe9-9af4-0d8d5fe24a11" />
+
+<img width="1190" height="731" alt="image" src="https://github.com/user-attachments/assets/cab6be8d-bcc9-43dd-ad21-cc8a9b5166fd" />
+
+<img width="1214" height="747" alt="image" src="https://github.com/user-attachments/assets/baece887-8f25-41a3-be41-6580d0f9725d" />
+
+<img width="1044" height="645" alt="image" src="https://github.com/user-attachments/assets/a7988430-868a-432c-8f7b-6f558d5f805d" />
+
 
 ---
 
@@ -167,9 +246,10 @@ To enable **Supporter Benefits** (checking your Twitch Subscription status), you
 
 *   **How to:**
     1.  Open the **Beat Surgeon Settings** in-game.
-    2.  Navigate to the **Twitch Tab**.
-    3.  Click the **"Connect to Twitch"** button.
-    4.  This will open a browser window to authorize the mod securely via Twitch.
+       <img width="912" height="607" alt="image" src="https://github.com/user-attachments/assets/fc878f98-0b71-4306-9e55-1c1f644ae680" />
+    3.  Navigate to the **Twitch Tab**.
+    5.  Click the **"Connect to Twitch"** button.
+    6.  This will open a browser window to authorize the mod securely via Twitch.
 *   **Why is this needed?** The ChatPlex connection handles *reading chat*, but the Beat Surgeon backend is required to safely verify *subscription status* for unlocking custom fonts and colors.
 *   Once you are connected to BeatSurgeon's Backend, you should see `Edit Visuals` button in the Cooldown settings menu
 *   If you dont see the `Edit Visuals` button, Please go out of the menu and reselect Beat surgeon in the mods tab to see it.
@@ -207,11 +287,22 @@ Thank you for helping me keep the lights on and the sabers swinging!
 
 ## Version History
 
-*   **v0.2.0** (Current)
+*   **v0.3.0** (Current)
+    *   **Removed Feature:** Local subscription checking methods
+    *   **Fixed Feature:** Various improvements for bomb visuals and multithreading.
+    *   **Fixed Feature:** Moderator command management as well as Mod/VIP detection.
+    *   **New Feature:** Added entitlement-based subscription checking system with auto-refreshing tokens
+    *   **(Still in Testing) New Feature:** Multiplayer+ support for anyone using Beat Surgeon in the lobby.
+    *   **New Feature:** Added Twitch EventSub connection to let the mod manage channel point rewards
+    *   **New Feature:** Added Submit Later tab in the Gameplay Setup view.
+    *   **New Feature:** Added Surgeon tab in the Gameplay Setup view (now lets you enable/disable commands and channel points in multiplayer through UI)
+    
+
+*   **v0.2.0**
     *   **New Feature:** Added moderator command management (`!surgeon disable`/`enable`) for global and per-command control.
     *   **New Feature:** Added `!notecolor` command for custom chat-specified RGB values.
     *   **New Feature:** Added **Speed Exclusivity** setting to prevent stacking speed modifiers.
-    *   **Cleanup:** Temporarily removed "Play First Submit Later" and "Song Request" systems for refactoring.
+    *   **Cleanup:** Temporarily removed "Play First, Submit Later" and "Song Request" systems for refactoring.
     *   **Fix:** Various stability improvements for asset loading and material handling.
 
 *   **v0.1.0**
