@@ -135,7 +135,7 @@ If you are a supporter (currently via **Twitch Subscription**), you gain access 
 - **Cycle Speed:** Change how fast the Gradient in rainbow changes if enabled. (lower = slower)
 
 #### **Flashbang Effects**
-- **Brightness Multiplier:** Changed how bright your flashbang is. Default is 100 
+- **Brightness Multiplier:** Changed how bright your flashbang is. Default is 91 
 
   
 ---
