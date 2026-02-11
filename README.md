@@ -131,7 +131,7 @@ If you are a supporter (currently via **Twitch Subscription**), you gain access 
 - **Custom Explosion Effects:** Coming soon...
 
 #### **Rainbow Effects**
-- **Gradient Fade:** Rainbow effect changes to gradient colour mode instead of a new random colour each block (Is enabled by default even for non supporting users with new update)
+
 - **Cycle Speed:** Change how fast the Gradient in rainbow changes if enabled. (lower = slower)
 
 #### **Flashbang Effects**
@@ -148,7 +148,7 @@ If you are a supporter (currently via **Twitch Subscription**), you gain access 
 
 <img width="1190" height="731" alt="image" src="https://github.com/user-attachments/assets/cab6be8d-bcc9-43dd-ad21-cc8a9b5166fd" />
 
-<img width="1214" height="747" alt="image" src="https://github.com/user-attachments/assets/baece887-8f25-41a3-be41-6580d0f9725d" />
+<img width="881" height="513" alt="image" src="https://github.com/user-attachments/assets/e9268b32-766a-45fa-997f-ccd3f8255a59" />
 
 <img width="1044" height="645" alt="image" src="https://github.com/user-attachments/assets/a7988430-868a-432c-8f7b-6f558d5f805d" />
 
@@ -192,8 +192,7 @@ If you are a supporter (currently via **Twitch Subscription**), you gain access 
 To use Beat Surgeon, you need a PC version of Beat Saber (Steam or Oculus) and the following dependencies:
 
 *   **[Beat Saber](https://beatsaber.com/)** (PC VR)
-*   **[BeatSaberPlus](https://github.com/hardcpp/BeatSaberPlus)**
-    *   *Crucial:* This mod relies on the **ChatPlexSDK** provided by BeatSaberPlus for Twitch connectivity. You must have BeatSaberPlus installed and your Twitch account connected within it.
+*   **[AssetBundleLoadingTools](https://github.com/nicoco007/AssetBundleLoadingTools)**
 *   **[BSIPA](https://github.com/bsmg/BeatSaber-IPA-Reloaded)** (v4.3.6 or later)
 *   **[BeatSaberMarkupLanguage (BSML)](https://github.com/monkeymanboy/BeatSaberMarkupLanguage)** (v1.12.5 or later)
 
@@ -229,17 +228,25 @@ The mod leverages your existing **BeatSaberPlus (ChatPlex)** connection.
 To enable **Supporter Benefits** (checking your Twitch Subscription status), you must authenticate with the Beat Surgeon backend.
 
 *   **How to:**
-    1.  Open the **Beat Surgeon Settings** in-game.
+    1. Open the **Beat Surgeon Settings** in-game.
        <img width="912" height="607" alt="image" src="https://github.com/user-attachments/assets/fc878f98-0b71-4306-9e55-1c1f644ae680" />
-    3.  Navigate to the **Twitch Tab**.
-    5.  Click the **"Connect to Twitch"** button.
-    6.  This will open a browser window to authorize the mod securely via Twitch.
-*   **Why is this needed?** The ChatPlex connection handles *reading chat*, but the Beat Surgeon backend is required to safely verify *subscription status* for unlocking custom fonts and colors.
+    2. Navigate to the **Twitch Tab** in Surgeon Menu.
+       <img width="727" height="552" alt="image" src="https://github.com/user-attachments/assets/39496f7f-7c59-45b6-bf31-6a963dd3b371" />
+    3. Click the **"Connect to Twitch"** button.
+    4. This will open a browser window to authorize the mod securely via Twitch.
+       <img width="1912" height="942" alt="image" src="https://github.com/user-attachments/assets/7a19eeb9-1de5-44b4-86de-d51bc99d3c7c" />
+    5. You can Close the browser page once you see this page.
+       <img width="1304" height="320" alt="image" src="https://github.com/user-attachments/assets/a7a3b7c3-b28d-4263-b63b-53c8ab3989df" />
+
+
+
+*   **Why is this needed?** There is a ChatPlex connection that handles *reading chat* if you dont want to use BeatSurgeon Backend, but the Beat Surgeon backend is required to safely verify *subscription status* for unlocking custom fonts and colors.
 *   Once you are connected to BeatSurgeon's Backend, you should see `Edit Visuals` button in the Cooldown settings menu
 *   If you dont see the `Edit Visuals` button, Please go out of the menu and reselect Beat surgeon in the mods tab to see it.
+  
+<img width="1230" height="524" alt="image" src="https://github.com/user-attachments/assets/f8d065ca-f955-4f8a-969a-98bd30b3faf3" />
 
-<img width="886" height="697" alt="Twitch Settings" src="https://github.com/user-attachments/assets/59105a81-11ba-4bba-b55e-d8a9883d18a6" />
----
+
 
 ## Notes / Current Status (Work in Progress)
 
@@ -314,9 +321,8 @@ This project is proprietary. All rights reserved.
 **Beat Surgeon** wouldn't exist without the inspiration and tools provided by the amazing Beat Saber modding community.
 
 *   **Development & Design:** [PhoenixBlaze0](https://github.com/PhoenixBlaze0)
-*   **Twitch Integration:** Powered by **[ChatPlexSDK](https://github.com/hardcpp/BeatSaberPlus)** (part of BeatSaberPlus).
 *   **UI Framework:** Built using **[BeatSaberMarkupLanguage (BSML)](https://github.com/monkeymanboy/BeatSaberMarkupLanguage)**.
-*   **Inspiration:**
+*   **Inspirations:**
     *   **[GameplayModifiersPlus](https://github.com/Kylemc1413/GameplayModifiersPlus)** by Kylemc1413 – The original inspiration for chat-controlled modifiers.
     *   **[StreamPartyCommands](https://github.com/denpadokei/StreamPartyCommand)** – For ideas on interactive viewer commands.
 
