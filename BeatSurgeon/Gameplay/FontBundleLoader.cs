@@ -52,7 +52,7 @@ namespace BeatSurgeon.Gameplay
             if (src == null) return;
 
             File.Copy(src, BundlePath, true);
-            BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Copied '{src}' -> '{BundlePath}'");
+            BeatSurgeon.LogUtils.Debug(() => $"FontBundleLoader: Copied '{src}' -> '{BundlePath}'");
         }
 
         internal static Task EnsureLoadedAsync()
@@ -157,8 +157,8 @@ namespace BeatSurgeon.Gameplay
                 BeatSurgeon.Plugin.Log.Debug($"FontBundleLoader: Successfully loaded font '{font.name}'");
             }
 
-            BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Loaded {successCount}/{fonts.Length} fonts from bundle");
-            BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Available fonts: {string.Join(", ", _fontOptions.Where(x => x != DefaultSelectionValue))}");
+            BeatSurgeon.LogUtils.Debug(() => $"FontBundleLoader: Loaded {successCount}/{fonts.Length} fonts from bundle");
+            BeatSurgeon.LogUtils.Debug(() => $"FontBundleLoader: Available fonts: {string.Join(", ", _fontOptions.Where(x => x != DefaultSelectionValue))}");
             ApplySelectionFromConfig();
         }
 
@@ -213,7 +213,7 @@ namespace BeatSurgeon.Gameplay
             // Try to assign it back to the font via reflection
             TrySetMaterial(font, newMat);
 
-            BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Created new material for '{font.name}'");
+            BeatSurgeon.LogUtils.Debug(() => $"FontBundleLoader: Created new material for '{font.name}'");
             return newMat;
         }
 
@@ -331,7 +331,7 @@ namespace BeatSurgeon.Gameplay
             }
 
             BombUsernameFont = chosen;
-            if (BombUsernameFont != null) BeatSurgeon.Plugin.Log.Info($"FontBundleLoader: Selected bomb font '{BombUsernameFont.name}' (option='{selection}')");
+            if (BombUsernameFont != null) BeatSurgeon.LogUtils.Debug(() => $"FontBundleLoader: Selected bomb font '{BombUsernameFont.name}' (option='{selection}')");
             else BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: No usable font could be selected (option='{selection}')");
         }
 

@@ -134,7 +134,7 @@ namespace BeatSurgeon.UI.Controllers
             {
                 _playTime = value;
                 NotifyPropertyChanged(nameof(PlayTime));
-                Plugin.Log.Info($"Slider changed → PlayTime = {_playTime} minutes ");
+                LogUtils.Debug(() => $"Slider changed → PlayTime = {_playTime} minutes ");
             }
         }
 
@@ -560,7 +560,7 @@ namespace BeatSurgeon.UI.Controllers
         private void OnFlashbangButtonClicked()
         {
             FlashbangEnabled = !FlashbangEnabled;
-            Plugin.Log.Info($"BeatSurgeon: Flashbang command enabled = {FlashbangEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Flashbang command enabled = {FlashbangEnabled}");
         }
 
 
@@ -581,7 +581,7 @@ namespace BeatSurgeon.UI.Controllers
         private void OnSlowerButtonClicked()
         {
             SlowerEnabled = !SlowerEnabled;
-            Plugin.Log.Info($"BeatSurgeon: Slower command enabled = {SlowerEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Slower command enabled = {SlowerEnabled}");
         }
 
 
@@ -602,7 +602,7 @@ namespace BeatSurgeon.UI.Controllers
         private void OnSFastButtonClicked()
         {
             SuperFastEnabled = !SuperFastEnabled;
-            Plugin.Log.Info($"BeatSurgeon: SuperFast command enabled = {SuperFastEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: SuperFast command enabled = {SuperFastEnabled}");
         }
 
 
@@ -623,7 +623,7 @@ namespace BeatSurgeon.UI.Controllers
         private void OnFasterButtonClicked()
         {
             FasterEnabled = !FasterEnabled;
-            Plugin.Log.Info($"BeatSurgeon: Faster command enabled = {FasterEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Faster command enabled = {FasterEnabled}");
         }
 
 
@@ -644,7 +644,7 @@ namespace BeatSurgeon.UI.Controllers
         private void OnBombButtonClicked()
         {
             BombEnabled = !BombEnabled;
-            Plugin.Log.Info($"BeatSurgeon: Bomb command enabled = {BombEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Bomb command enabled = {BombEnabled}");
         }
 
 
@@ -666,7 +666,7 @@ namespace BeatSurgeon.UI.Controllers
         private void OnDAButtonClicked()
         {
             DisappearingEnabled = !DisappearingEnabled;
-            Plugin.Log.Info($"BeatSurgeon: Disappearing command enabled = {DisappearingEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Disappearing command enabled = {DisappearingEnabled}");
         }
 
 
@@ -706,7 +706,7 @@ namespace BeatSurgeon.UI.Controllers
         private void OnGhostButtonClicked()
         {
             GhostEnabled = !GhostEnabled;
-            Plugin.Log.Info($"BeatSurgeon: Ghost command enabled = {GhostEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Ghost command enabled = {GhostEnabled}");
         }
 
 
@@ -738,7 +738,7 @@ namespace BeatSurgeon.UI.Controllers
 
         private void RefreshTwitchStatusText()
         {
-            Plugin.Log.Info(
+            LogUtils.Debug(() => 
                 $"UI: RefreshTwitchStatusText IsAuthenticated={TwitchAuthManager.Instance.IsAuthenticated}, " +
                 $"Tier={Plugin.Settings.CachedSupporterTier}");
 
@@ -820,27 +820,27 @@ namespace BeatSurgeon.UI.Controllers
         private void OnRainbowButtonClicked()
         {
             RainbowEnabled = !RainbowEnabled;
-            Plugin.Log.Info($"BeatSurgeon: Rainbow command enabled = {RainbowEnabled}");
+            LogUtils.Debug(() => $"BeatSurgeon: Rainbow command enabled = {RainbowEnabled}");
         }
 
         [UIAction("OnStartPlayPressed")]
         private void OnStartPlayPressed()
         {
-            Plugin.Log.Info("BeatSurgeon: Start/Play button pressed!");
-            Plugin.Log.Info($"Timer set to: {PlayTime} minutes");
+            LogUtils.Debug(() => "BeatSurgeon: Start/Play button pressed!");
+            LogUtils.Debug(() => $"Timer set to: {PlayTime} minutes");
 
             var gameplayManager = BeatSurgeon.Gameplay.GameplayManager.GetInstance();
 
             if (gameplayManager.IsPlaying())
             {
                 gameplayManager.StopEndlessMode();
-                Plugin.Log.Info("BeatSurgeon: Stopped endless mode");
+                LogUtils.Debug(() => "BeatSurgeon: Stopped endless mode");
                 ChatManager.GetInstance().SendChatMessage("Saber Surgeon session ended!");
             }
             else
             {
                 gameplayManager.StartEndlessMode(PlayTime);
-                Plugin.Log.Info($"BeatSurgeon: Started endless mode for {PlayTime} minutes");
+                LogUtils.Debug(() => $"BeatSurgeon: Started endless mode for {PlayTime} minutes");
                 ChatManager.GetInstance().SendChatMessage(
                     $"Saber Surgeon started! Playing for {PlayTime} minutes. Request songs with !bsr <code>");
             }
@@ -971,7 +971,7 @@ namespace BeatSurgeon.UI.Controllers
         [UIAction("OnDocumentationClicked")]
         private void OnDocumentationClicked()
         {
-            Plugin.Log.Info("Opening GitHub documentation...");
+            LogUtils.Debug(() => "Opening GitHub documentation...");
             try
             {
                 // Open GitHub repo in default browser
@@ -991,11 +991,11 @@ namespace BeatSurgeon.UI.Controllers
 
             if (supporterTier > 0)
             {
-                Plugin.Log.Info("User is already subscribed!");
+                LogUtils.Debug(() => "User is already subscribed!");
                 return;
             }
 
-            Plugin.Log.Info("Opening Twitch channel for subscription...");
+            LogUtils.Debug(() => "Opening Twitch channel for subscription...");
             try
             {
                 // Open your Twitch channel in default browser

@@ -62,7 +62,7 @@ namespace BeatSurgeon.Twitch
                 return; // Not a Beat Surgeon reward
             }
 
-            Plugin.Log.Info($"Processing channel point '{command}' from {redemption.UserName}");
+            LogUtils.Debug(() => $"Processing channel point '{command}' from {redemption.UserName}");
 
             try
             {

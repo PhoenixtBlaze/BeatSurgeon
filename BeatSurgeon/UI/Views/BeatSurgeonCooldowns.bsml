@@ -326,15 +326,17 @@
 			<horizontal id="rainbow-note-preview-container"
 					pref-height="40"
 					pref-width="50"
+					horizontal-fit="PreferredSize"
 					bg="round-rect-panel"
 					pad="2">
 			</horizontal>
 		</vertical>
 		<vertical pad-left="55" pref-width="50" pad="2" pref-height="40" align="Center">
-			<horizontal >
+			<!--
+			<horizontal pad-top="5">
 				<text text="Gradient fade" align="Center"></text>
 			</horizontal>
-			<horizontal >
+			<horizontal pad-bottom="5" pad-right="8">
 				<toggle-setting
 					align="Center"
 					text=""
@@ -342,10 +344,11 @@
 					apply-on-change="true"
 					hover-hint="Enable smooth color gradient transitions" />
 			</horizontal>
+			-->
 			<horizontal>
 				<text text="Cycle Speed" align="Center"></text>
 			</horizontal>
-			<horizontal>
+			<horizontal pad-left="35" pad-bottom="15">
 				<slider-setting
 					text=""
 					value="rainbow_gradient_cycle_speed"
@@ -416,15 +419,20 @@
        move-to-center="true"
        size-delta-x="110"
        size-delta-y="60">
-		<vertical pad="2" spacing="2">
 			<!-- Title -->
-			<text text="Flashbang Visuals" align="Center" font-size="6" />
+			<horizontal pad-bottom="50">
+			<text text="Flashbang Visuals" font-size="6" align="Center"/>
+			</horizontal>
 
 			<!-- Settings Section -->
-			<vertical pref-height="40" spacing="2" pad-top="2">
 				<!-- Brightness multiplier -->
+			<vertical pref-width="90" pad="2" pref-height="40" align="Center">
+			<horizontal pad-top="15">
+				<text text="Brightness Multiplier (x)" align="Center" />
+				</horizontal>
+			<horizontal pad-bottom="25" pad-right="25">
 				<slider-setting
-					text="Brightness Multiplier"
+					text=""
 					value="flashbang_brightness_multiplier"
 					min="1"
 					max="200"
@@ -432,14 +440,13 @@
 					integer-only="true"
 					apply-on-change="true"
 					hover-hint="Intensity of the flashbang effect (higher = brighter)" />
+			</horizontal>
 			</vertical>
-
 			<!-- Close Button -->
 			<horizontal child-force-expand-width="false" pad-top="50" pad-right="85">
 				<button text="Close"
 						pref-width="20"
 						on-click="CloseFlashbangVisuals" />
 			</horizontal>
-		</vertical>
 	</modal>
 </bg>

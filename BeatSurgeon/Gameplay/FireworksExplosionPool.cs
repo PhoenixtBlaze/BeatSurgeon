@@ -43,7 +43,7 @@ namespace BeatSurgeon.Gameplay
                 // Ensure it uses Additive blending for glow
                 _gameSafeMaterial.SetFloat("_Mode", 2); // Additive usually
                 _gameSafeMaterial.SetColor("_TintColor", Color.white);
-                Plugin.Log.Info($"FireworksExplosionPool: Cloned safe game material: {_gameSafeMaterial.name}");
+                LogUtils.Debug(() => $"FireworksExplosionPool: Cloned safe game material: {_gameSafeMaterial.name}");
             }
             else
             {

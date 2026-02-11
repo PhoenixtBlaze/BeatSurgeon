@@ -31,7 +31,7 @@ namespace BeatSurgeon.Gameplay
                     _go = new GameObject("BeatSurgeon_GhostNotesManager_GO");
                     Object.DontDestroyOnLoad(_go);
                     _instance = _go.AddComponent<GhostNotesManager>();
-                    Plugin.Log.Info("GhostNotesManager: Created new instance");
+                    LogUtils.Debug(() => "GhostNotesManager: Created new instance");
                 }
 
                 return _instance;
@@ -79,7 +79,7 @@ namespace BeatSurgeon.Gameplay
             {
                 GhostActive = false;
                 MultiplayerStateClient.SetActiveCommand(null);
-                Plugin.Log.Info("GhostNotesManager: Ghost notes manually stopped");
+                LogUtils.Debug(() => "GhostNotesManager: Ghost notes manually stopped");
                 //ChatManager.GetInstance().SendChatMessage("Ghost notes effect has been stopped.");
             }
         }
@@ -87,7 +87,7 @@ namespace BeatSurgeon.Gameplay
         private IEnumerator GhostCoroutine(float durationSeconds, string requesterName)
         {
             GhostActive = true;
-            Plugin.Log.Info($"GhostNotesManager: Ghost notes enabled for {durationSeconds:F1}s");
+            LogUtils.Debug(() => $"GhostNotesManager: Ghost notes enabled for {durationSeconds:F1}s");
 
             if (!string.IsNullOrEmpty(requesterName))
             {
@@ -111,7 +111,7 @@ namespace BeatSurgeon.Gameplay
             FirstNoteShown = false;
             _ghostCoroutine = null;
 
-            Plugin.Log.Info("GhostNotesManager: Ghost notes finished");
+            LogUtils.Debug(() => "GhostNotesManager: Ghost notes finished");
             MultiplayerStateClient.SetActiveCommand(null);
             ChatManager.GetInstance().SendChatMessage("!!Ghost notes effect has ended.");
         }

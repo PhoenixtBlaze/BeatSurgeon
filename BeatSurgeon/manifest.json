@@ -4,7 +4,7 @@
   "name": "BeatSurgeon",
   "author": "PhoenixBlaze0",
   "version": "0.3.0",
-  "description": "Twitch chat-driven gameplay modifiers: rainbow/RGB note colors, custom note colors, ghost notes, disappearing arrows, bomb pranks, speed changes (faster/superfast/slower), flashbang lights, moderator controls, command management, and endless play sessions.",
+  "description": "Twitch Chat Interaction System for Beat Saber: lets chat do rainbow/RGB note colors, custom note colors, ghost notes, disappearing arrow type modifier, bomb pranks, song and map speed changes (faster/superfast/slower), flashbang lights, moderator controls, command management",
   "gameVersion": "1.42.1",
   "dependsOn": {
     "BSIPA": "^4.3.6",

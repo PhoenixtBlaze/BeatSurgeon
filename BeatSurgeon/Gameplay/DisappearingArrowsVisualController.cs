@@ -75,7 +75,7 @@ namespace BeatSurgeon.Gameplay
                 if (audios != null && audios.Length > 0)
                 {
                     Audio = audios[0];
-                    Plugin.Log.Info("DisappearingArrowsVisualController: bound AudioTimeSyncController from Update()");
+                    LogUtils.Debug(() => "DisappearingArrowsVisualController: bound AudioTimeSyncController from Update()");
                 }
             }
 

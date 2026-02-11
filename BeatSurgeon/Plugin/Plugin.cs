@@ -90,7 +90,6 @@ namespace BeatSurgeon
         internal static Plugin Instance { get; private set; }
         internal static IPA.Logging.Logger Log { get; private set; }
 
-        private bool pfslTabRegisteredThisMenu = false;
         private bool surgeonTabRegisteredThisMenu = false;
 
 
@@ -163,7 +162,6 @@ namespace BeatSurgeon
             // 3) Gameplay manager
             InitializeGameplayManager();
 
-            _ = BeatSurgeon.Gameplay.PlayFirstSubmitLaterManager.Instance;
 
             // Harmony patches - patch ALL BeatSurgeon harmony classes
             try
@@ -180,25 +178,18 @@ namespace BeatSurgeon
 
 
 
-        private bool _pfslTabRegistered;
+
         private void OnMenuSceneActive()
         {
             Log.Info("BeatSurgeon : menuSceneActive");
             _menuButtonRegisteredThisMenu = false;
             surgeonTabRegisteredThisMenu = false;
-            pfslTabRegisteredThisMenu = false;
 
             
             // Run a small coroutine on the game’s main thread
             CoroutineHost.Instance.StartCoroutine(RegisterMenuButtonWhenReady());
-            CoroutineHost.Instance.StartCoroutine(RegisterPfslGameplaySetupTabWhenReady());
             CoroutineHost.Instance.StartCoroutine(RegisterSurgeonGameplaySetupTabWhenReady());
 
-            if (_pfslTabRegistered) return;
-
-            // Ensure your standalone PFSL runtime module exists if you want it initialized early
-            _ = Gameplay.PlayFirstSubmitLaterManager.Instance;
-            _pfslTabRegistered = true;
         }
 
 
@@ -286,43 +277,6 @@ namespace BeatSurgeon
             }
         }
 
-        private IEnumerator RegisterPfslGameplaySetupTabWhenReady()
-        {
-            while (!pfslTabRegisteredThisMenu)
-            {
-                // Wait a frame so Zenject/BSML can finish installing menu bindings
-                yield return null;
-
-                try
-                {
-                    // This line is safe to run early; it just ensures your module exists
-                    _ = PlayFirstSubmitLaterManager.Instance;
-
-                    // If BSML isn't ready, the next call may throw InvalidOperationException.
-                    var gs = BeatSaberMarkupLanguage.GameplaySetup.GameplaySetup.Instance;
-                    if (gs == null) continue;
-
-                    gs.AddTab(
-                        "Submit Later",
-                        "BeatSurgeon.UI.Views.PlayFirstSubmitLaterGameplaySetup.bsml",
-                        BeatSurgeon.UI.Settings.PlayFirstSubmitLaterSettingsHost.Instance
-                    );
-
-                    pfslTabRegisteredThisMenu = true;
-                    Log.Info("PlayFirstSubmitLater: GameplaySetup tab registered (delayed)");
-                }
-                catch (InvalidOperationException ex)
-                {
-                    // This matches your existing “too early” handling style for MenuButtons
-                    Log.Debug("PlayFirstSubmitLater: GameplaySetup not ready yet: " + ex.Message);
-                }
-                catch (Exception ex)
-                {
-                    Log.Error("PlayFirstSubmitLater: Failed registering GameplaySetup tab: " + ex);
-                    yield break;
-                }
-            }
-        }
         
 
         private IEnumerator RegisterMenuButtonWhenReady()
@@ -458,7 +412,7 @@ namespace BeatSurgeon
         {
             try
             {
-                Plugin.Log.Info("BeatSurgeon: Initializing gameplay manager...");
+                LogUtils.Debug(() => "BeatSurgeon: Initializing gameplay manager...");
                 var gameplayManager = Gameplay.GameplayManager.GetInstance();
                 Plugin.Log.Info("BeatSurgeon: Gameplay manager initialized!");
             }
@@ -480,7 +434,6 @@ namespace BeatSurgeon
                 TwitchApiClient.ClearCache();
                 BSEvents.menuSceneActive -= OnMenuSceneActive;
                 MultiplayerRoomSyncClient.Dispose();
-                BSMLSettings.Instance.RemoveSettingsMenu(PlayFirstSubmitLaterSettingsHost.Instance);
                 CommandHandler.Instance.Shutdown();
                 ChatManager.GetInstance().Shutdown();
                 Gameplay.GameplayManager.GetInstance().Shutdown();

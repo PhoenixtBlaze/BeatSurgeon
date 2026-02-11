@@ -36,7 +36,7 @@ namespace BeatSurgeon.HarmonyPatches
             if (controller == null)
             {
                 controller = gameNote.gameObject.AddComponent<GhostVisualController>();
-                Plugin.Log.Info($"GhostNotesPatch: Added GhostVisualController to note at t={noteData.time:F3}");
+                LogUtils.Debug(() => $"GhostNotesPatch: Added GhostVisualController to note at t={noteData.time:F3}");
             }
 
             controller.Initialize(gameNote, noteData.time);

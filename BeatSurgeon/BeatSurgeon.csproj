@@ -325,7 +325,6 @@
     <Compile Include="Gameplay\InLevelQueueProcessor.cs" />
     <Compile Include="Gameplay\LookAtCamera.cs" />
     <Compile Include="Gameplay\NoteUtils.cs" />
-    <Compile Include="Gameplay\PlayFirstSubmitLaterManager.cs" />
     <Compile Include="Gameplay\RainbowManager.cs" />
     <Compile Include="Gameplay\RendererWatchdog.cs" />
     <Compile Include="Gameplay\BeatSurgeonTextMover.cs" />
@@ -355,11 +354,9 @@
     <Compile Include="Twitch\TwitchApiClient.cs" />
     <Compile Include="Twitch\TwitchAuthManager.cs" />
     <Compile Include="Twitch\TwitchEventSubClient.cs" />
-    <Compile Include="UI\Controllers\PlayFirstSubmitLaterViewController.cs" />
     <Compile Include="UI\Controllers\BeatSurgeonCooldownViewController.cs" />
     <Compile Include="UI\Controllers\BeatSurgeonViewController.cs" />
     <Compile Include="UI\FlowCoordinator\BeatSurgeonFlowCoordinator.cs" />
-    <Compile Include="UI\Settings\PlayFirstSubmitLaterSettingsHost.cs" />
     <Compile Include="Utils\SceneHelper.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -370,7 +367,6 @@
     <None Include="BeatSurgeon.csproj.user" Condition="Exists('SaberSurgeon.csproj.user')" />
     <EmbeddedResource Include="UI\Views\BeatSurgeonSettings.bsml" />
     <EmbeddedResource Include="UI\Views\BeatSurgeonCooldowns.bsml" />
-    <EmbeddedResource Include="UI\Views\PlayFirstSubmitLaterGameplaySetup.bsml" />
     <EmbeddedResource Include="UI\Views\SurgeonGameplaySetup.bsml" />
   </ItemGroup>
   <ItemGroup>

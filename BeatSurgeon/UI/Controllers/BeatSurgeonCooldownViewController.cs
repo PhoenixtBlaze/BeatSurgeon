@@ -15,6 +15,7 @@ using System.Reflection;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 using IPA.Utilities.Async; // for UnityMainThreadTaskScheduler
 
 
@@ -167,6 +168,7 @@ namespace BeatSurgeon.UI.Controllers
             if (removedFromHierarchy)
             {
                 TwitchApiClient.OnSubscriberStatusChanged -= HandleSubscriberStatusChanged;
+                CleanupWorldSpacePreview();
             }
         }
 
@@ -265,13 +267,6 @@ namespace BeatSurgeon.UI.Controllers
 
         private async System.Threading.Tasks.Task OnBombEditVisualsClickedAsync()
         {
-            // Fast local hint (still useful), but server is authoritative
-            if (!TwitchAuthManager.Instance.IsAuthenticated)
-            {
-                Plugin.Log.Warn("Bomb visuals denied: not authenticated.");
-                return;
-            }
-
             bool allowed = false;
             try
             {
@@ -285,7 +280,8 @@ namespace BeatSurgeon.UI.Controllers
 
             if (!allowed)
             {
-                Plugin.Log.Warn("Bomb visuals denied by server (not Tier1+ or invalid entitlement).");
+                Plugin.Log.Warn($"[SECURITY] Visuals access denied for user {TwitchAuthManager.Instance.BroadcasterId}. " +
+                       $"Client tier: {SupporterState.CurrentTier}, Server rejected.");
                 return;
             }
 
@@ -480,7 +476,6 @@ namespace BeatSurgeon.UI.Controllers
         */
 
         // ==================== RAINBOW VISUALS ====================
-
         [UIComponent("rainbow-edit-button")]
         private UnityEngine.UI.Button _rainbowEditButton;
 
@@ -490,11 +485,13 @@ namespace BeatSurgeon.UI.Controllers
         [UIComponent("rainbow-note-preview-container")]
         private Transform _rainbowNotePreviewContainer;
 
+        private GameObject _previewParent;
         private GameObject _previewLeftNote;
         private GameObject _previewRightNote;
         private Coroutine _rainbowPreviewCoroutine;
         private Renderer _leftNoteRenderer;
         private Renderer _rightNoteRenderer;
+        private bool _isPreviewInitialized = false;
 
         [UIValue("rainbow_gradient_fade_enabled")]
         public bool RainbowGradientFadeEnabled
@@ -518,25 +515,29 @@ namespace BeatSurgeon.UI.Controllers
                 if (Plugin.Settings != null)
                     Plugin.Settings.RainbowCycleSpeed = clamped;
 
-                // Apply to manager immediately
                 Gameplay.RainbowManager.RainbowCycleSpeed = clamped;
-
                 NotifyPropertyChanged(nameof(RainbowGradientCycleSpeed));
             }
         }
 
-        [UIAction("OnRainbowEditVisualsClicked")]  // ← THIS ATTRIBUTE IS CRITICAL
+        [UIAction("OnRainbowEditVisualsClicked")]
         private void OnRainbowEditVisualsClicked()
         {
             if (_rainbowVisualsModal != null)
             {
                 _rainbowVisualsModal.Show(true);
-                StartRainbowNotePreview();
+                StartCoroutine(DelayedStartPreview());
             }
             else
             {
                 Plugin.Log.Warn("Rainbow visuals modal was null when trying to show it.");
             }
+        }
+
+        private IEnumerator DelayedStartPreview()
+        {
+            yield return new WaitForSeconds(0.1f);
+            StartRainbowNotePreview();
         }
 
         [UIAction("CloseRainbowVisuals")]
@@ -552,94 +553,320 @@ namespace BeatSurgeon.UI.Controllers
         {
             StopRainbowNotePreview();
 
-            if (_rainbowNotePreviewContainer == null)
+            LogUtils.Debug(() => "Starting rainbow note preview - initializing world space preview");
+
+            if (!_isPreviewInitialized)
             {
-                Plugin.Log.Warn("Rainbow note preview container is null");
-                return;
+                StartCoroutine(InitializeWorldSpacePreview());
             }
-
-            _previewLeftNote = CreatePreviewCube(new Vector3(-1.5f, 0f, 0f), out _leftNoteRenderer);
-            _previewRightNote = CreatePreviewCube(new Vector3(1.5f, 0f, 0f), out _rightNoteRenderer);
-
-            if (_previewLeftNote != null && _previewRightNote != null)
+            else
             {
+                if (_previewLeftNote != null) _previewLeftNote.SetActive(true);
+                if (_previewRightNote != null) _previewRightNote.SetActive(true);
+
+                // Update position in case modal moved
+                // UpdatePreviewPosition();
+
                 _rainbowPreviewCoroutine = StartCoroutine(RainbowPreviewRoutine());
             }
         }
 
-        private GameObject CreatePreviewCube(Vector3 localPosition, out Renderer renderer)
+        private IEnumerator InitializeWorldSpacePreview()
         {
-            renderer = null;
+            LogUtils.Debug(() => "Loading gameplay scene to extract note prefabs...");
 
-            try
+            // Find the menu transitions helper to get scene info
+            var menuTransitionsHelper = Resources.FindObjectsOfTypeAll<MenuTransitionsHelper>().FirstOrDefault();
+            if (menuTransitionsHelper == null)
             {
-                var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                cube.transform.SetParent(_rainbowNotePreviewContainer, false);
-                cube.transform.localPosition = localPosition;
-                cube.transform.localRotation = Quaternion.Euler(45f, 45f, 0f);
-                cube.transform.localScale = Vector3.one * 2.0f;
+                Plugin.Log.Error("MenuTransitionsHelper not found!");
+                yield break;
+            }
 
-                renderer = cube.GetComponent<Renderer>();
-                if (renderer != null)
+            // Use reflection to access the private _standardLevelScenesTransitionSetupData field
+            var setupDataField = typeof(MenuTransitionsHelper).GetField("_standardLevelScenesTransitionSetupData",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (setupDataField == null)
+            {
+                Plugin.Log.Error("Could not find _standardLevelScenesTransitionSetupData field!");
+                yield break;
+            }
+
+            var standardLevelScenesTransitionSetupData = setupDataField.GetValue(menuTransitionsHelper) as StandardLevelScenesTransitionSetupDataSO;
+            if (standardLevelScenesTransitionSetupData == null)
+            {
+                Plugin.Log.Error("standardLevelScenesTransitionSetupData was null!");
+                yield break;
+            }
+
+            // Use reflection to access the private standardGameplaySceneInfo field
+            var gameplaySceneInfoField = typeof(StandardLevelScenesTransitionSetupDataSO).GetField("_standardGameplaySceneInfo",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (gameplaySceneInfoField == null)
+            {
+                Plugin.Log.Error("Could not find _standardGameplaySceneInfo field!");
+                yield break;
+            }
+
+            var gameplaySceneInfo = gameplaySceneInfoField.GetValue(standardLevelScenesTransitionSetupData) as SceneInfo;
+            if (gameplaySceneInfo == null)
+            {
+                Plugin.Log.Error("gameplaySceneInfo was null!");
+                yield break;
+            }
+
+            // Use reflection to access the private gameCoreSceneInfo field
+            var gameCoreSceneInfoField = typeof(StandardLevelScenesTransitionSetupDataSO).GetField("_gameCoreSceneInfo",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (gameCoreSceneInfoField == null)
+            {
+                Plugin.Log.Error("Could not find _gameCoreSceneInfo field!");
+                yield break;
+            }
+
+            var gameCoreSceneInfo = gameCoreSceneInfoField.GetValue(standardLevelScenesTransitionSetupData) as SceneInfo;
+            if (gameCoreSceneInfo == null)
+            {
+                Plugin.Log.Error("gameCoreSceneInfo was null!");
+                yield break;
+            }
+
+            // Load GameCore scene first
+            var gameCoreLoad = SceneManager.LoadSceneAsync(gameCoreSceneInfo.sceneName, LoadSceneMode.Additive);
+            yield return gameCoreLoad;
+
+            // Load StandardGameplay scene
+            var gameplayLoad = SceneManager.LoadSceneAsync(gameplaySceneInfo.sceneName, LoadSceneMode.Additive);
+            yield return gameplayLoad;
+
+            LogUtils.Debug(() => "Gameplay scenes loaded, extracting note prefabs...");
+
+            // Find the BeatmapObjectsInstaller to get note prefabs
+            var beatmapObjectsInstaller = Resources.FindObjectsOfTypeAll<BeatmapObjectsInstaller>().FirstOrDefault();
+            if (beatmapObjectsInstaller == null)
+            {
+                Plugin.Log.Error("BeatmapObjectsInstaller not found!");
+                yield break;
+            }
+
+            // Use reflection to find the note prefab field (field name may have changed)
+            var prefabField = typeof(BeatmapObjectsInstaller).GetFields(
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .FirstOrDefault(f => f.FieldType == typeof(GameNoteController) && f.Name.Contains("normal"));
+
+            if (prefabField == null)
+            {
+                Plugin.Log.Error("Could not find note prefab field in BeatmapObjectsInstaller!");
+
+                // Log all available fields for debugging
+                var allFields = typeof(BeatmapObjectsInstaller).GetFields(
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                LogUtils.Debug(() => $"Available fields in BeatmapObjectsInstaller:");
+                foreach (var field in allFields)
                 {
-                    renderer.material = new Material(Shader.Find("Custom/Glowing") ??
-                                                    Shader.Find("BeatSaber/Lit Glow") ??
-                                                    Shader.Find("Standard"));
-
-                    renderer.material.EnableKeyword("_EMISSION");
-                    renderer.material.SetColor("_Color", Color.white);
-                    renderer.material.SetColor("_EmissionColor", Color.white);
+                    LogUtils.Debug(() => $"  - {field.Name} : {field.FieldType.Name}");
                 }
 
-                var collider = cube.GetComponent<Collider>();
-                if (collider != null)
-                    GameObject.Destroy(collider);
+                yield break;
+            }
 
-                Plugin.Log.Info($"Created preview cube at {localPosition}");
-                return cube;
-            }
-            catch (Exception ex)
+            var normalBasicNotePrefab = prefabField.GetValue(beatmapObjectsInstaller) as GameNoteController;
+            if (normalBasicNotePrefab == null)
             {
-                Plugin.Log.Error($"Failed to create preview cube: {ex.Message}");
-                return null;
+                Plugin.Log.Error("Note prefab was null!");
+                yield break;
             }
+
+            // Get the note prefab - the visual mesh
+            var noteTemplate = GameObject.Instantiate(normalBasicNotePrefab.transform.GetChild(0).gameObject);
+            noteTemplate.SetActive(false);
+            GameObject.DontDestroyOnLoad(noteTemplate);
+            LogUtils.Debug(() => "Note template extracted, creating preview parent...");
+
+            // === FIXED: Create a standalone world-space parent ===
+            _previewParent = new GameObject("RainbowNotePreviewParent");
+
+            // Position it in world space in front of the camera
+            _previewParent.transform.position = new Vector3(1.7f, 1.5f, 1.5f);
+            _previewParent.transform.rotation = Quaternion.Euler(0f, 0f, 0f);
+            
+            // Mark as root object to persist across scenes
+            GameObject.DontDestroyOnLoad(_previewParent);
+
+            // Create the preview notes
+            _previewLeftNote = GameObject.Instantiate(noteTemplate);
+            _previewRightNote = GameObject.Instantiate(noteTemplate);
+
+            _previewLeftNote.transform.SetParent(_previewParent.transform, false);
+            _previewRightNote.transform.SetParent(_previewParent.transform, false);
+
+            _previewLeftNote.name = "RainbowPreviewLeft";
+            _previewRightNote.name = "RainbowPreviewRight";
+
+            // Position them side by side
+            _previewLeftNote.transform.localPosition = new Vector3(0.3f, 0f, 0.4f);
+            _previewRightNote.transform.localPosition = new Vector3(-0.1f, 0f, 0.7f);
+
+            // Rotate to face camera
+            _previewLeftNote.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            _previewRightNote.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+
+            // Scale them down
+            _previewLeftNote.transform.localScale = Vector3.one * 0.4f;
+            _previewRightNote.transform.localScale = Vector3.one * 0.4f;
+
+            // Get player colors
+            var playerData = Resources.FindObjectsOfTypeAll<PlayerDataModel>().First().playerData;
+            var colorScheme = playerData.colorSchemesSettings.overrideDefaultColors
+                ? playerData.colorSchemesSettings.GetSelectedColorScheme()
+                : null;
+
+            Color leftColor = colorScheme?.saberAColor ?? new Color(0.659f, 0.125f, 0.125f);
+            Color rightColor = colorScheme?.saberBColor ?? new Color(0.125f, 0.392f, 0.659f);
+
+            // Patch the notes - apply materials and setup
+            PatchNoteForPreview(_previewLeftNote, leftColor);
+            PatchNoteForPreview(_previewRightNote, rightColor);
+
+            // Get renderers for color updates
+            _leftNoteRenderer = _previewLeftNote.GetComponent<Renderer>();
+            _rightNoteRenderer = _previewRightNote.GetComponent<Renderer>();
+
+            // Activate and show
+            _previewLeftNote.SetActive(true);
+            _previewRightNote.SetActive(true);
+
+            LogUtils.Debug(() => "Preview notes created successfully!");
+
+            // Unload the gameplay scenes
+            SceneManager.UnloadSceneAsync(gameplaySceneInfo.sceneName);
+            SceneManager.UnloadSceneAsync(gameCoreSceneInfo.sceneName);
+
+            GameObject.Destroy(noteTemplate);
+
+            _isPreviewInitialized = true;
+
+            // Start the rainbow animation
+            _rainbowPreviewCoroutine = StartCoroutine(RainbowPreviewRoutine());
+        }
+
+
+
+        // Helper to set layer recursively (needed for UI rendering)
+        private void SetLayerRecursively(GameObject obj, int layer)
+        {
+            obj.layer = layer;
+            foreach (Transform child in obj.transform)
+            {
+                SetLayerRecursively(child.gameObject, layer);
+            }
+        }
+
+        // Update position when modal moves (called when reopening preview)
+        /*
+        private void UpdatePreviewPosition()
+        {
+            if (_previewParent != null && _rainbowNotePreviewContainer != null)
+            {
+                _previewParent.transform.position = _rainbowNotePreviewContainer.position +
+                                                    _rainbowNotePreviewContainer.forward * 0.4f;
+                _previewParent.transform.rotation = _rainbowNotePreviewContainer.rotation;
+            }
+        }
+        */
+
+        private void PatchNoteForPreview(GameObject noteObject, Color baseColor)
+        {
+            noteObject.SetActive(true);
+            foreach (Transform child in noteObject.transform)
+            {
+                child.gameObject.SetActive(true);
+            }
+
+            var renderers = noteObject.GetComponentsInChildren<MeshRenderer>();
+            foreach (var renderer in renderers)
+            {
+                renderer.receiveShadows = false;
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+
+            var materialControllers = noteObject.GetComponentsInChildren<MaterialPropertyBlockController>();
+            foreach (var controller in materialControllers)
+            {
+                controller.materialPropertyBlock.SetColor(Shader.PropertyToID("_Color"), baseColor);
+                controller.materialPropertyBlock.SetFloat(Shader.PropertyToID("_EnableRimDim"), 0f);
+                controller.materialPropertyBlock.SetFloat(Shader.PropertyToID("_EnableFog"), 0f);
+                controller.ApplyChanges();
+            }
+
+            var arrow = noteObject.transform.Find("NoteArrow");
+            if (arrow != null) arrow.gameObject.SetActive(true);
+
+            var arrowGlow = noteObject.transform.Find("NoteArrowGlow");
+            if (arrowGlow != null) arrowGlow.gameObject.SetActive(true);
+
+            var circle = noteObject.transform.Find("NoteCircleGlow");
+            if (circle != null) circle.gameObject.SetActive(false);
         }
 
         private IEnumerator RainbowPreviewRoutine()
         {
-            while (_previewLeftNote != null && _previewRightNote != null &&
-                   _rainbowNotePreviewContainer != null &&
-                   _rainbowNotePreviewContainer.gameObject.activeInHierarchy)
-            {
-                float cycleProgress = (Time.unscaledTime * RainbowGradientCycleSpeed) % 1f;
+            LogUtils.Debug(() => "Rainbow preview routine started (world space)");
 
+            int frameCount = 0;
+            while (_previewLeftNote != null && _previewRightNote != null &&
+                   _previewLeftNote.activeInHierarchy && _previewRightNote.activeInHierarchy)
+            {
+                frameCount++;
+
+                if (frameCount % 60 == 0)
+                {
+                    LogUtils.Debug(() => $"Rainbow preview running - Frame {frameCount}");
+                }
+
+                // Only update position every 10 frames (optimization)
+
+                /*
+                if (frameCount % 10 == 0 && _rainbowNotePreviewContainer != null)
+                {
+                    _previewParent.transform.position = _rainbowNotePreviewContainer.position +
+                                                        _rainbowNotePreviewContainer.forward * 0.4f;
+                    _previewParent.transform.rotation = _rainbowNotePreviewContainer.rotation;
+                }
+                */
+
+                float cycleProgress = (Time.unscaledTime * RainbowGradientCycleSpeed) % 1f;
                 float leftHue = cycleProgress;
                 float rightHue = (cycleProgress + 0.5f) % 1f;
 
                 Color leftRainbowColor = Color.HSVToRGB(leftHue, 0.85f, 1f);
                 Color rightRainbowColor = Color.HSVToRGB(rightHue, 0.85f, 1f);
 
-                if (_leftNoteRenderer != null && _leftNoteRenderer.material != null)
-                {
-                    _leftNoteRenderer.material.SetColor("_Color", leftRainbowColor);
-                    _leftNoteRenderer.material.SetColor("_EmissionColor", leftRainbowColor * 2f);
-                }
+                UpdateNoteColor(_previewLeftNote, leftRainbowColor);
+                UpdateNoteColor(_previewRightNote, rightRainbowColor);
 
-                if (_rightNoteRenderer != null && _rightNoteRenderer.material != null)
-                {
-                    _rightNoteRenderer.material.SetColor("_Color", rightRainbowColor);
-                    _rightNoteRenderer.material.SetColor("_EmissionColor", rightRainbowColor * 2f);
-                }
-
-                if (_previewLeftNote != null)
-                    _previewLeftNote.transform.Rotate(Vector3.up, 30f * Time.unscaledDeltaTime);
-                if (_previewRightNote != null)
-                    _previewRightNote.transform.Rotate(Vector3.up, 30f * Time.unscaledDeltaTime);
+                _previewLeftNote.transform.Rotate(Vector3.up, 30f * Time.unscaledDeltaTime);
+                _previewRightNote.transform.Rotate(Vector3.up, 30f * Time.unscaledDeltaTime);
 
                 yield return null;
             }
 
+            LogUtils.Debug(() => "Rainbow preview routine ended");
             _rainbowPreviewCoroutine = null;
+        }
+
+        private void UpdateNoteColor(GameObject noteObject, Color newColor)
+        {
+            var materialControllers = noteObject.GetComponentsInChildren<MaterialPropertyBlockController>();
+            foreach (var controller in materialControllers)
+            {
+                controller.materialPropertyBlock.SetColor(Shader.PropertyToID("_Color"), newColor);
+                controller.materialPropertyBlock.SetColor(Shader.PropertyToID("_EmissionColor"), newColor * 1.5f);
+                controller.ApplyChanges();
+            }
         }
 
         private void StopRainbowNotePreview()
@@ -652,6 +879,19 @@ namespace BeatSurgeon.UI.Controllers
 
             if (_previewLeftNote != null)
             {
+                _previewLeftNote.SetActive(false);
+            }
+
+            if (_previewRightNote != null)
+            {
+                _previewRightNote.SetActive(false);
+            }
+        }
+
+        private void CleanupWorldSpacePreview()
+        {
+            if (_previewLeftNote != null)
+            {
                 GameObject.Destroy(_previewLeftNote);
                 _previewLeftNote = null;
             }
@@ -662,9 +902,16 @@ namespace BeatSurgeon.UI.Controllers
                 _previewRightNote = null;
             }
 
-            _leftNoteRenderer = null;
-            _rightNoteRenderer = null;
+            if (_previewParent != null)
+            {
+                GameObject.Destroy(_previewParent);
+                _previewParent = null;
+            }
+
+            _isPreviewInitialized = false;
         }
+
+
 
         // ==================== GHOST NOTES VISUALS ====================
 

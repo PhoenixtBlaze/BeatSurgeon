@@ -123,10 +123,10 @@ namespace BeatSurgeon.Twitch
             _reconnectUrl = null;
             _subscribedTypes.Clear();
 
-            Plugin.Log.Info($"TwitchEventSubClient: Connecting to {EventSubWsUrl}");
+            LogUtils.Debug(() => $"TwitchEventSubClient: Connecting to {EventSubWsUrl}");
             await _ws.ConnectAsync(new Uri(EventSubWsUrl), _cts.Token);
             _isConnected = true;
-            Plugin.Log.Info("TwitchEventSubClient: WebSocket connected");
+            LogUtils.Debug(() => "TwitchEventSubClient: WebSocket connected");
 
             _ = Task.Run(ListenLoopAsync);
         }
@@ -281,7 +281,7 @@ namespace BeatSurgeon.Twitch
             _sessionId = (string)obj["payload"]?["session"]?["id"];
             int keepaliveTimeout = (int?)obj["payload"]?["session"]?["keepalive_timeout_seconds"] ?? 0;
 
-            Plugin.Log.Info($"TwitchEventSubClient: session_welcome session_id={_sessionId}, keepalive_timeout_seconds={keepaliveTimeout}");
+            LogUtils.Debug(() => $"TwitchEventSubClient: session_welcome session_id={_sessionId}, keepalive_timeout_seconds={keepaliveTimeout}");
 
             // IMPORTANT: Twitch expects you to subscribe shortly after welcome (about 10s by default) [web docs] .
             _ = Task.Run(async () =>
@@ -335,7 +335,7 @@ namespace BeatSurgeon.Twitch
             await _ws.ConnectAsync(new Uri(reconnectUrl), _cts.Token);
 
             _isConnected = true;
-            Plugin.Log.Info("TwitchEventSubClient: WebSocket reconnected");
+            LogUtils.Debug(() => "TwitchEventSubClient: WebSocket reconnected");
 
             _ = Task.Run(ListenLoopAsync);
         }
@@ -363,7 +363,7 @@ namespace BeatSurgeon.Twitch
             if (resp.IsSuccessStatusCode)
             {
                 _subscribedTypes.Add(key);
-                Plugin.Log.Info($"TwitchEventSubClient: Subscribed OK -> {type} v{version}");
+                LogUtils.Debug(() => $"TwitchEventSubClient: Subscribed OK -> {type} v{version}");
             }
             else
             {
@@ -656,7 +656,7 @@ namespace BeatSurgeon.Twitch
 
         public void Shutdown()
         {
-            Plugin.Log.Info("TwitchEventSubClient: Shutdown requested");
+            LogUtils.Debug(() => "TwitchEventSubClient: Shutdown requested");
             _allowReconnect = false;
             _isConnected = false;
 

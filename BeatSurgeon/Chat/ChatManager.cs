@@ -270,7 +270,7 @@ namespace BeatSurgeon.Chat
 
                 if (isReady)
                 {
-                    Plugin.Log.Info($"ChatManager: ChatPlexSDK IS READY! (attempt {_retryCount}/{MAX_RETRIES})");
+                    LogUtils.Debug(() => $"ChatManager: ChatPlexSDK IS READY! (attempt {_retryCount}/{MAX_RETRIES})");
                     yield return new WaitForSeconds(0.5f);
                     InitializeWhenReady();
                     yield break;
@@ -339,7 +339,7 @@ namespace BeatSurgeon.Chat
                 if (multiplexerProp != null)
                 {
                     _chatService = multiplexerProp.GetValue(null);
-                    Plugin.Log.Info("ChatManager: Got Multiplexer service reference");
+                    LogUtils.Debug(() => "ChatManager: Got Multiplexer service reference");
                 }
 
 
@@ -350,7 +350,7 @@ namespace BeatSurgeon.Chat
                 var broadcastMethod = methods.FirstOrDefault(m => m.Name == "BroadcastMessage");
                 if (broadcastMethod != null)
                 {
-                    Plugin.Log.Info("ChatManager: Found BroadcastMessage method on Service");
+                    LogUtils.Debug(() => "ChatManager: Found BroadcastMessage method on Service");
                     _broadcastMessageMethod = broadcastMethod;
                 }
 
@@ -370,7 +370,7 @@ namespace BeatSurgeon.Chat
                             if (handler != null)
                             {
                                 addTextMessageMethod.Invoke(null, new object[] { handler });
-                                Plugin.Log.Info("ChatManager: Successfully subscribed to OnTextMessageReceived");
+                                LogUtils.Debug(() => "ChatManager: Successfully subscribed to OnTextMessageReceived");
                             }
                         }
                     }
@@ -388,7 +388,7 @@ namespace BeatSurgeon.Chat
                     {
                         Action<bool> handler = (isLoading) => HandleLoadingStateChanged(isLoading);
                         addLoadingStateMethod.Invoke(null, new object[] { handler });
-                        Plugin.Log.Info("ChatManager: Successfully subscribed to OnLoadingStateChanged");
+                        LogUtils.Debug(() => "ChatManager: Successfully subscribed to OnLoadingStateChanged");
                     }
                     catch (Exception ex)
                     {
@@ -420,26 +420,26 @@ namespace BeatSurgeon.Chat
         {
             client.OnChatMessage += ctx =>
             {
-                Plugin.Log.Info($"NATIVE CHAT: {ctx.SenderName}: {ctx.MessageText}");
+                LogUtils.Debug(() => $"NATIVE CHAT: {ctx.SenderName}: {ctx.MessageText}");
                 _parsedQueue.Enqueue(ctx);
 
             };
 
             client.OnFollow += user =>
             {
-                Plugin.Log.Info($"Follow: {user}");
+                LogUtils.Debug(() => $"Follow: {user}");
                 OnFollowReceived?.Invoke(user);
             };
 
             client.OnSubscription += (user, tier) =>
             {
-                Plugin.Log.Info($"Sub: {user} Tier={tier}");
+                LogUtils.Debug(() => $"Sub: {user} Tier={tier}");
                 OnSubscriptionReceived?.Invoke(user, tier);
             };
 
             client.OnRaid += (raider, viewers) =>
             {
-                Plugin.Log.Info($"Raid: {raider} ({viewers} viewers)");
+                LogUtils.Debug(() => $"Raid: {raider} ({viewers} viewers)");
                 OnRaidReceived?.Invoke(raider, viewers);
             };
         }
@@ -482,7 +482,7 @@ namespace BeatSurgeon.Chat
                     _ = System.Threading.Tasks.Task.Run(async () =>
                     {
                         bool ok = await _eventSubClient.SendChatMessageAsync(message);
-                        Plugin.Log.Info("ChatManager: Sent via Helix chat API ok=" + ok);
+                        LogUtils.Debug(() => "ChatManager: Sent via Helix chat API ok=" + ok);
                     });
                     return;
                 }
@@ -496,7 +496,7 @@ namespace BeatSurgeon.Chat
                 }
 
                 _broadcastMessageMethod.Invoke(null, new object[] { message });
-                Plugin.Log.Info($"ChatManager: Sent to ChatPlex: {message}");
+                LogUtils.Debug(() => $"ChatManager: Sent to ChatPlex: {message}");
             }
             catch (Exception ex)
             {
@@ -665,7 +665,7 @@ namespace BeatSurgeon.Chat
 
         public void Shutdown()
         {
-            Plugin.Log.Info("ChatManager: Shutting down...");
+            LogUtils.Debug(() => "ChatManager: Shutting down...");
             StopAllCoroutines();
 
             try { _cts?.Cancel(); } catch { }

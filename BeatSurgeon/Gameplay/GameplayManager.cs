@@ -175,7 +175,7 @@ namespace BeatSurgeon.Gameplay
             }
 
 
-            Plugin.Log.Info($"GameplayManager: Starting Endless Mode for {durationMinutes} minutes");
+            LogUtils.Debug(() => $"GameplayManager: Starting Endless Mode for {durationMinutes} minutes");
 
             CapturePlayerSettings();
             _totalTime = durationMinutes * 60f; // Convert to seconds
@@ -201,7 +201,7 @@ namespace BeatSurgeon.Gameplay
             _downloadPollerCoroutine = StartCoroutine(DownloadPoller());
 
 
-            Plugin.Log.Info($"GameplayManager: Found {_availableLevels.Count} custom songs");
+            LogUtils.Debug(() => $"GameplayManager: Found {_availableLevels.Count} custom songs");
 
             // Start gameplay loop
             _gameplayCoroutine = StartCoroutine(GameplayLoop());
@@ -228,7 +228,7 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         public void StopEndlessMode()
         {
-            Plugin.Log.Info("GameplayManager: Stopping Endless Mode");
+            LogUtils.Debug(() => "GameplayManager: Stopping Endless Mode");
             _isPlaying = false;
             _remainingTime = 0f;
             FasterSongPatch.ClearCache();
@@ -260,7 +260,7 @@ namespace BeatSurgeon.Gameplay
             _currentSongRequest = null;
 
 
-            Plugin.Log.Info("GameplayManager: Endless Mode stopped");
+            LogUtils.Debug(() => "GameplayManager: Endless Mode stopped");
         }
 
 
@@ -268,7 +268,7 @@ namespace BeatSurgeon.Gameplay
         {
             if (nextRequest == null) return;
 
-            Plugin.Log.Info($"GameplayManager: Preloading assets for {nextRequest.BsrCode}...");
+            LogUtils.Debug(() => $"GameplayManager: Preloading assets for {nextRequest.BsrCode}...");
 
             if (TryResolveRequestToLevel(nextRequest, out var level))
             {
@@ -280,7 +280,7 @@ namespace BeatSurgeon.Gameplay
                     if (result.beatmapLevelData != null)
                     {
                         _preloadedLevelData = result.beatmapLevelData;
-                        Plugin.Log.Info($"GameplayManager: Preload success for {level.songName}");
+                        LogUtils.Debug(() => $"GameplayManager: Preload success for {level.songName}");
                     }
                 }
                 catch (Exception ex)
@@ -460,7 +460,7 @@ namespace BeatSurgeon.Gameplay
                 // 2) Download zip
                 using (var zipReq = UnityWebRequest.Get(downloadUrl))
                 {
-                    Plugin.Log.Info($"GameplayManager: Starting download/install for {key}");
+                    LogUtils.Debug(() => $"GameplayManager: Starting download/install for {key}");
                     zipReq.timeout = 60;
                     zipReq.downloadHandler = new DownloadHandlerBuffer();
                     yield return zipReq.SendWebRequest();
@@ -485,12 +485,12 @@ namespace BeatSurgeon.Gameplay
                     string destDir = Path.Combine(customSongsPath, folderName);
 
                     SongInstaller.SafeExtractZip(zipBytes, destDir);
-                    Plugin.Log.Info($"GameplayManager: Extracted to {destDir}, calling SongCore.Loader.LoadCustomLevel...");
+                    LogUtils.Debug(() => $"GameplayManager: Extracted to {destDir}, calling SongCore.Loader.LoadCustomLevel...");
 
                     // Immediately load only this folder (no SongCore RefreshSongs needed).
                     var loaded = SongCore.Loader.LoadCustomLevel(destDir);
                     var loadResult = SongCore.Loader.LoadCustomLevel(destDir);
-                    Plugin.Log.Info($"GameplayManager: LoadCustomLevel result HasValue={loadResult.HasValue}");
+                    LogUtils.Debug(() => $"GameplayManager: LoadCustomLevel result HasValue={loadResult.HasValue}");
                     if (loaded.HasValue)
                     {
                         var (hash, beatmapLevel) = loaded.Value;
@@ -526,7 +526,7 @@ namespace BeatSurgeon.Gameplay
                 string key = NormalizeKey(pd.Request?.BsrCode);
                 _pendingDownloads.TryRemove(key, out _);
 
-                Plugin.Log.Info($"GameplayManager: Finalized {key} -> {level.songName}");
+                LogUtils.Debug(() => $"GameplayManager: Finalized {key} -> {level.songName}");
 
                 // Announce
                 Chat.ChatManager.GetInstance().SendChatMessage($"Downloaded & Ready: {pd.Request.BsrCode} ({level.songName})");
@@ -580,7 +580,7 @@ namespace BeatSurgeon.Gameplay
             if (nextRequest == null || !_isPlaying)
                 return;
 
-            Plugin.Log.Info($"GameplayManager: Switch triggered for {nextRequest.BsrCode} by {nextRequest.RequesterName}");
+            LogUtils.Debug(() => $"GameplayManager: Switch triggered for {nextRequest.BsrCode} by {nextRequest.RequesterName}");
 
             // Resolve the request to an actual level
             if (!TryResolveRequestToLevel(nextRequest, out var resolvedLevel))
@@ -601,7 +601,7 @@ namespace BeatSurgeon.Gameplay
             var modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
             var playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
 
-            Plugin.Log.Info($"GameplayManager: Executing mid-song chain to {nextLevel.songName}");
+            LogUtils.Debug(() => $"GameplayManager: Executing mid-song chain to {nextLevel.songName}");
             ChatManager.GetInstance().SendChatMessage($"!!Now playing: {nextLevel.songName} ({nextRequest.RequesterName})");
 
             // Track the new request as current
@@ -698,7 +698,7 @@ namespace BeatSurgeon.Gameplay
                     _recentRequestOrPlayHistory.Dequeue();
             }
 
-            Plugin.Log.Info($"GameplayManager: Queued request {bsrCode} by {req.RequesterName}");
+            LogUtils.Debug(() => $"GameplayManager: Queued request {bsrCode} by {req.RequesterName}");
             return true;
         }
 
@@ -709,7 +709,7 @@ namespace BeatSurgeon.Gameplay
             _menuTransitionsHelper = menuTransitionsHelper;
             _environmentsListModel = environmentsListModel;
 
-            Plugin.Log.Info("GameplayManager: Dependencies injected");
+            LogUtils.Debug(() => "GameplayManager: Dependencies injected");
         }
 
         /// <summary>
@@ -732,7 +732,7 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         private void LoadAvailableSongs()
         {
-            Plugin.Log.Info("GameplayManager: Loading available songs from SongCore...");
+            LogUtils.Debug(() => "GameplayManager: Loading available songs from SongCore...");
             _availableLevels.Clear();
 
             try
@@ -755,7 +755,7 @@ namespace BeatSurgeon.Gameplay
                     }
                 }
 
-                Plugin.Log.Info($"GameplayManager: Loaded {_availableLevels.Count} custom songs");
+                LogUtils.Debug(() => $"GameplayManager: Loaded {_availableLevels.Count} custom songs");
             }
             catch (Exception ex)
             {
@@ -779,7 +779,7 @@ namespace BeatSurgeon.Gameplay
                     /*
                     var request = _requestQueue.Dequeue();
                     _currentSongRequest = request;
-                    Plugin.Log.Info($"GameplayManager: Processing request {request.BsrCode}");
+                    LogUtils.Debug(() => $"GameplayManager: Processing request {request.BsrCode}");
 
                     // Try to find the song in loaded levels
                     nextLevel = FindLevelByBsr(request.BsrCode);
@@ -816,7 +816,7 @@ namespace BeatSurgeon.Gameplay
             }
 
             // Time's up!
-            Plugin.Log.Info("GameplayManager: Time's up! Ending session");
+            LogUtils.Debug(() => "GameplayManager: Time's up! Ending session");
             StopEndlessMode();
         }
 
@@ -835,7 +835,7 @@ namespace BeatSurgeon.Gameplay
                 if (wholeMinutes != _lastLoggedWholeMinutes)
                 {
                     _lastLoggedWholeMinutes = wholeMinutes;
-                    Plugin.Log.Info($"GameplayManager: {wholeMinutes} minutes remaining");
+                    LogUtils.Debug(() => $"GameplayManager: {wholeMinutes} minutes remaining");
                 }
 
                 yield return null;
@@ -893,13 +893,13 @@ namespace BeatSurgeon.Gameplay
                                 pending.ResolvedLevelId = resolvedLevel.levelID;
                                 pending.LastError = null;
 
-                                Plugin.Log.Info($"GameplayManager: Pending download {pending.Request?.BsrCode} resolved to {pending.ResolvedLevelId}");
+                                LogUtils.Debug(() => $"GameplayManager: Pending download {pending.Request?.BsrCode} resolved to {pending.ResolvedLevelId}");
 
                                 // Optional: auto-switch ASAP requests
                                 bool shouldAutoSwitch = (pending.Request?.SwitchAfterSeconds ?? -1f) == 0f;
                                 if (shouldAutoSwitch)
                                 {
-                                    Plugin.Log.Info($"GameplayManager: {pending.Request?.BsrCode} ready — arming immediate switch");
+                                    LogUtils.Debug(() => $"GameplayManager: {pending.Request?.BsrCode} ready — arming immediate switch");
                                     _inLevelQueueProcessor?.ArmForCurrentSegment(0.1f);
                                 }
 
@@ -951,7 +951,7 @@ namespace BeatSurgeon.Gameplay
             // If you later implement segment insertion, you can arm with SegmentLengthSeconds too.
             _inLevelQueueProcessor?.ArmForCurrentSegment(_currentSongRequest?.SwitchAfterSeconds);
 
-            Plugin.Log.Info($"GameplayManager: Playing level: {level.songName}");
+            LogUtils.Debug(() => $"GameplayManager: Playing level: {level.songName}");
 
             if (!string.IsNullOrEmpty(announceMessage))
                 Chat.ChatManager.GetInstance().SendChatMessage(announceMessage);
@@ -986,7 +986,7 @@ namespace BeatSurgeon.Gameplay
                 var gameplayModifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
                 var playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
 
-                Plugin.Log.Info(
+                LogUtils.Debug(() => 
                     $"GameplayManager: Starting level with captured modifiers (No Fail: {gameplayModifiers.noFailOn0Energy})");
 
                 OverrideEnvironmentSettings overrideEnvironmentSettings = null;
@@ -1016,7 +1016,7 @@ namespace BeatSurgeon.Gameplay
                     null,
                     (data, results) =>
                     {
-                        Plugin.Log.Info(
+                        LogUtils.Debug(() => 
                             $"GameplayManager: Level finished. State={results.levelEndStateType}, Action={results.levelEndAction}");
 
                         _lastLevelEndAction = results.levelEndAction;
@@ -1044,7 +1044,7 @@ namespace BeatSurgeon.Gameplay
             // If player chose "Quit to Menu", stop endless mode instead of forcing another song
             if (_lastLevelEndAction == LevelCompletionResults.LevelEndAction.Quit)
             {
-                Plugin.Log.Info("GameplayManager: Player quit to menu, stopping endless mode");
+                LogUtils.Debug(() => "GameplayManager: Player quit to menu, stopping endless mode");
                 StopEndlessMode();
                 yield break;
             }
@@ -1067,7 +1067,7 @@ namespace BeatSurgeon.Gameplay
             // If all songs played, reset the history
             if (availableToPlay.Count == 0)
             {
-                Plugin.Log.Info("GameplayManager: All songs played, resetting history");
+                LogUtils.Debug(() => "GameplayManager: All songs played, resetting history");
                 _playedLevelIds.Clear();
                 availableToPlay = _availableLevels;
             }
@@ -1125,11 +1125,11 @@ namespace BeatSurgeon.Gameplay
                     // Force No Fail to be enabled
                     _capturedModifiers = _capturedModifiers.CopyWith(noFailOn0Energy: true);
 
-                    Plugin.Log.Info("GameplayManager: Captured gameplay modifiers from menu");
-                    Plugin.Log.Info($"  - No Fail: {_capturedModifiers.noFailOn0Energy}");
-                    Plugin.Log.Info($"  - Faster Song: {_capturedModifiers.songSpeed}");
-                    Plugin.Log.Info($"  - Disappearing Arrows: {_capturedModifiers.disappearingArrows}");
-                    Plugin.Log.Info($"  - Ghost Notes: {_capturedModifiers.ghostNotes}");
+                    LogUtils.Debug(() => "GameplayManager: Captured gameplay modifiers from menu");
+                    LogUtils.Debug(() => $"  - No Fail: {_capturedModifiers.noFailOn0Energy}");
+                    LogUtils.Debug(() => $"  - Faster Song: {_capturedModifiers.songSpeed}");
+                    LogUtils.Debug(() => $"  - Disappearing Arrows: {_capturedModifiers.disappearingArrows}");
+                    LogUtils.Debug(() => $"  - Ghost Notes: {_capturedModifiers.ghostNotes}");
                 }
                 else
                 {
@@ -1147,10 +1147,10 @@ namespace BeatSurgeon.Gameplay
                     _capturedPlayerSettings = playerData.playerSpecificSettings;
                     _capturedColorScheme = playerData.colorSchemesSettings.GetSelectedColorScheme();
 
-                    Plugin.Log.Info("GameplayManager: Captured player-specific settings");
-                    Plugin.Log.Info($"  - Left Handed: {_capturedPlayerSettings.leftHanded}");
-                    Plugin.Log.Info($"  - Player Height: {_capturedPlayerSettings.playerHeight}");
-                    Plugin.Log.Info($"  - Auto Restart: {_capturedPlayerSettings.autoRestart}");
+                    LogUtils.Debug(() => "GameplayManager: Captured player-specific settings");
+                    LogUtils.Debug(() => $"  - Left Handed: {_capturedPlayerSettings.leftHanded}");
+                    LogUtils.Debug(() => $"  - Player Height: {_capturedPlayerSettings.playerHeight}");
+                    LogUtils.Debug(() => $"  - Auto Restart: {_capturedPlayerSettings.autoRestart}");
                 }
                 else
                 {
@@ -1171,7 +1171,7 @@ namespace BeatSurgeon.Gameplay
 
         public void Shutdown()
         {
-            Plugin.Log.Info("GameplayManager: Shutting down...");
+            LogUtils.Debug(() => "GameplayManager: Shutting down...");
             StopEndlessMode();
         }
 

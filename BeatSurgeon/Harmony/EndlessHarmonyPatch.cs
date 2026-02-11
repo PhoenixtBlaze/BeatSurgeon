@@ -10,6 +10,7 @@ using BeatSurgeon;
 
 namespace BeatSurgeon.HarmonyPatches
 {
+    /*
     // PATCH 1: PlayFirstSubmitLater
     // Blocks the Finish event so ScoreSaber/BeatLeader never hear about the map ending until we say so.
     [HarmonyPatch(typeof(StandardLevelScenesTransitionSetupDataSO), "Finish")]
@@ -178,6 +179,7 @@ namespace BeatSurgeon.HarmonyPatches
             }
         }
     }
+    */
 
     // PATCH 2: Endless Mode Chaining
     [HarmonyPatch(typeof(MenuTransitionsHelper), "HandleMainGameSceneDidFinish")]
@@ -284,7 +286,7 @@ namespace BeatSurgeon.HarmonyPatches
                 audioLoader, dataLoader, settingsMgr, "Menu", levelsModel, entitlement, false, false, null
             );
 
-            Plugin.Log.Info($"EndlessHarmonyPatch: Replacing scenes -> {nextLevel.songName}");
+            LogUtils.Debug(() => $"EndlessHarmonyPatch: Replacing scenes -> {nextLevel.songName}");
             scenesMgr.ReplaceScenes(newSetup, null, fade);
         }
     }

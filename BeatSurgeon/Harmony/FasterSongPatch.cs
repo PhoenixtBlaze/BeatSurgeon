@@ -75,7 +75,7 @@ namespace BeatSurgeon.HarmonyPatches
             // ConditionalWeakTable doesn't have a Clear() method, so we just reset multiplier
             // Weak references will be collected naturally when AudioTimeSyncController is destroyed
             Multiplier = 1.0f;
-            Plugin.Log.Info("FasterSongPatch: Cache cleared and multiplier reset.");
+            LogUtils.Debug(() => "FasterSongPatch: Cache cleared and multiplier reset.");
         }
     }
 }

@@ -22,7 +22,7 @@ namespace BeatSurgeon.Gameplay
                     _go = new GameObject("BeatSurgeonDisappearingArrowsManagerGO");
                     Object.DontDestroyOnLoad(_go);
                     _instance = _go.AddComponent<DisappearingArrowsManager>();
-                    Plugin.Log.Info("DisappearingArrowsManager: Created new instance");
+                    LogUtils.Debug(() => "DisappearingArrowsManager: Created new instance");
                 }
                 return _instance;
             }
@@ -54,7 +54,7 @@ namespace BeatSurgeon.Gameplay
         private IEnumerator DisappearingCoroutine(float durationSeconds)
         {
             DisappearingActive = true;
-            Plugin.Log.Info($"DisappearingArrowsManager: Disappearing arrows enabled for {durationSeconds:F1}s");
+            LogUtils.Debug(() => $"DisappearingArrowsManager: Disappearing arrows enabled for {durationSeconds:F1}s");
 
             float elapsed = 0f;
             while (elapsed < durationSeconds)
@@ -66,7 +66,7 @@ namespace BeatSurgeon.Gameplay
             DisappearingActive = false;
             _daCoroutine = null;
             MultiplayerStateClient.SetActiveCommand(null);
-            Plugin.Log.Info("DisappearingArrowsManager: Disappearing arrows finished");
+            LogUtils.Debug(() => "DisappearingArrowsManager: Disappearing arrows finished");
             ChatManager.GetInstance().SendChatMessage("!!Disappearing arrows effect has ended.");
         }
     }

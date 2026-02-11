@@ -100,7 +100,7 @@ namespace BeatSurgeon.Gameplay
                 if (audios != null && audios.Length > 0)
                 {
                     Audio = audios[0];
-                    Plugin.Log.Info("GhostVisualController: bound AudioTimeSyncController from Update()");
+                    LogUtils.Debug(() => "GhostVisualController: bound AudioTimeSyncController from Update()");
                 }
             }
 

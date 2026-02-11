@@ -356,7 +356,7 @@ namespace BeatSurgeon.UI.Settings
                 // Sync each enabled reward
                 if (cfg.CpRainbowEnabled)
                 {
-                    Plugin.Log.Info("Syncing Rainbow reward...");
+                    LogUtils.Debug(() => "Syncing Rainbow reward...");
                     var t = GetRewardText("rainbow");
                     await SyncRewardAsync("rainbow", t.Title, t.Prompt, cfg.CpRainbowCost,
                         cfg.CpRainbowCooldownSeconds, true,
@@ -366,7 +366,7 @@ namespace BeatSurgeon.UI.Settings
 
                 if (cfg.CpDisappearEnabled)
                 {
-                    Plugin.Log.Info("Syncing Disappear reward...");
+                    LogUtils.Debug(() => "Syncing Disappear reward...");
                     var t = GetRewardText("disappear");
                     await SyncRewardAsync("disappear", t.Title, t.Prompt, cfg.CpDisappearCost,
                         cfg.CpDisappearCooldownSeconds, true,
@@ -376,7 +376,7 @@ namespace BeatSurgeon.UI.Settings
 
                 if (cfg.CpGhostEnabled)
                 {
-                    Plugin.Log.Info("Syncing Ghost reward...");
+                    LogUtils.Debug(() => "Syncing Ghost reward...");
                     var t = GetRewardText("ghost");
                     await SyncRewardAsync("ghost", t.Title, t.Prompt, cfg.CpGhostCost,
                         cfg.CpGhostCooldownSeconds, true,
@@ -386,7 +386,7 @@ namespace BeatSurgeon.UI.Settings
 
                 if (cfg.CpBombEnabled)
                 {
-                    Plugin.Log.Info("Syncing Bomb reward...");
+                    LogUtils.Debug(() => "Syncing Bomb reward...");
                     var t = GetRewardText("bomb");
                     await SyncRewardAsync("bomb", t.Title, t.Prompt, cfg.CpBombCost,
                         cfg.CpBombCooldownSeconds, true,
@@ -396,7 +396,7 @@ namespace BeatSurgeon.UI.Settings
 
                 if (cfg.CpFasterEnabled)
                 {
-                    Plugin.Log.Info("Syncing Faster reward...");
+                    LogUtils.Debug(() => "Syncing Faster reward...");
                     var t = GetRewardText("faster");
                     await SyncRewardAsync("faster", t.Title, t.Prompt, cfg.CpFasterCost,
                         cfg.CpFasterCooldownSeconds, true,
@@ -406,7 +406,7 @@ namespace BeatSurgeon.UI.Settings
 
                 if (cfg.CpSuperFastEnabled)
                 {
-                    Plugin.Log.Info("Syncing SuperFast reward...");
+                    LogUtils.Debug(() => "Syncing SuperFast reward...");
                     var t = GetRewardText("superfast");
                     await SyncRewardAsync("superfast", t.Title, t.Prompt, cfg.CpSuperFastCost,
                         cfg.CpSuperFastCooldownSeconds, true,
@@ -416,7 +416,7 @@ namespace BeatSurgeon.UI.Settings
 
                 if (cfg.CpSlowerEnabled)
                 {
-                    Plugin.Log.Info("Syncing Slower reward...");
+                    LogUtils.Debug(() => "Syncing Slower reward...");
                     var t = GetRewardText("slower");
                     await SyncRewardAsync("slower", t.Title, t.Prompt, cfg.CpSlowerCost,
                         cfg.CpSlowerCooldownSeconds, true,
@@ -426,7 +426,7 @@ namespace BeatSurgeon.UI.Settings
 
                 if (cfg.CpFlashbangEnabled)
                 {
-                    Plugin.Log.Info("Syncing Flashbang reward...");
+                    LogUtils.Debug(() => "Syncing Flashbang reward...");
                     var t = GetRewardText("flashbang");
                     await SyncRewardAsync("flashbang", t.Title, t.Prompt, cfg.CpFlashbangCost,
                         cfg.CpFlashbangCooldownSeconds, true,

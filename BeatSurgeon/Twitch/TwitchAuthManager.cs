@@ -272,7 +272,7 @@ namespace BeatSurgeon.Twitch
                 string url = $"{BackendBaseUrl}/refresh?refresh_token={Uri.EscapeDataString(_refreshToken)}";
                 HttpResponseMessage response = await _http.GetAsync(url);
                 string responseString = await response.Content.ReadAsStringAsync();
-                Plugin.Log.Info("TwitchAuth: Refresh HTTP=" + (int)response.StatusCode);
+                LogUtils.Debug(() => "TwitchAuth: Refresh HTTP=" + (int)response.StatusCode);
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -367,7 +367,7 @@ namespace BeatSurgeon.Twitch
                     Plugin.Settings.CachedBroadcasterId = BroadcasterId;
                     Plugin.Settings.CachedBroadcasterLogin = BroadcasterLogin;
 
-                    Plugin.Log.Info($"TwitchAuth: Identity resolved. id={BroadcasterId}, login={BroadcasterLogin}");
+                    LogUtils.Debug(() => $"TwitchAuth: Identity resolved. id={BroadcasterId}, login={BroadcasterLogin}");
                 }
             }
             catch (Exception ex)
