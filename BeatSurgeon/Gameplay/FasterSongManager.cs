@@ -19,9 +19,9 @@ namespace BeatSurgeon.Gameplay
         private static FasterSongManager _instance;
 
         // Submission keys for each effect
-        private const string FASTER_KEY = "BeatSurgeon: Faster";
-        private const string SUPERFAST_KEY = "BeatSurgeon: SuperFast";
-        private const string SLOWER_KEY = "BeatSurgeon: Slower";
+        private const string FASTER_KEY = "BeatSurgeon Faster";
+        private const string SUPERFAST_KEY = "BeatSurgeon SuperFast";
+        private const string SLOWER_KEY = "BeatSurgeon Slower";
 
         public static FasterSongManager Instance
         {
@@ -62,13 +62,22 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         private void OnGameSceneLoaded()
         {
-            // If no speed effect is currently active, ensure all our keys are removed
-            if (!_active)
+            // New map == new run; never allow a previous-run key to leak into this one
+            if (_routine != null)
             {
-                CleanupAllSpeedKeys();
-                LogUtils.Debug(() => "FasterSongManager: Cleaned up submission keys (new map started, no effect active)");
+                StopCoroutine(_routine);
+                _routine = null;
             }
+
+            FasterSongPatch.Multiplier = 1.0f;
+            _active = false;
+            _activeEffectKey = null;
+            _currentSubmissionKey = null;
+
+            CleanupAllSpeedKeys();
+            LogUtils.Debug(() => "FasterSongManager: Map start cleanup done (reset effect + removed submission keys).");
         }
+
 
         /// <summary>
         /// Generic speed effect used by !faster, !superfast, !slower.
@@ -98,9 +107,8 @@ namespace BeatSurgeon.Gameplay
                 _currentSubmissionKey = submissionReason;
 
                 // Disable score submission for this run
-                BS_Utils.Gameplay.ScoreSubmission.DisableSubmission(submissionReason);
-
-                Plugin.Log?.Info($"FasterSongManager: Score submission DISABLED with key: {submissionReason}");
+                BS_Utils.Gameplay.ScoreSubmission.ProlongedDisableSubmission(submissionReason);
+                Plugin.Log?.Info($"FasterSongManager: Score submission DISABLED (prolonged) with key: {submissionReason}");
             }
             else
             {
@@ -138,9 +146,9 @@ namespace BeatSurgeon.Gameplay
             // This allows scores to submit on the NEXT map if no speed effect is active
             if (!string.IsNullOrEmpty(_currentSubmissionKey))
             {
-                BS_Utils.Gameplay.ScoreSubmission.RemoveProlongedDisable(_currentSubmissionKey);
-                Plugin.Log?.Info($"FasterSongManager: Speed effect ended, removed submission key: {_currentSubmissionKey}");
-                _currentSubmissionKey = null;
+                //BS_Utils.Gameplay.ScoreSubmission.RemoveProlongedDisable(_currentSubmissionKey);
+                //Plugin.Log?.Info($"FasterSongManager: Speed effect ended, removed submission key: {_currentSubmissionKey}");
+                //_currentSubmissionKey = null;
             }
 
             Plugin.Log?.Info("FasterSongManager: Speed effect disabled, multiplier reset.");
