@@ -363,3 +363,5 @@ MigrationBackup/
 FodyWeavers.xsd
 /SaberSurgeon/server.js
 /BeatSurgeon/server.js
+/BeatSurgeon/code_dump.txt
+/BeatSurgeon/Dump-Code.ps1
