@@ -165,7 +165,7 @@ If you are a supporter (currently via **Twitch Subscription**), you gain access 
 | **`!notecolor <left> <right>`** | Sets custom note colors. Accepts names (`red`) or hex (`#FF0000`).<br>Example: `!notecolor red blue` or `!notecolor #FF007F #00FF00` | 30s | 60s |
 | **`!ghost`** | Activates Ghost Notes (invisible cubes, visible arrows). | 30s | 60s |
 | **`!disappear`** | Activates Disappearing Arrows (visible cubes, invisible arrows). | 30s | 60s |
-| **`!bomb`** | Arms the next note as a bomb. Displays viewer name on cut. *(Alias customizable)* | Until hit | 60s |
+| **`!bomb`** | Arms the next note as a bomb. Displays viewer name on cut. *(Alias customizable)* | Until hit | 1s |
 | **`!faster`** | Increases song speed by 20%. | 30s | 60s |
 | **`!superfast`** | Increases song speed by 50%. | 30s | 60s |
 | **`!slower`** | Decreases song speed by 15%. | 30s | 60s |
