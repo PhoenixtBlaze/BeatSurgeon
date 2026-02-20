@@ -20,7 +20,8 @@ using System.Reflection;
 using UnityEngine;
 using System.IO;
 using System.Collections.Generic;
-
+using System.Threading;
+using System.Threading.Tasks;
 
 
 
@@ -174,10 +175,58 @@ namespace BeatSurgeon
             {
                 Log.Error($"BeatSurgeon: Harmony patch error: {ex}");
             }
+
+            // ADD: register quitting handler so we can synchronously disable rewards on quit
+            try
+            {
+                UnityEngine.Application.quitting += OnApplicationQuitting;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"BeatSurgeon: Failed to register Application.quitting handler: {ex.Message}");
+            }
         }
 
+        private void OnApplicationQuitting()
+        {
+            // Block Unity's quit just long enough to disable rewards
+            var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(8));
+            try
+            {
+                DisableAllRewardsOnQuitAsync(cts.Token).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"BeatSurgeon DisableAllRewards on quit failed: {ex.Message}");
+            }
+        }
 
+        private async Task DisableAllRewardsOnQuitAsync(CancellationToken ct)
+        {
+            var cfg = Plugin.Settings;
+            if (cfg == null) return;
 
+            var tasks = new List<Task>();
+            if (cfg.CpRainbowEnabled   && !string.IsNullOrEmpty(cfg.CpRainbowRewardId))
+                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpRainbowRewardId,   false, ct));
+            if (cfg.CpDisappearEnabled && !string.IsNullOrEmpty(cfg.CpDisappearRewardId))
+                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpDisappearRewardId, false, ct));
+            if (cfg.CpGhostEnabled     && !string.IsNullOrEmpty(cfg.CpGhostRewardId))
+                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpGhostRewardId,     false, ct));
+            if (cfg.CpBombEnabled      && !string.IsNullOrEmpty(cfg.CpBombRewardId))
+                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpBombRewardId,      false, ct));
+            if (cfg.CpFasterEnabled    && !string.IsNullOrEmpty(cfg.CpFasterRewardId))
+                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpFasterRewardId,    false, ct));
+            if (cfg.CpSuperFastEnabled && !string.IsNullOrEmpty(cfg.CpSuperFastRewardId))
+                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpSuperFastRewardId, false, ct));
+            if (cfg.CpSlowerEnabled    && !string.IsNullOrEmpty(cfg.CpSlowerRewardId))
+                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpSlowerRewardId,    false, ct));
+            if (cfg.CpFlashbangEnabled && !string.IsNullOrEmpty(cfg.CpFlashbangRewardId))
+                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpFlashbangRewardId, false, ct));
+
+            await Task.WhenAll(tasks);
+            Log.Info("BeatSurgeon All CP rewards disabled on quit.");
+        }
 
         private void OnMenuSceneActive()
         {
@@ -450,35 +499,8 @@ namespace BeatSurgeon
             {
                 Log.Error($"BeatSurgeon: Error during shutdown: {ex}");
             }
-            try
-            {
-                // Disable all CP rewards when exiting so they don't remain redeemable.
-                _ = System.Threading.Tasks.Task.Run(async () =>
-                {
-                    try
-                    {
-                        var cfg = Plugin.Settings;
-                        if (cfg == null) return;
 
-                        var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(10));
-
-                        if (cfg.CpRainbowEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpRainbowRewardId, false, cts.Token);
-                        if (cfg.CpDisappearEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpDisappearRewardId, false, cts.Token);
-                        if (cfg.CpGhostEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpGhostRewardId, false, cts.Token);
-                        if (cfg.CpBombEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpBombRewardId, false, cts.Token);
-                        if (cfg.CpFasterEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpFasterRewardId, false, cts.Token);
-                        if (cfg.CpSuperFastEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpSuperFastRewardId, false, cts.Token);
-                        if (cfg.CpSlowerEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpSlowerRewardId, false, cts.Token);
-                        if (cfg.CpFlashbangEnabled) await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpFlashbangRewardId, false, cts.Token);
-                    }
-                    catch (Exception ex)
-                    {
-                        Plugin.Log.Warn("CP disable-on-exit failed: " + ex.Message);
-                    }
-                });
-            }
-            catch { }
-
+            // Removed the previous fire-and-forget Disable CP block - Application.quitting handles it synchronously now.
 
             try
             {
