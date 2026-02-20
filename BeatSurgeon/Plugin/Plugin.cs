@@ -282,10 +282,10 @@ namespace BeatSurgeon
         
         internal async Task SubscribeToRewardAsync(string rewardId)
         {
-            if (eventSubClient == null || string.IsNullOrWhiteSpace(rewardId)) return;
+            if (_eventSubClient == null || string.IsNullOrWhiteSpace(rewardId)) return;
             try
             {
-                await eventSubClient.EnsureChannelPointSubscriptionsAsync(
+                await _eventSubClient.EnsureChannelPointSubscriptionsAsync(
                     new[] { rewardId });
             }
             catch (Exception ex)

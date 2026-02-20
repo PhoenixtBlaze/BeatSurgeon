@@ -278,6 +278,7 @@ namespace BeatSurgeon.UI.Settings
             HideButtonText(_twitchSlowerButton);
 
 
+            LoadCpFromConfig();
             // Initialize visuals for the command buttons.
 
             UpdateAllCommandButtonVisuals();
@@ -286,8 +287,6 @@ namespace BeatSurgeon.UI.Settings
                 _hasInitializedRewards = true;
                 _ = SyncAllEnabledRewardsOnStartup();
             }
-
-            LoadCpFromConfig();
 
             NotifyPropertyChanged(nameof(RainbowCpEnabled));
             NotifyPropertyChanged(nameof(RainbowCpCostText));
