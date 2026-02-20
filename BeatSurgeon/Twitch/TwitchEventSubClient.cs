@@ -290,11 +290,27 @@ namespace BeatSurgeon.Twitch
                 {
                     // Pick the event types you want. These match your old backend WS events.
 
-                    await EnsureSubscriptionAsync("channel.channel_points_custom_reward_redemption.add", "1");
+                    // Do not subscribe broadly to all channel point redemptions. Subscribe per reward id below.
                     await EnsureSubscriptionAsync("channel.chat.message", "1");
                     await EnsureSubscriptionAsync("channel.follow", "2");
                     await EnsureSubscriptionAsync("channel.subscribe", "1");
                     await EnsureSubscriptionAsync("channel.raid", "1");
+
+                    // Subscribe per configured reward id so we only receive events for rewards we own
+                    var cfg = Plugin.Settings;
+                    var rewardIds = new List<string>
+                    {
+                        cfg.CpRainbowEnabled    ? cfg.CpRainbowRewardId    : null,
+                        cfg.CpDisappearEnabled  ? cfg.CpDisappearRewardId  : null,
+                        cfg.CpGhostEnabled      ? cfg.CpGhostRewardId      : null,
+                        cfg.CpBombEnabled       ? cfg.CpBombRewardId       : null,
+                        cfg.CpFasterEnabled     ? cfg.CpFasterRewardId     : null,
+                        cfg.CpSuperFastEnabled  ? cfg.CpSuperFastRewardId  : null,
+                        cfg.CpSlowerEnabled     ? cfg.CpSlowerRewardId     : null,
+                        cfg.CpFlashbangEnabled  ? cfg.CpFlashbangRewardId  : null,
+                    }.Where(id => !string.IsNullOrWhiteSpace(id));
+
+                    await EnsureChannelPointSubscriptionsAsync(rewardIds);
 
                 }
                 catch (Exception ex)
@@ -679,5 +695,42 @@ namespace BeatSurgeon.Twitch
             _subscribedTypes.Clear();
         }
 
+        // New: ensure we subscribe once per configured reward id so we only receive redemptions for rewards we own
+        public async Task EnsureChannelPointSubscriptionsAsync(IEnumerable<string> rewardIds)
+        {
+            if (rewardIds == null) return;
+            foreach (var rewardId in rewardIds)
+            {
+                if (string.IsNullOrWhiteSpace(rewardId)) continue;
+                string key = $"channel.channel_points_custom_reward_redemption.add::1::{rewardId}";
+                if (_subscribedTypes.Contains(key)) continue;
+
+                var payload = new
+                {
+                    type = "channel.channel_points_custom_reward_redemption.add",
+                    version = "1",
+                    condition = new
+                    {
+                        broadcaster_user_id = _broadcasterId,
+                        reward_id = rewardId
+                    },
+                    transport = new { method = "websocket", session_id = _sessionId }
+                };
+
+                string body = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(body, Encoding.UTF8, "application/json");
+                var resp = await _http.PostAsync($"{HelixBase}/eventsub/subscriptions", content);
+                string respBody = await resp.Content.ReadAsStringAsync();
+                if (resp.IsSuccessStatusCode)
+                {
+                    _subscribedTypes.Add(key);
+                    Plugin.Log.Info($"TwitchEventSubClient Subscribed to CP reward_id={rewardId}");
+                }
+                else
+                {
+                    Plugin.Log.Warn($"TwitchEventSubClient CP subscribe failed reward_id={rewardId} {(int)resp.StatusCode} {respBody}");
+                }
+            }
+        }
     }
 }
