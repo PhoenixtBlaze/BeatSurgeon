@@ -193,7 +193,20 @@ namespace BeatSurgeon
             var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(8));
             try
             {
-                DisableAllRewardsOnQuitAsync(cts.Token).GetAwaiter().GetResult();
+                // Run on thread-pool to avoid deadlock if Twitch auth uses async methods that capture context
+                var task = Task.Run(() => DisableAllRewardsOnQuitAsync(cts.Token));
+                try
+                {
+                    task.Wait(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    Log.Warn("BeatSurgeon: DisableAllRewardsOnQuitAsync timed out.");
+                }
+                catch (AggregateException aex)
+                {
+                    Log.Warn($"BeatSurgeon DisableAllRewards on quit failed: {aex.GetBaseException().Message}");
+                }
             }
             catch (Exception ex)
             {
@@ -201,31 +214,84 @@ namespace BeatSurgeon
             }
         }
 
-        private async Task DisableAllRewardsOnQuitAsync(CancellationToken ct)
+        private async Task DisableAllRewardsOnQuitAsync(System.Threading.CancellationToken ct)
         {
             var cfg = Plugin.Settings;
             if (cfg == null) return;
 
-            var tasks = new List<Task>();
-            if (cfg.CpRainbowEnabled   && !string.IsNullOrEmpty(cfg.CpRainbowRewardId))
-                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpRainbowRewardId,   false, ct));
-            if (cfg.CpDisappearEnabled && !string.IsNullOrEmpty(cfg.CpDisappearRewardId))
-                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpDisappearRewardId, false, ct));
-            if (cfg.CpGhostEnabled     && !string.IsNullOrEmpty(cfg.CpGhostRewardId))
-                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpGhostRewardId,     false, ct));
-            if (cfg.CpBombEnabled      && !string.IsNullOrEmpty(cfg.CpBombRewardId))
-                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpBombRewardId,      false, ct));
-            if (cfg.CpFasterEnabled    && !string.IsNullOrEmpty(cfg.CpFasterRewardId))
-                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpFasterRewardId,    false, ct));
-            if (cfg.CpSuperFastEnabled && !string.IsNullOrEmpty(cfg.CpSuperFastRewardId))
-                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpSuperFastRewardId, false, ct));
-            if (cfg.CpSlowerEnabled    && !string.IsNullOrEmpty(cfg.CpSlowerRewardId))
-                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpSlowerRewardId,    false, ct));
-            if (cfg.CpFlashbangEnabled && !string.IsNullOrEmpty(cfg.CpFlashbangRewardId))
-                tasks.Add(TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpFlashbangRewardId, false, ct));
+            // Attempt to disable each reward individually and log failures rather than short-circuiting
+            try
+            {
+                if (cfg.CpRainbowEnabled   && !string.IsNullOrEmpty(cfg.CpRainbowRewardId))
+                {
+                    try { await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpRainbowRewardId,   false, ct); Log.Info("BeatSurgeon: Disabled Rainbow CP reward on quit."); }
+                    catch (Exception ex) { Log.Warn($"BeatSurgeon: Failed disabling Rainbow CP reward on quit: {ex.Message}"); }
+                }
 
-            await Task.WhenAll(tasks);
-            Log.Info("BeatSurgeon All CP rewards disabled on quit.");
+                if (cfg.CpDisappearEnabled && !string.IsNullOrEmpty(cfg.CpDisappearRewardId))
+                {
+                    try { await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpDisappearRewardId, false, ct); Log.Info("BeatSurgeon: Disabled Disappear CP reward on quit."); }
+                    catch (Exception ex) { Log.Warn($"BeatSurgeon: Failed disabling Disappear CP reward on quit: {ex.Message}"); }
+                }
+
+                if (cfg.CpGhostEnabled     && !string.IsNullOrEmpty(cfg.CpGhostRewardId))
+                {
+                    try { await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpGhostRewardId,     false, ct); Log.Info("BeatSurgeon: Disabled Ghost CP reward on quit."); }
+                    catch (Exception ex) { Log.Warn($"BeatSurgeon: Failed disabling Ghost CP reward on quit: {ex.Message}"); }
+                }
+
+                if (cfg.CpBombEnabled      && !string.IsNullOrEmpty(cfg.CpBombRewardId))
+                {
+                    try { await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpBombRewardId,      false, ct); Log.Info("BeatSurgeon: Disabled Bomb CP reward on quit."); }
+                    catch (Exception ex) { Log.Warn($"BeatSurgeon: Failed disabling Bomb CP reward on quit: {ex.Message}"); }
+                }
+
+                if (cfg.CpFasterEnabled    && !string.IsNullOrEmpty(cfg.CpFasterRewardId))
+                {
+                    try { await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpFasterRewardId,    false, ct); Log.Info("BeatSurgeon: Disabled Faster CP reward on quit."); }
+                    catch (Exception ex) { Log.Warn($"BeatSurgeon: Failed disabling Faster CP reward on quit: {ex.Message}"); }
+                }
+
+                if (cfg.CpSuperFastEnabled && !string.IsNullOrEmpty(cfg.CpSuperFastRewardId))
+                {
+                    try { await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpSuperFastRewardId, false, ct); Log.Info("BeatSurgeon: Disabled SuperFast CP reward on quit."); }
+                    catch (Exception ex) { Log.Warn($"BeatSurgeon: Failed disabling SuperFast CP reward on quit: {ex.Message}"); }
+                }
+
+                if (cfg.CpSlowerEnabled    && !string.IsNullOrEmpty(cfg.CpSlowerRewardId))
+                {
+                    try { await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpSlowerRewardId,    false, ct); Log.Info("BeatSurgeon: Disabled Slower CP reward on quit."); }
+                    catch (Exception ex) { Log.Warn($"BeatSurgeon: Failed disabling Slower CP reward on quit: {ex.Message}"); }
+                }
+
+                if (cfg.CpFlashbangEnabled && !string.IsNullOrEmpty(cfg.CpFlashbangRewardId))
+                {
+                    try { await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(cfg.CpFlashbangRewardId, false, ct); Log.Info("BeatSurgeon: Disabled Flashbang CP reward on quit."); }
+                    catch (Exception ex) { Log.Warn($"BeatSurgeon: Failed disabling Flashbang CP reward on quit: {ex.Message}"); }
+                }
+
+                Log.Info("BeatSurgeon All CP rewards disable attempts completed on quit.");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"BeatSurgeon DisableAllRewardsOnQuitAsync failed: {ex.Message}");
+            }
+        }
+
+
+        
+        internal async Task SubscribeToRewardAsync(string rewardId)
+        {
+            if (eventSubClient == null || string.IsNullOrWhiteSpace(rewardId)) return;
+            try
+            {
+                await eventSubClient.EnsureChannelPointSubscriptionsAsync(
+                    new[] { rewardId });
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"BeatSurgeon SubscribeToReward failed for {rewardId}: {ex.Message}");
+            }
         }
 
         private void OnMenuSceneActive()

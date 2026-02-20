@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace BeatSurgeon.Twitch
@@ -62,6 +63,31 @@ namespace BeatSurgeon.Twitch
                 return; // Not a Beat Surgeon reward
             }
 
+            // Use map-presence check to determine if effects like Rainbow can be applied.
+            // This matches RainbowManager's own checks (looks for BeatmapObjectSpawnController).
+            bool inMap = UnityEngine.Resources.FindObjectsOfTypeAll<BeatmapObjectSpawnController>().Length > 0;
+
+            if (!inMap)
+            {
+                try
+                {
+                    await TwitchChannelPointsManager.Instance.UpdateRedemptionStatusAsync(
+                        redemption.RewardId,
+                        redemption.RedemptionId,
+                        "CANCELED",
+                        CancellationToken.None
+                    );
+
+                    Plugin.Log.Info($"ChannelPointCommandExecutor Refunded {redemption.RewardTitle} - not in map.");
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn($"ChannelPointCommandExecutor failed to refund on arrival: {ex.Message}");
+                }
+
+                return;
+            }
+
             LogUtils.Debug(() => $"Processing channel point '{command}' from {redemption.UserName}");
 
             try
@@ -71,7 +97,7 @@ namespace BeatSurgeon.Twitch
 
                 if (success)
                 {
-                    // Optional: Mark as fulfilled (you can skip this if you want)
+                    // Mark as fulfilled after successful execution/effect application
                     try
                     {
                         await TwitchChannelPointsManager.Instance.FulfillRedemptionAsync(
@@ -126,8 +152,9 @@ namespace BeatSurgeon.Twitch
         /// </summary>
         private async Task<bool> ExecuteCommandAsync(string command, string userName)
         {
-            // Check if player is in a song
-            if (!IsInGame())
+            // Use presence of BeatmapObjectSpawnController as the authoritative in-map check.
+            var inMap = UnityEngine.Resources.FindObjectsOfTypeAll<BeatmapObjectSpawnController>().Length > 0;
+            if (!inMap)
             {
                 Plugin.Log.Warn($"Command '{command}' failed - not in game");
                 return false;
@@ -218,6 +245,24 @@ namespace BeatSurgeon.Twitch
             {
                 Plugin.Log.Error($"IsInGame check failed: {ex.Message}");
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Resubscribe EventSub to the given reward IDs for channel point redemptions.
+        /// This should be called when new rewards are created at runtime so EventSub will
+        /// deliver redemptions for them without requiring a restart.
+        /// </summary>
+        public async Task ResubscribeRewardsAsync(IEnumerable<string> rewardIds)
+        {
+            if (_eventSubClient == null) return;
+            try
+            {
+                await _eventSubClient.EnsureChannelPointSubscriptionsAsync(rewardIds);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"ChannelPointCommandExecutor: ResubscribeRewardsAsync failed: {ex.Message}");
             }
         }
     }

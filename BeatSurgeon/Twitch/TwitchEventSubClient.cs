@@ -469,24 +469,7 @@ namespace BeatSurgeon.Twitch
                 };
             }
 
-            if (type == "channel.channel_points_custom_reward_redemption.add")
-            {
-                return new
-                {
-                    type,
-                    version,
-                    condition = new
-                    {
-                        broadcaster_user_id = _broadcasterId
-                    },
-                    transport = new
-                    {
-                        method = "websocket",
-                        session_id = _sessionId
-                    }
-                };
-            }
-
+            // Removed broad channel points subscription case to avoid accidental non-filtered subscriptions.
 
             // These are common broadcaster-scoped events (simple condition)
             // If Twitch ever requires more fields for a type, add a dedicated case like above.

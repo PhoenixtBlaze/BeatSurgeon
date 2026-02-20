@@ -176,7 +176,9 @@ namespace BeatSurgeon.Chat
 
                 // NOTE: your TwitchEventSubClient events must match these signatures (see next section)
                 _eventSubClient.OnChatMessage += HandleNativeChatMessage;
-                _eventSubClient.OnChannelPointRedeemed += HandleChannelPointRedeemed;
+                // Channel point redemptions are handled by ChannelPointCommandExecutor to ensure
+                // proper locking, refunds and fulfillment. Do NOT subscribe here to avoid duplicate handling.
+                // _eventSubClient.OnChannelPointRedeemed += HandleChannelPointRedeemed;
                 _eventSubClient.OnFollow += user => OnFollowReceived?.Invoke(user);
                 _eventSubClient.OnSubscription += (user, tier) => OnSubscriptionReceived?.Invoke(user, tier);
                 _eventSubClient.OnRaid += (raider, viewers) => OnRaidReceived?.Invoke(raider, viewers);

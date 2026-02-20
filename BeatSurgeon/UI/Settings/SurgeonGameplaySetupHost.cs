@@ -745,6 +745,20 @@ namespace BeatSurgeon.UI.Settings
                 ct: linkedCts.Token);
 
             setId?.Invoke(id);
+
+            // If we just created/enabled a reward while EventSub is connected, make sure we subscribe to it
+            try
+            {
+                if (enabled && !string.IsNullOrWhiteSpace(id))
+                {
+                    // ChannelPointCommandExecutor will delegate to TwitchEventSubClient
+                    await ChannelPointCommandExecutor.Instance.ResubscribeRewardsAsync(new[] { id });
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"SurgeonGameplaySetupHost: Resubscribe after SyncRewardAsync failed: {ex.Message}");
+            }
         }
 
 
@@ -1413,6 +1427,7 @@ namespace BeatSurgeon.UI.Settings
                 _rainbowCpBackgroundColor = value;
 
                 var cfg = Plugin.Settings;
+                if (cfg != null) cfg.CpRainbowBackgroundColor = value;
                 if (cfg != null && _rainbowCpEnabled)
                 {
                     QueueRewardSync("rainbow", _rainbowCpCost, _rainbowCpCooldownSeconds, _rainbowCpEnabled,

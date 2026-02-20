@@ -3,7 +3,7 @@
   "id": "BeatSurgeon",
   "name": "BeatSurgeon",
   "author": "PhoenixBlaze0",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Twitch Chat Interaction System for Beat Saber: lets chat do rainbow/RGB note colors, custom note colors, ghost notes, disappearing arrow type modifier, bomb pranks, song and map speed changes (faster/superfast/slower), flashbang lights, moderator controls, command management",
   "gameVersion": "1.42.1",
   "dependsOn": {
