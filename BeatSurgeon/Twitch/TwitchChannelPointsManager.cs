@@ -28,9 +28,13 @@ namespace BeatSurgeon.Twitch
             public string BackgroundColorHex; // "#RRGGBB" (optional)
         }
 
-        private async Task<HttpClient> CreateAuthedClientAsync(CancellationToken ct)
+        private async Task<HttpRequestMessage> CreateAuthedRequestAsync(
+            HttpMethod method,
+            string url,
+            CancellationToken ct,
+            HttpContent content = null)
         {
-            await TwitchAuthManager.Instance.EnsureReadyAsync();
+            await TwitchAuthManager.Instance.EnsureReadyAsync(ct);
             ct.ThrowIfCancellationRequested();
 
             string token = TwitchAuthManager.Instance.GetAccessToken();
@@ -39,14 +43,49 @@ namespace BeatSurgeon.Twitch
             if (string.IsNullOrEmpty(token))
                 throw new InvalidOperationException("No Twitch access token.");
 
-            var client = _http;
+            var req = new HttpRequestMessage(method, url);
+            if (content != null)
+                req.Content = content;
 
-            client.DefaultRequestHeaders.Remove("Client-Id");
-            client.DefaultRequestHeaders.Remove("Authorization");
-            client.DefaultRequestHeaders.Add("Client-Id", clientId);
-            client.DefaultRequestHeaders.Add("Authorization", "Bearer " + token);
+            req.Headers.TryAddWithoutValidation("Client-Id", clientId);
+            req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
+            return req;
+        }
 
-            return client;
+        private async Task RetryAsync(
+            Func<Task> operation,
+            int maxAttempts = 3,
+            int delayMs = 3000,
+            CancellationToken ct = default(CancellationToken))
+        {
+            if (operation == null) throw new ArgumentNullException(nameof(operation));
+
+            Exception last = null;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    await operation();
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    last = ex;
+                    if (attempt >= maxAttempts) break;
+
+                    Plugin.Log.Warn(
+                        $"TwitchChannelPointsManager: Helix attempt {attempt}/{maxAttempts} failed; retrying in {delayMs}ms. " +
+                        ex.Message);
+                    await Task.Delay(delayMs, ct);
+                }
+            }
+
+            throw last ?? new Exception("RetryAsync failed without an exception.");
         }
 
         private static string RequireBroadcasterId()
@@ -59,7 +98,6 @@ namespace BeatSurgeon.Twitch
 
         public async Task<JArray> GetManageableRewardsAsync(CancellationToken ct)
         {
-            var client = await CreateAuthedClientAsync(ct);
             string broadcasterId = RequireBroadcasterId();
 
             string url =
@@ -67,19 +105,21 @@ namespace BeatSurgeon.Twitch
                 $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
                 $"&only_manageable_rewards=true";
 
-            var resp = await client.GetAsync(url, ct);
-            string body = await resp.Content.ReadAsStringAsync();
+            using (var req = await CreateAuthedRequestAsync(HttpMethod.Get, url, ct))
+            using (var resp = await _http.SendAsync(req, ct))
+            {
+                string body = await resp.Content.ReadAsStringAsync();
 
-            if (!resp.IsSuccessStatusCode)
-                throw new Exception($"GetManageableRewards failed HTTP={(int)resp.StatusCode} body={body}");
+                if (!resp.IsSuccessStatusCode)
+                    throw new Exception($"GetManageableRewards failed HTTP={(int)resp.StatusCode} body={body}");
 
-            var json = JObject.Parse(body);
-            return (JArray)(json["data"] ?? new JArray());
+                var json = JObject.Parse(body);
+                return (JArray)(json["data"] ?? new JArray());
+            }
         }
 
         public async Task<string> CreateRewardAsync(RewardSpec spec, bool enabled, CancellationToken ct)
         {
-            var client = await CreateAuthedClientAsync(ct);
             string broadcasterId = RequireBroadcasterId();
 
             var payload = new JObject
@@ -111,66 +151,77 @@ namespace BeatSurgeon.Twitch
                 $"{HelixBase}/channel_points/custom_rewards" +
                 $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}";
 
-            var resp = await client.PostAsync(url, new StringContent(payload.ToString(), Encoding.UTF8, "application/json"), ct);
-            string body = await resp.Content.ReadAsStringAsync();
+            using (var req = await CreateAuthedRequestAsync(
+                HttpMethod.Post,
+                url,
+                ct,
+                new StringContent(payload.ToString(), Encoding.UTF8, "application/json")))
+            using (var resp = await _http.SendAsync(req, ct))
+            {
+                string body = await resp.Content.ReadAsStringAsync();
 
-            if (!resp.IsSuccessStatusCode)
-                throw new Exception($"CreateReward failed HTTP={(int)resp.StatusCode} body={body}");
+                if (!resp.IsSuccessStatusCode)
+                    throw new Exception($"CreateReward failed HTTP={(int)resp.StatusCode} body={body}");
 
-            var json = JObject.Parse(body);
-            var id = json["data"]?[0]?["id"]?.ToString();
+                var json = JObject.Parse(body);
+                var id = json["data"]?[0]?["id"]?.ToString();
 
-            if (string.IsNullOrEmpty(id))
-                throw new Exception("CreateReward succeeded but response had no reward id.");
+                if (string.IsNullOrEmpty(id))
+                    throw new Exception("CreateReward succeeded but response had no reward id.");
 
-            return id;
+                return id;
+            }
         }
 
         public async Task UpdateRewardAsync(string rewardId, RewardSpec spec, bool enabled, CancellationToken ct)
         {
-            var client = await CreateAuthedClientAsync(ct);
-            string broadcasterId = RequireBroadcasterId();
-
-            var payload = new JObject
+            await RetryAsync(async () =>
             {
-                ["title"] = spec.Title,
-                ["cost"] = Math.Max(1, spec.Cost),
-                ["prompt"] = spec.Prompt ?? "",
-                ["is_enabled"] = enabled,
-            };
+                string broadcasterId = RequireBroadcasterId();
 
-            if (!string.IsNullOrWhiteSpace(spec.BackgroundColorHex))
-                payload["background_color"] = spec.BackgroundColorHex;
+                var payload = new JObject
+                {
+                    ["title"] = spec.Title,
+                    ["cost"] = Math.Max(1, spec.Cost),
+                    ["prompt"] = spec.Prompt ?? "",
+                    ["is_enabled"] = enabled,
+                };
 
-            if (spec.CooldownSeconds > 0)
-            {
-                payload["is_global_cooldown_enabled"] = true;
-                payload["global_cooldown_seconds"] = Math.Min(604800, Math.Max(1, spec.CooldownSeconds));
-            }
-            else
-            {
-                payload["is_global_cooldown_enabled"] = false;
+                if (!string.IsNullOrWhiteSpace(spec.BackgroundColorHex))
+                    payload["background_color"] = spec.BackgroundColorHex;
 
-                // Still include the seconds field to satisfy Helix validation.
-                // Use 1 to avoid “minimum is 1” validation edge cases.
-                payload["global_cooldown_seconds"] = 1;
-            }
+                if (spec.CooldownSeconds > 0)
+                {
+                    payload["is_global_cooldown_enabled"] = true;
+                    payload["global_cooldown_seconds"] = Math.Min(604800, Math.Max(1, spec.CooldownSeconds));
+                }
+                else
+                {
+                    payload["is_global_cooldown_enabled"] = false;
 
-            string url =
-                $"{HelixBase}/channel_points/custom_rewards" +
-                $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
-                $"&id={Uri.EscapeDataString(rewardId)}";
+                    // Still include the seconds field to satisfy Helix validation.
+                    // Use 1 to avoid “minimum is 1” validation edge cases.
+                    payload["global_cooldown_seconds"] = 1;
+                }
 
-            var req = new HttpRequestMessage(new HttpMethod("PATCH"), url)
-            {
-                Content = new StringContent(payload.ToString(), Encoding.UTF8, "application/json")
-            };
+                string url =
+                    $"{HelixBase}/channel_points/custom_rewards" +
+                    $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
+                    $"&id={Uri.EscapeDataString(rewardId)}";
 
-            var resp = await client.SendAsync(req, ct);
-            string body = await resp.Content.ReadAsStringAsync();
+                using (var req = await CreateAuthedRequestAsync(
+                    new HttpMethod("PATCH"),
+                    url,
+                    ct,
+                    new StringContent(payload.ToString(), Encoding.UTF8, "application/json")))
+                using (var resp = await _http.SendAsync(req, ct))
+                {
+                    string body = await resp.Content.ReadAsStringAsync();
 
-            if (!resp.IsSuccessStatusCode)
-                throw new Exception($"UpdateReward failed HTTP={(int)resp.StatusCode} body={body}");
+                    if (!resp.IsSuccessStatusCode)
+                        throw new Exception($"UpdateReward failed HTTP={(int)resp.StatusCode} body={body}");
+                }
+            }, maxAttempts: 3, delayMs: 3000, ct: ct);
         }
 
         /// <summary>
@@ -182,7 +233,6 @@ namespace BeatSurgeon.Twitch
             if (string.IsNullOrWhiteSpace(rewardId))
                 return;
 
-            var client = await CreateAuthedClientAsync(ct);
             string broadcasterId = RequireBroadcasterId();
 
             var payload = new JObject
@@ -195,16 +245,18 @@ namespace BeatSurgeon.Twitch
                 $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
                 $"&id={Uri.EscapeDataString(rewardId)}";
 
-            var req = new HttpRequestMessage(new HttpMethod("PATCH"), url)
+            using (var req = await CreateAuthedRequestAsync(
+                new HttpMethod("PATCH"),
+                url,
+                ct,
+                new StringContent(payload.ToString(), Encoding.UTF8, "application/json")))
+            using (var resp = await _http.SendAsync(req, ct))
             {
-                Content = new StringContent(payload.ToString(), Encoding.UTF8, "application/json")
-            };
+                string body = await resp.Content.ReadAsStringAsync();
 
-            var resp = await client.SendAsync(req, ct);
-            string body = await resp.Content.ReadAsStringAsync();
-
-            if (!resp.IsSuccessStatusCode)
-                throw new Exception($"SetRewardEnabled failed HTTP={(int)resp.StatusCode} body={body}");
+                if (!resp.IsSuccessStatusCode)
+                    throw new Exception($"SetRewardEnabled failed HTTP={(int)resp.StatusCode} body={body}");
+            }
         }
 
 
@@ -228,30 +280,34 @@ namespace BeatSurgeon.Twitch
             if (status != "FULFILLED" && status != "CANCELED")
                 throw new ArgumentException("Status must be FULFILLED or CANCELED", nameof(status));
 
-            var client = await CreateAuthedClientAsync(ct);
-            string broadcasterId = RequireBroadcasterId();
-
-            var payload = new JObject
+            await RetryAsync(async () =>
             {
-                ["status"] = status
-            };
+                string broadcasterId = RequireBroadcasterId();
 
-            string url =
-                $"{HelixBase}/channel_points/custom_rewards/redemptions" +
-                $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
-                $"&reward_id={Uri.EscapeDataString(rewardId)}" +
-                $"&id={Uri.EscapeDataString(redemptionId)}";
+                var payload = new JObject
+                {
+                    ["status"] = status
+                };
 
-            var req = new HttpRequestMessage(new HttpMethod("PATCH"), url)
-            {
-                Content = new StringContent(payload.ToString(), Encoding.UTF8, "application/json")
-            };
+                string url =
+                    $"{HelixBase}/channel_points/custom_rewards/redemptions" +
+                    $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
+                    $"&reward_id={Uri.EscapeDataString(rewardId)}" +
+                    $"&id={Uri.EscapeDataString(redemptionId)}";
 
-            var resp = await client.SendAsync(req, ct);
-            string body = await resp.Content.ReadAsStringAsync();
+                using (var req = await CreateAuthedRequestAsync(
+                    new HttpMethod("PATCH"),
+                    url,
+                    ct,
+                    new StringContent(payload.ToString(), Encoding.UTF8, "application/json")))
+                using (var resp = await _http.SendAsync(req, ct))
+                {
+                    string body = await resp.Content.ReadAsStringAsync();
 
-            if (!resp.IsSuccessStatusCode)
-                throw new Exception($"UpdateRedemptionStatus failed HTTP={(int)resp.StatusCode} body={body}");
+                    if (!resp.IsSuccessStatusCode)
+                        throw new Exception($"UpdateRedemptionStatus failed HTTP={(int)resp.StatusCode} body={body}");
+                }
+            }, maxAttempts: 3, delayMs: 3000, ct: ct);
         }
 
         /// <summary>

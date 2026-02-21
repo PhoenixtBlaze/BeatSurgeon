@@ -21,11 +21,6 @@ namespace BeatSurgeon.Chat
         private bool _isInitialized = false;
         private delegate bool CommandDelegate(object ctxObj, string fullCommand);
 
-        //Add lock object for thread-safe cooldown tracking
-        //private static readonly object _cooldownDictLock = new object();
-        //private static readonly Dictionary<string, float> _cooldownDict = new Dictionary<string, float>();
-
-
         // Bomb command keyword (without leading '!')
         public static string BombCommandName { get; set; } = "bomb";
 
@@ -62,14 +57,17 @@ namespace BeatSurgeon.Chat
 
         // Faster command toggle + cooldown
         public static bool FasterEnabled { get; set; } = false;
+        public static bool FasterCooldownEnabled { get; set; } = true;
         public static float FasterCooldownSeconds { get; set; } = 60f;
 
         // SuperFast command
         public static bool SuperFastEnabled { get; set; } = false;
+        public static bool SuperFastCooldownEnabled { get; set; } = true;
         public static float SuperFastCooldownSeconds { get; set; } = 60f;
 
         // Slower command
         public static bool SlowerEnabled { get; set; } = true;
+        public static bool SlowerCooldownEnabled { get; set; } = true;
         public static float SlowerCooldownSeconds { get; set; } = 60f;
 
         // Speed command exclusivity
@@ -78,6 +76,7 @@ namespace BeatSurgeon.Chat
 
         // Flashbang command toggle + cooldown
         public static bool FlashbangEnabled { get; set; } = true;
+        public static bool FlashbangCooldownEnabled { get; set; } = true;
         public static float FlashbangCooldownSeconds { get; set; } = 60f;
 
 
@@ -186,6 +185,10 @@ namespace BeatSurgeon.Chat
                     DisappearCooldownEnabled = cfg.DisappearCooldownSeconds > 0f;
                     GhostCooldownEnabled = cfg.GhostCooldownSeconds > 0f;
                     BombCooldownEnabled = cfg.BombCooldownSeconds > 0f;
+                    FasterCooldownEnabled = cfg.FasterCooldownSeconds > 0f;
+                    SuperFastCooldownEnabled = cfg.SuperFastCooldownSeconds > 0f;
+                    SlowerCooldownEnabled = cfg.SlowerCooldownSeconds > 0f;
+                    FlashbangCooldownEnabled = cfg.FlashbangCooldownSeconds > 0f;
 
                     RainbowCooldownSeconds = cfg.RainbowCooldownSeconds;
                     DisappearCooldownSeconds = cfg.DisappearCooldownSeconds;
@@ -211,7 +214,6 @@ namespace BeatSurgeon.Chat
         private void RegisterCommands()
         {
             RegisterCommand("surgeon", HandleSurgeonCommand);
-            RegisterCommand("bsr", HandleBsrCommand);
             RegisterCommand("rainbow", HandleRainbowCommand);
             RegisterCommand("ghost", HandleGhostCommand);
             RegisterCommand("disappear", HandleDisappearingArrowsCommand);
@@ -222,8 +224,8 @@ namespace BeatSurgeon.Chat
             RegisterCommand("notecolor", HandleNoteColorCommand);
             RegisterCommand("notecolour", HandleNoteColorCommand);
             RegisterCommand("flashbang", HandleFlashbangCommand);
-            RegisterCommand("sr", HandleSrCommand);
-            RegisterCommand("bsr", HandleSrCommand);
+            // Intentionally do not register !sr/!bsr here.
+            // Song request commands are safely disabled in this build.
 
         }
 
@@ -567,27 +569,35 @@ namespace BeatSurgeon.Chat
                     case "rainbow":
                     case "notecolor":
                     case "notecolour":
+                        if (!RainbowCooldownEnabled) return;
                         seconds = RainbowCooldownSeconds;
                         break;
                     case "ghost":
+                        if (!GhostCooldownEnabled) return;
                         seconds = GhostCooldownSeconds;
                         break;
                     case "disappear":
+                        if (!DisappearCooldownEnabled) return;
                         seconds = DisappearCooldownSeconds;
                         break;
                     case "bomb":
+                        if (!BombCooldownEnabled) return;
                         seconds = BombCooldownSeconds;
                         break;
                     case "faster":
+                        if (!FasterCooldownEnabled) return;
                         seconds = FasterCooldownSeconds;
                         break;
                     case "superfast":
+                        if (!SuperFastCooldownEnabled) return;
                         seconds = SuperFastCooldownSeconds;
                         break;
                     case "slower":
+                        if (!SlowerCooldownEnabled) return;
                         seconds = SlowerCooldownSeconds;
                         break;
                     case "flashbang":
+                        if (!FlashbangCooldownEnabled) return;
                         seconds = FlashbangCooldownSeconds;
                         break;
                 }
@@ -607,6 +617,63 @@ namespace BeatSurgeon.Chat
             Plugin.Log.Info(logMessage);
             if (!string.IsNullOrWhiteSpace(chatMessage))
                 ChatManager.GetInstance().SendChatMessage(chatMessage);
+        }
+
+        /// <summary>
+        /// Returns the applicable cooldown duration in seconds for a command,
+        /// using the exact same logic as SetCommandCooldown but without applying it.
+        /// Returns 0 if cooldowns are disabled or the command is excluded.
+        /// </summary>
+        public static double GetCooldownSeconds(string commandName)
+        {
+            if (string.IsNullOrWhiteSpace(commandName)) return 0.0;
+            if (IsCommandExcludedFromCooldown(commandName)) return 0.0;
+            if (!GlobalCooldownEnabled) return 0.0;  // master switch
+
+            double seconds = GlobalCooldownSeconds;
+
+            if (PerCommandCooldownsEnabled)
+            {
+                switch (commandName.ToLowerInvariant())
+                {
+                    case "rainbow":
+                    case "notecolor":
+                    case "notecolour":
+                        if (!RainbowCooldownEnabled) return 0.0;
+                        seconds = RainbowCooldownSeconds;
+                        break;
+                    case "ghost":
+                        if (!GhostCooldownEnabled) return 0.0;
+                        seconds = GhostCooldownSeconds;
+                        break;
+                    case "disappear":
+                        if (!DisappearCooldownEnabled) return 0.0;
+                        seconds = DisappearCooldownSeconds;
+                        break;
+                    case "bomb":
+                        if (!BombCooldownEnabled) return 0.0;
+                        seconds = BombCooldownSeconds;
+                        break;
+                    case "faster":
+                        if (!FasterCooldownEnabled) return 0.0;
+                        seconds = FasterCooldownSeconds;
+                        break;
+                    case "superfast":
+                        if (!SuperFastCooldownEnabled) return 0.0;
+                        seconds = SuperFastCooldownSeconds;
+                        break;
+                    case "slower":
+                        if (!SlowerCooldownEnabled) return 0.0;
+                        seconds = SlowerCooldownSeconds;
+                        break;
+                    case "flashbang":
+                        if (!FlashbangCooldownEnabled) return 0.0;
+                        seconds = FlashbangCooldownSeconds;
+                        break;
+                }
+            }
+
+            return seconds;
         }
 
         // ===== Command handlers =====
@@ -1208,7 +1275,7 @@ namespace BeatSurgeon.Chat
 
             SendResponse($"SR queued: {code} by {ctx.SenderName}", $"!!@{ctx.SenderName} queued: {code}");
             */
-            return true;
+            return false;
 
         }
 
@@ -1298,7 +1365,7 @@ namespace BeatSurgeon.Chat
         private bool HandleBsrCommand(object ctxObj, string fullCommand)
         {
             var ctx = ctxObj as ChatContext;
-            return true;
+            return false;
             /*
             try
             {
@@ -1315,8 +1382,23 @@ namespace BeatSurgeon.Chat
                 string bsrCode = parts[1].Trim();
                 string requesterName = ctx?.SenderName ?? "Unknown";
 
-                Gameplay.GameplayManager.GetInstance()
-                    .QueueSongRequest(bsrCode, requesterName);
+                string rejectReason;
+                bool queued = Gameplay.GameplayManager.GetInstance().TryQueueSongRequest(
+                    bsrCode,
+                    requesterName,
+                    requestedDifficulty: null,
+                    startTimeSeconds: null,
+                    switchAfterSeconds: null,
+                    segmentLengthSeconds: null,
+                    rejectReason: out rejectReason);
+
+                if (!queued)
+                {
+                    SendResponse(
+                        $"BSR rejected: {rejectReason}",
+                        $"!!Request rejected: {rejectReason}");
+                    return false;
+                }
 
                 SendResponse(
                     $"BSR request: {bsrCode} from {requesterName}",
@@ -1328,7 +1410,7 @@ namespace BeatSurgeon.Chat
             {
                 Plugin.Log.Error($"CommandHandler: Error in HandleBsrCommand: {ex.Message}");
                 return false; // treat error as failure → no cooldown
-            }*/
+            } */
         }
 
         // ===== GLOBAL ENABLE/DISABLE HANDLERS =====
@@ -1364,6 +1446,8 @@ namespace BeatSurgeon.Chat
                     _commandStateBeforeDisable["bomb"] = BombEnabled;
                     _commandStateBeforeDisable["faster"] = FasterEnabled;
                     _commandStateBeforeDisable["superfast"] = SuperFastEnabled;
+                    _commandStateBeforeDisable["slower"] = SlowerEnabled;
+                    _commandStateBeforeDisable["flashbang"] = FlashbangEnabled;
 
                     // Now disable
                     RainbowEnabled = false;
@@ -1372,6 +1456,8 @@ namespace BeatSurgeon.Chat
                     BombEnabled = false;
                     FasterEnabled = false;
                     SuperFastEnabled = false;
+                    SlowerEnabled = false;
+                    FlashbangEnabled = false;
 
                     GlobalDisableActive = true;
                     SendResponse("Global Disable Activated", "!!All Surgeon commands disabled.");

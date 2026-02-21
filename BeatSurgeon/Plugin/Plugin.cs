@@ -18,7 +18,6 @@ using System.Collections;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
-using System.IO;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -189,30 +188,47 @@ namespace BeatSurgeon
 
         private void OnApplicationQuitting()
         {
-            // Block Unity's quit just long enough to disable rewards
+            // Cancel all pending reward cooldown re-enable tasks FIRST,
+            // so they don't re-enable rewards after DisableAllRewardsOnQuitAsync disables them.
+            ChannelPointCommandExecutor.Instance.Shutdown();
+
             var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(8));
             try
             {
-                // Run on thread-pool to avoid deadlock if Twitch auth uses async methods that capture context
-                var task = Task.Run(() => DisableAllRewardsOnQuitAsync(cts.Token));
-                try
+                Exception workerException = null;
+                var worker = new Thread(() =>
                 {
-                    task.Wait(cts.Token);
-                }
-                catch (OperationCanceledException)
+                    try
+                    {
+                        DisableAllRewardsOnQuitAsync(cts.Token).GetAwaiter().GetResult();
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex)
+                    {
+                        workerException = ex;
+                    }
+                });
+
+                worker.IsBackground = true;
+                worker.Start();
+
+                if (!worker.Join(8000))
                 {
+                    try { cts.Cancel(); } catch { }
                     Log.Warn("BeatSurgeon: DisableAllRewardsOnQuitAsync timed out.");
                 }
-                catch (AggregateException aex)
+                else if (workerException != null)
                 {
-                    Log.Warn($"BeatSurgeon DisableAllRewards on quit failed: {aex.GetBaseException().Message}");
+                    Log.Warn($"BeatSurgeon: DisableAllRewards on quit failed: {workerException.Message}");
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) { Log.Warn($"BeatSurgeon: DisableAllRewards on quit failed: {ex.Message}"); }
+            finally
             {
-                Log.Warn($"BeatSurgeon DisableAllRewards on quit failed: {ex.Message}");
+                try { cts.Dispose(); } catch { }
             }
         }
+
 
         private async Task DisableAllRewardsOnQuitAsync(System.Threading.CancellationToken ct)
         {
@@ -305,58 +321,6 @@ namespace BeatSurgeon
             CoroutineHost.Instance.StartCoroutine(RegisterMenuButtonWhenReady());
             CoroutineHost.Instance.StartCoroutine(RegisterSurgeonGameplaySetupTabWhenReady());
 
-        }
-
-
-        private static bool _embeddedLibsHooked;
-
-        private static void EnsureEmbeddedLibrariesLoaded()
-        {
-            if (_embeddedLibsHooked) return;
-            _embeddedLibsHooked = true;
-
-            AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
-            {
-                try
-                {
-                    var requested = new AssemblyName(args.Name).Name + ".dll";
-
-                    // Only handle Chaos.NaCl (avoid interfering with other mods)
-                    if (!string.Equals(requested, "Chaos.NaCl.dll", StringComparison.OrdinalIgnoreCase))
-                        return null;
-
-                    var asm = Assembly.GetExecutingAssembly();
-                    var names = asm.GetManifestResourceNames();
-
-                    // Find an embedded resource that ends with "Chaos.NaCl.dll"
-                    string resourceName = null;
-                    foreach (var n in names)
-                    {
-                        if (n.EndsWith("Chaos.NaCl.dll", StringComparison.OrdinalIgnoreCase))
-                        {
-                            resourceName = n;
-                            break;
-                        }
-                    }
-
-                    if (resourceName == null)
-                        return null;
-
-                    using (var stream = asm.GetManifestResourceStream(resourceName))
-                    {
-                        if (stream == null) return null;
-                        using (var ms = new MemoryStream())
-                        {
-                            stream.CopyTo(ms);
-                            return Assembly.Load(ms.ToArray());
-                        }
-                    }
-                }
-                catch
-                {
-                    return null;
-                }
-            };
         }
 
 

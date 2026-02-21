@@ -2,8 +2,10 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -36,8 +38,73 @@ namespace BeatSurgeon.Twitch
         private const string HelixUrl = "https://api.twitch.tv/helix";
         private const string BackendEntitlementsUrl = "https://phoenixblaze0.duckdns.org/entitlements";
         private const string BackendBaseUrl = "https://phoenixblaze0.duckdns.org";
+        private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
+        private const int MaxHttpAttempts = 3;
 
         private TwitchApiClient() { }
+
+        private static bool IsRetryableStatus(HttpStatusCode code)
+        {
+            int status = (int)code;
+            return status == 429 || status >= 500;
+        }
+
+        private static async Task<Tuple<HttpStatusCode, string>> GetWithRetryAsync(
+            string url,
+            Action<HttpRequestHeaders> configureHeaders,
+            CancellationToken ct = default(CancellationToken))
+        {
+            Exception lastException = null;
+
+            for (int attempt = 1; attempt <= MaxHttpAttempts; attempt++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                {
+                    configureHeaders?.Invoke(req.Headers);
+
+                    using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                    {
+                        timeoutCts.CancelAfter(RequestTimeout);
+
+                        try
+                        {
+                            using (var resp = await _http.SendAsync(req, timeoutCts.Token).ConfigureAwait(false))
+                            {
+                                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                                if (attempt < MaxHttpAttempts && IsRetryableStatus(resp.StatusCode))
+                                {
+                                    await Task.Delay(TimeSpan.FromMilliseconds(300 * attempt), ct).ConfigureAwait(false);
+                                    continue;
+                                }
+
+                                return Tuple.Create(resp.StatusCode, body);
+                            }
+                        }
+                        catch (OperationCanceledException) when (!ct.IsCancellationRequested && attempt < MaxHttpAttempts)
+                        {
+                            await Task.Delay(TimeSpan.FromMilliseconds(300 * attempt), ct).ConfigureAwait(false);
+                        }
+                        catch (HttpRequestException ex) when (attempt < MaxHttpAttempts)
+                        {
+                            lastException = ex;
+                            await Task.Delay(TimeSpan.FromMilliseconds(300 * attempt), ct).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            lastException = ex;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (lastException != null)
+                throw lastException;
+
+            return Tuple.Create(HttpStatusCode.ServiceUnavailable, string.Empty);
+        }
 
         public static IEnumerator GetSpriteFromUrl(string url, Action<Sprite> callback)
         {
@@ -87,30 +154,35 @@ namespace BeatSurgeon.Twitch
             _spriteCache.Clear();
         }
 
-        public async Task FetchBroadcasterAndEntitlementsAsync()
+        public async Task FetchBroadcasterAndEntitlementsAsync(CancellationToken ct = default(CancellationToken))
         {
-            await TwitchAuthManager.Instance.EnsureValidTokenAsync();
+            await TwitchAuthManager.Instance.EnsureValidTokenAsync(ct);
 
             var token = TwitchAuthManager.Instance.GetAccessToken();
             if (string.IsNullOrEmpty(token)) return;
 
             // Identity (Helix /users)
-            await FetchIdentityAsync(token).ConfigureAwait(false);
+            await FetchIdentityAsync(token, ct).ConfigureAwait(false);
 
             // Entitlements (backend /entitlements -> JWT)
-            await RefreshEntitlementsAsync(token).ConfigureAwait(false);
+            await RefreshEntitlementsAsync(token, ct).ConfigureAwait(false);
         }
 
-        private async Task FetchIdentityAsync(string userAccessToken)
+        private async Task FetchIdentityAsync(string userAccessToken, CancellationToken ct = default(CancellationToken))
         {
-            var req = new HttpRequestMessage(HttpMethod.Get, HelixUrl + "/users");
-            req.Headers.Add("Client-Id", TwitchAuthManager.Instance.ClientId);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
+            var result = await GetWithRetryAsync(
+                HelixUrl + "/users",
+                headers =>
+                {
+                    headers.Add("Client-Id", TwitchAuthManager.Instance.ClientId);
+                    headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
+                },
+                ct).ConfigureAwait(false);
 
-            var resp = await _http.SendAsync(req).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) return;
+            if ((int)result.Item1 < 200 || (int)result.Item1 > 299)
+                return;
 
-            var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            var text = result.Item2;
             var json = JObject.Parse(text);
             var data = json["data"]?[0];
             if (data == null) return;
@@ -124,22 +196,21 @@ namespace BeatSurgeon.Twitch
             Plugin.Settings.CachedBroadcasterLogin = BroadcasterName;
         }
 
-        public async Task RefreshEntitlementsAsync(string userAccessToken)
+        public async Task RefreshEntitlementsAsync(string userAccessToken, CancellationToken ct = default(CancellationToken))
         {
-            var req = new HttpRequestMessage(HttpMethod.Get, BackendEntitlementsUrl);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
+            var result = await GetWithRetryAsync(
+                BackendEntitlementsUrl,
+                headers => headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken),
+                ct).ConfigureAwait(false);
 
-            var resp = await _http.SendAsync(req).ConfigureAwait(false);
-            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!resp.IsSuccessStatusCode)
+            if ((int)result.Item1 < 200 || (int)result.Item1 > 299)
             {
                 EntitlementsState.Clear();
                 OnSubscriberStatusChanged?.Invoke();
                 return;
             }
 
-            var json = JObject.Parse(body);
+            var json = JObject.Parse(result.Item2);
             var entitlementToken = json["entitlementToken"]?.ToString();
 
             if (!TryVerifyAndParseEntitlement(entitlementToken, out var snapshot))
@@ -154,9 +225,9 @@ namespace BeatSurgeon.Twitch
             OnSubscriberStatusChanged?.Invoke();
         }
 
-        public async Task<bool> CheckVisualsPermissionAsync()
+        public async Task<bool> CheckVisualsPermissionAsync(CancellationToken ct = default(CancellationToken))
         {
-            await TwitchAuthManager.Instance.EnsureValidTokenAsync().ConfigureAwait(false);
+            await TwitchAuthManager.Instance.EnsureValidTokenAsync(ct).ConfigureAwait(false);
 
             var accessToken = TwitchAuthManager.Instance.GetAccessToken();
             if (string.IsNullOrEmpty(accessToken)) return false;
@@ -167,7 +238,7 @@ namespace BeatSurgeon.Twitch
                 DateTime.UtcNow >= current.ExpiresAtUtc.AddMinutes(-5)) // Refresh 5 min early
             {
                 Plugin.Log.Info("Entitlement token expired or missing, refreshing...");
-                await RefreshEntitlementsAsync(accessToken).ConfigureAwait(false);
+                await RefreshEntitlementsAsync(accessToken, ct).ConfigureAwait(false);
 
                 // Re-check after refresh
                 current = EntitlementsState.Current;
@@ -181,16 +252,19 @@ namespace BeatSurgeon.Twitch
             var entitlement = current.SignedEntitlementToken;
             // *** END CHANGE ***
 
-            var req = new HttpRequestMessage(HttpMethod.Get, BackendBaseUrl + "/visuals/permission");
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            req.Headers.Add("X-Entitlement", entitlement);
+            var result = await GetWithRetryAsync(
+                BackendBaseUrl + "/visuals/permission",
+                headers =>
+                {
+                    headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                    headers.Add("X-Entitlement", entitlement);
+                },
+                ct).ConfigureAwait(false);
+            var body = result.Item2;
 
-            var resp = await _http.SendAsync(req).ConfigureAwait(false);
-            var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!resp.IsSuccessStatusCode)
+            if ((int)result.Item1 < 200 || (int)result.Item1 > 299)
             {
-                Plugin.Log.Warn($"CheckVisualsPermission failed: {resp.StatusCode} - {body}");
+                Plugin.Log.Warn($"CheckVisualsPermission failed: {result.Item1} - {body}");
                 return false;
             }
 

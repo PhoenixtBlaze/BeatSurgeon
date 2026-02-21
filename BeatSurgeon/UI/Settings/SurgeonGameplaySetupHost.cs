@@ -6,6 +6,7 @@ using BeatSurgeon.Chat;
 using BeatSurgeon.Gameplay;
 using BeatSurgeon.Twitch;
 using BeatSurgeon.UI.Controllers;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Reflection;
 using System.Threading;
@@ -350,7 +351,51 @@ namespace BeatSurgeon.UI.Settings
             try
             {
                 // Use a timeout for the entire operation
-                var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+
+                // Startup reconciliation: if Twitch cost differs, trust Twitch and update local config first.
+                try
+                {
+                    var twitchRewards = await TwitchChannelPointsManager.Instance.GetManageableRewardsAsync(cts.Token);
+                    ApplyStartupCostFromTwitch(
+                        twitchRewards, "rainbow", cfg.CpRainbowEnabled,
+                        () => cfg.CpRainbowRewardId, id => cfg.CpRainbowRewardId = id,
+                        () => cfg.CpRainbowCost, cost => cfg.CpRainbowCost = cost);
+                    ApplyStartupCostFromTwitch(
+                        twitchRewards, "disappear", cfg.CpDisappearEnabled,
+                        () => cfg.CpDisappearRewardId, id => cfg.CpDisappearRewardId = id,
+                        () => cfg.CpDisappearCost, cost => cfg.CpDisappearCost = cost);
+                    ApplyStartupCostFromTwitch(
+                        twitchRewards, "ghost", cfg.CpGhostEnabled,
+                        () => cfg.CpGhostRewardId, id => cfg.CpGhostRewardId = id,
+                        () => cfg.CpGhostCost, cost => cfg.CpGhostCost = cost);
+                    ApplyStartupCostFromTwitch(
+                        twitchRewards, "bomb", cfg.CpBombEnabled,
+                        () => cfg.CpBombRewardId, id => cfg.CpBombRewardId = id,
+                        () => cfg.CpBombCost, cost => cfg.CpBombCost = cost);
+                    ApplyStartupCostFromTwitch(
+                        twitchRewards, "faster", cfg.CpFasterEnabled,
+                        () => cfg.CpFasterRewardId, id => cfg.CpFasterRewardId = id,
+                        () => cfg.CpFasterCost, cost => cfg.CpFasterCost = cost);
+                    ApplyStartupCostFromTwitch(
+                        twitchRewards, "superfast", cfg.CpSuperFastEnabled,
+                        () => cfg.CpSuperFastRewardId, id => cfg.CpSuperFastRewardId = id,
+                        () => cfg.CpSuperFastCost, cost => cfg.CpSuperFastCost = cost);
+                    ApplyStartupCostFromTwitch(
+                        twitchRewards, "slower", cfg.CpSlowerEnabled,
+                        () => cfg.CpSlowerRewardId, id => cfg.CpSlowerRewardId = id,
+                        () => cfg.CpSlowerCost, cost => cfg.CpSlowerCost = cost);
+                    ApplyStartupCostFromTwitch(
+                        twitchRewards, "flashbang", cfg.CpFlashbangEnabled,
+                        () => cfg.CpFlashbangRewardId, id => cfg.CpFlashbangRewardId = id,
+                        () => cfg.CpFlashbangCost, cost => cfg.CpFlashbangCost = cost);
+
+                    NotifyPropertyChanged(string.Empty);
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn("SurgeonGameplaySetupHost: Startup Twitch cost reconciliation skipped: " + ex.Message);
+                }
 
                 // Sync each enabled reward
                 if (cfg.CpRainbowEnabled)
@@ -564,6 +609,101 @@ namespace BeatSurgeon.UI.Settings
             }
 
             return ($"Beat Saber : {key}", $"Triggers {key}.", null);
+        }
+
+        private static JObject FindManageableReward(JArray rewards, string storedId, string expectedTitle)
+        {
+            if (rewards == null) return null;
+
+            if (!string.IsNullOrWhiteSpace(storedId))
+            {
+                foreach (var r in rewards)
+                {
+                    if (string.Equals(r?["id"]?.ToString(), storedId, StringComparison.Ordinal))
+                        return r as JObject;
+                }
+            }
+
+            foreach (var r in rewards)
+            {
+                if (string.Equals(r?["title"]?.ToString(), expectedTitle, StringComparison.Ordinal))
+                    return r as JObject;
+            }
+
+            return null;
+        }
+
+        private void ApplyStartupCostFromTwitch(
+            JArray twitchRewards,
+            string key,
+            bool enabled,
+            Func<string> getId,
+            Action<string> setId,
+            Func<int> getLocalCost,
+            Action<int> setLocalCost)
+        {
+            if (!enabled || twitchRewards == null) return;
+
+            var text = GetRewardText(key);
+            var reward = FindManageableReward(twitchRewards, getId?.Invoke(), text.Title);
+            if (reward == null) return;
+
+            string twitchRewardId = reward["id"]?.ToString();
+            if (!string.IsNullOrWhiteSpace(twitchRewardId))
+                setId?.Invoke(twitchRewardId);
+
+            int? twitchCost = reward["cost"]?.Value<int?>();
+            if (!twitchCost.HasValue || twitchCost.Value <= 0) return;
+
+            int localCost = getLocalCost != null ? getLocalCost() : 0;
+            if (twitchCost.Value == localCost) return;
+
+            Plugin.Log.Info(
+                $"SurgeonGameplaySetupHost: Startup cost sync for '{key}' local={localCost} twitch={twitchCost.Value}.");
+            setLocalCost?.Invoke(twitchCost.Value);
+            UpdateLocalCpCostCache(key, twitchCost.Value);
+        }
+
+        private void UpdateLocalCpCostCache(string key, int cost)
+        {
+            int safeCost = Math.Max(1, cost);
+            string text = safeCost.ToString();
+
+            switch (key)
+            {
+                case "rainbow":
+                    _rainbowCpCost = safeCost;
+                    _rainbowCpCostText = text;
+                    break;
+                case "disappear":
+                    _daCpCost = safeCost;
+                    _daCpCostText = text;
+                    break;
+                case "ghost":
+                    _ghostCpCost = safeCost;
+                    _ghostCpCostText = text;
+                    break;
+                case "bomb":
+                    _bombCpCost = safeCost;
+                    _bombCpCostText = text;
+                    break;
+                case "faster":
+                    _fasterCpCost = safeCost;
+                    _fasterCpCostText = text;
+                    break;
+                case "superfast":
+                    _superFastCpCost = safeCost;
+                    _superFastCpCostText = text;
+                    break;
+                case "slower":
+                    _slowerCpCost = safeCost;
+                    _slowerCpCostText = text;
+                    break;
+                case "flashbang":
+                    _flashbangCpCost = safeCost;
+                    _flashbangCpCostText = text;
+                    break;
+            }
         }
 
 
@@ -1091,6 +1231,7 @@ namespace BeatSurgeon.UI.Settings
         {
             try
             {
+                Plugin.Log.Info($"SurgeonGameplaySetupHost: Queuing update for '{key}' cost={cost} cooldown={cooldown} enabled={enabled}");
                 await Task.Delay(RewardSyncDebounce, ct);
 
                 // Optional: prevent concurrent reward updates (recommended)

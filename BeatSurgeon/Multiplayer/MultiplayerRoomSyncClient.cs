@@ -20,6 +20,8 @@ namespace BeatSurgeon
         private static ClientWebSocket _ws;
         private static CancellationTokenSource _cts;
         private static Task _recvTask;
+        private static readonly Action<bool> _mpPlusInRoomChangedHandler = OnMpPlusInRoomChanged;
+        private static readonly Action _mpPlusRoomInfoChangedHandler = OnRoomMaybeChanged;
 
         private static string _connectedRoomCode;
         private static readonly ConcurrentQueue<string> _pendingCommands = new ConcurrentQueue<string>();
@@ -36,8 +38,10 @@ namespace BeatSurgeon
         public static void Init()
         {
             SceneHelper.Init();
-            SceneHelper.MpPlusInRoomChanged += _ => OnRoomMaybeChanged();
-            SceneHelper.MpPlusRoomInfoChanged += OnRoomMaybeChanged;
+            SceneHelper.MpPlusInRoomChanged -= _mpPlusInRoomChangedHandler;
+            SceneHelper.MpPlusRoomInfoChanged -= _mpPlusRoomInfoChangedHandler;
+            SceneHelper.MpPlusInRoomChanged += _mpPlusInRoomChangedHandler;
+            SceneHelper.MpPlusRoomInfoChanged += _mpPlusRoomInfoChangedHandler;
 
             OnRoomMaybeChanged();
             if (_pumpCoroutine == null)
@@ -46,16 +50,38 @@ namespace BeatSurgeon
 
         public static void Dispose()
         {
+            Task recvTask;
+            CancellationTokenSource cts;
+            ClientWebSocket ws;
+
             lock (_lock)
             {
                 _connectedRoomCode = null;
+                recvTask = _recvTask;
+                cts = _cts;
+                ws = _ws;
+                _recvTask = null;
+                _cts = null;
+                _ws = null;
             }
 
-            try { _cts?.Cancel(); } catch { }
-            try { _ws?.Dispose(); } catch { }
-            _ws = null;
-            _cts = null;
-            _recvTask = null;
+            try { SceneHelper.MpPlusInRoomChanged -= _mpPlusInRoomChangedHandler; } catch { }
+            try { SceneHelper.MpPlusRoomInfoChanged -= _mpPlusRoomInfoChangedHandler; } catch { }
+            try { cts?.Cancel(); } catch { }
+            try { ws?.Dispose(); } catch { }
+            if (recvTask != null)
+            {
+                try
+                {
+                    if (!recvTask.Wait(500))
+                        Plugin.Log.Warn("[MultiplayerRoomSyncClient] Receive task did not stop within 500ms.");
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn($"[MultiplayerRoomSyncClient] Receive task join failed: {ex.Message}");
+                }
+            }
+            try { cts?.Dispose(); } catch { }
 
             if (_pumpCoroutine != null)
             {
@@ -88,26 +114,52 @@ namespace BeatSurgeon
             {
                 _connectedRoomCode = roomCode;
                 _cts = new CancellationTokenSource();
-                _ws = new ClientWebSocket();
-                _recvTask = Task.Run(() => ReceiveLoopAsync(roomCode, _cts.Token));
+                var ws = new ClientWebSocket();
+                _ws = ws;
+                _recvTask = Task.Run(() => ReceiveLoopAsync(ws, roomCode, _cts.Token));
             }
         }
 
         private static void Disconnect()
         {
+            Task recvTask;
+            CancellationTokenSource cts;
+            ClientWebSocket ws;
+
             lock (_lock)
             {
                 _connectedRoomCode = null;
-                try { _cts?.Cancel(); } catch { }
-                _cts = null;
-
-                try { _ws?.Dispose(); } catch { }
-                _ws = null;
+                recvTask = _recvTask;
+                cts = _cts;
+                ws = _ws;
                 _recvTask = null;
+                _cts = null;
+                _ws = null;
             }
+
+            try { cts?.Cancel(); } catch { }
+            try { ws?.Dispose(); } catch { }
+            if (recvTask != null)
+            {
+                try
+                {
+                    if (!recvTask.Wait(500))
+                        Plugin.Log.Warn("[MultiplayerRoomSyncClient] Receive task did not stop within 500ms.");
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn($"[MultiplayerRoomSyncClient] Receive task join failed: {ex.Message}");
+                }
+            }
+            try { cts?.Dispose(); } catch { }
         }
 
-        private static async Task ReceiveLoopAsync(string roomCode, CancellationToken ct)
+        private static void OnMpPlusInRoomChanged(bool _)
+        {
+            OnRoomMaybeChanged();
+        }
+
+        private static async Task ReceiveLoopAsync(ClientWebSocket ws, string roomCode, CancellationToken ct)
         {
             try
             {
@@ -115,16 +167,16 @@ namespace BeatSurgeon
 
                 var cid = PluginConfig.Instance?.MpClientId;
                 if (!string.IsNullOrWhiteSpace(cid))
-                    _ws.Options.SetRequestHeader("X-MP-Client-Id", cid);
+                    ws.Options.SetRequestHeader("X-MP-Client-Id", cid);
 
                 // Optional but useful for server logging/identity fallback:
-                _ws.Options.SetRequestHeader("X-Client-App", "BeatSurgeon-BS");
+                ws.Options.SetRequestHeader("X-Client-App", "BeatSurgeon-BS");
 
-                await _ws.ConnectAsync(uri, ct);
+                await ws.ConnectAsync(uri, ct);
 
                 var buffer = new byte[64 * 1024];
 
-                while (!ct.IsCancellationRequested && _ws.State == WebSocketState.Open)
+                while (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)
                 {
                     int count = 0;
                     WebSocketReceiveResult result;
@@ -132,7 +184,7 @@ namespace BeatSurgeon
                     do
                     {
                         var seg = new ArraySegment<byte>(buffer, count, buffer.Length - count);
-                        result = await _ws.ReceiveAsync(seg, ct);
+                        result = await ws.ReceiveAsync(seg, ct);
 
                         if (result.MessageType == WebSocketMessageType.Close)
                             return;

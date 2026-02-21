@@ -100,12 +100,6 @@ namespace BeatSurgeon.Chat
                 return;
             }
 
-            if (_isInitialized)
-            {
-                Plugin.Log.Warn("ChatManager: Already initialized!");
-                return;
-            }
-
             var cfg = Plugin.Settings ?? new PluginConfig();
             StartCoroutine(InitializeBackendsCoroutine(cfg));
         }
@@ -178,7 +172,7 @@ namespace BeatSurgeon.Chat
                 _eventSubClient.OnChatMessage += HandleNativeChatMessage;
                 // Channel point redemptions are handled by ChannelPointCommandExecutor to ensure
                 // proper locking, refunds and fulfillment. Do NOT subscribe here to avoid duplicate handling.
-                // _eventSubClient.OnChannelPointRedeemed += HandleChannelPointRedeemed;
+                
                 _eventSubClient.OnFollow += user => OnFollowReceived?.Invoke(user);
                 _eventSubClient.OnSubscription += (user, tier) => OnSubscriptionReceived?.Invoke(user, tier);
                 _eventSubClient.OnRaid += (raider, viewers) => OnRaidReceived?.Invoke(raider, viewers);
@@ -670,7 +664,26 @@ namespace BeatSurgeon.Chat
             LogUtils.Debug(() => "ChatManager: Shutting down...");
             StopAllCoroutines();
 
+            Task parserWorker = _parserWorker;
             try { _cts?.Cancel(); } catch { }
+            if (parserWorker != null)
+            {
+                try
+                {
+                    if (!parserWorker.Wait(500))
+                        Plugin.Log.Warn("ChatManager: Parser worker did not stop within 500ms.");
+                }
+                catch (AggregateException aex)
+                {
+                    if (!(aex.GetBaseException() is OperationCanceledException))
+                        Plugin.Log.Warn("ChatManager: Parser worker wait failed: " + aex.GetBaseException().Message);
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn("ChatManager: Parser worker wait failed: " + ex.Message);
+                }
+            }
+            try { _cts?.Dispose(); } catch { }
             _cts = null;
             _parserWorker = null;
 

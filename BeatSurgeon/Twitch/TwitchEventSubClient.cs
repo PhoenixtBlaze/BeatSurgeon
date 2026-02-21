@@ -49,6 +49,12 @@ namespace BeatSurgeon.Twitch
 
         // Track subscription attempts so we don't spam
         private readonly HashSet<string> _subscribedTypes = new HashSet<string>();
+        private readonly object _subscribedTypesLock = new object();
+        private readonly SemaphoreSlim _reconnectGate = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _subscriptionBatchGate = new SemaphoreSlim(1, 1);
+        private Task _listenTask;
+        private Task _reconnectTask;
+        private Task _subscriptionTask;
 
         // Reuse one HttpClient per instance (fine for a mod)
         private readonly HttpClient _http = new HttpClient();
@@ -81,10 +87,119 @@ namespace BeatSurgeon.Twitch
             _clientId = clientId;
             _broadcasterId = broadcasterId;
             _botUserId = botUserId;
+        }
 
-            _http.DefaultRequestHeaders.Clear();
-            _http.DefaultRequestHeaders.Add("Client-Id", _clientId);
-            _http.DefaultRequestHeaders.Add("Authorization", $"Bearer {_userAccessToken}");
+        private HttpRequestMessage CreateAuthedRequest(HttpMethod method, string url, HttpContent content = null)
+        {
+            var req = new HttpRequestMessage(method, url);
+            if (content != null)
+                req.Content = content;
+
+            string token = TwitchAuthManager.Instance.GetAccessToken();
+            if (string.IsNullOrWhiteSpace(token))
+                token = _userAccessToken;
+
+            req.Headers.TryAddWithoutValidation("Client-Id", _clientId);
+            req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+            return req;
+        }
+
+        private void ClearSubscribedTypes()
+        {
+            lock (_subscribedTypesLock)
+                _subscribedTypes.Clear();
+        }
+
+        private bool TryBeginSubscription(string key)
+        {
+            lock (_subscribedTypesLock)
+            {
+                if (_subscribedTypes.Contains(key))
+                    return false;
+
+                _subscribedTypes.Add(key);
+                return true;
+            }
+        }
+
+        private void CancelSubscription(string key)
+        {
+            lock (_subscribedTypesLock)
+                _subscribedTypes.Remove(key);
+        }
+
+        private void QueueReconnect(string targetUrl)
+        {
+            Task existing = _reconnectTask;
+            if (existing != null && !existing.IsCompleted)
+                return;
+
+            _reconnectTask = Task.Run(async () =>
+            {
+                await _reconnectGate.WaitAsync();
+                try
+                {
+                    if (!_allowReconnect)
+                        return;
+
+                    await ReconnectWithBackoffAsync(targetUrl);
+                }
+                finally
+                {
+                    _reconnectGate.Release();
+                }
+            });
+
+            _reconnectTask.ContinueWith(
+                t => Plugin.Log.Error("TwitchEventSubClient: Reconnect task faulted: " + t.Exception?.GetBaseException().Message),
+                TaskContinuationOptions.OnlyOnFaulted);
+        }
+
+        private void QueueInitialSubscriptions()
+        {
+            Task existing = _subscriptionTask;
+            if (existing != null && !existing.IsCompleted)
+                return;
+
+            _subscriptionTask = Task.Run(async () =>
+            {
+                CancellationToken ct = _cts != null ? _cts.Token : CancellationToken.None;
+                bool gateEntered = false;
+                try
+                {
+                    await _subscriptionBatchGate.WaitAsync(ct);
+                    gateEntered = true;
+
+                    await EnsureSubscriptionAsync("channel.chat.message", "1");
+                    await EnsureSubscriptionAsync("channel.follow", "2");
+                    await EnsureSubscriptionAsync("channel.subscribe", "1");
+                    await EnsureSubscriptionAsync("channel.raid", "1");
+
+                    var cfg = Plugin.Settings;
+                    var rewardIds = new List<string>
+                    {
+                        cfg.CpRainbowEnabled    ? cfg.CpRainbowRewardId    : null,
+                        cfg.CpDisappearEnabled  ? cfg.CpDisappearRewardId  : null,
+                        cfg.CpGhostEnabled      ? cfg.CpGhostRewardId      : null,
+                        cfg.CpBombEnabled       ? cfg.CpBombRewardId       : null,
+                        cfg.CpFasterEnabled     ? cfg.CpFasterRewardId     : null,
+                        cfg.CpSuperFastEnabled  ? cfg.CpSuperFastRewardId  : null,
+                        cfg.CpSlowerEnabled     ? cfg.CpSlowerRewardId     : null,
+                        cfg.CpFlashbangEnabled  ? cfg.CpFlashbangRewardId  : null,
+                    }.Where(id => !string.IsNullOrWhiteSpace(id));
+
+                    await EnsureChannelPointSubscriptionsAsync(rewardIds);
+                }
+                finally
+                {
+                    if (gateEntered)
+                        _subscriptionBatchGate.Release();
+                }
+            });
+
+            _subscriptionTask.ContinueWith(
+                t => Plugin.Log.Error("TwitchEventSubClient: Subscription batch failed: " + t.Exception?.GetBaseException().Message),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         /// <summary>
@@ -121,14 +236,17 @@ namespace BeatSurgeon.Twitch
 
             _sessionId = null;
             _reconnectUrl = null;
-            _subscribedTypes.Clear();
+            ClearSubscribedTypes();
 
             LogUtils.Debug(() => $"TwitchEventSubClient: Connecting to {EventSubWsUrl}");
             await _ws.ConnectAsync(new Uri(EventSubWsUrl), _cts.Token);
             _isConnected = true;
             LogUtils.Debug(() => "TwitchEventSubClient: WebSocket connected");
 
-            _ = Task.Run(ListenLoopAsync);
+            _listenTask = Task.Run(ListenLoopAsync);
+            _listenTask.ContinueWith(
+                t => Plugin.Log.Error("TwitchEventSubClient: Listen task faulted: " + t.Exception?.GetBaseException().Message),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
 
@@ -183,8 +301,7 @@ namespace BeatSurgeon.Twitch
 
                     _reconnectUrl = null;
 
-                    // Fire-and-forget backoff loop
-                    _ = Task.Run(() => ReconnectWithBackoffAsync(targetUrl));
+                    QueueReconnect(targetUrl);
                 }
             }
         }
@@ -284,40 +401,7 @@ namespace BeatSurgeon.Twitch
             LogUtils.Debug(() => $"TwitchEventSubClient: session_welcome session_id={_sessionId}, keepalive_timeout_seconds={keepaliveTimeout}");
 
             // IMPORTANT: Twitch expects you to subscribe shortly after welcome (about 10s by default) [web docs] .
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    // Pick the event types you want. These match your old backend WS events.
-
-                    // Do not subscribe broadly to all channel point redemptions. Subscribe per reward id below.
-                    await EnsureSubscriptionAsync("channel.chat.message", "1");
-                    await EnsureSubscriptionAsync("channel.follow", "2");
-                    await EnsureSubscriptionAsync("channel.subscribe", "1");
-                    await EnsureSubscriptionAsync("channel.raid", "1");
-
-                    // Subscribe per configured reward id so we only receive events for rewards we own
-                    var cfg = Plugin.Settings;
-                    var rewardIds = new List<string>
-                    {
-                        cfg.CpRainbowEnabled    ? cfg.CpRainbowRewardId    : null,
-                        cfg.CpDisappearEnabled  ? cfg.CpDisappearRewardId  : null,
-                        cfg.CpGhostEnabled      ? cfg.CpGhostRewardId      : null,
-                        cfg.CpBombEnabled       ? cfg.CpBombRewardId       : null,
-                        cfg.CpFasterEnabled     ? cfg.CpFasterRewardId     : null,
-                        cfg.CpSuperFastEnabled  ? cfg.CpSuperFastRewardId  : null,
-                        cfg.CpSlowerEnabled     ? cfg.CpSlowerRewardId     : null,
-                        cfg.CpFlashbangEnabled  ? cfg.CpFlashbangRewardId  : null,
-                    }.Where(id => !string.IsNullOrWhiteSpace(id));
-
-                    await EnsureChannelPointSubscriptionsAsync(rewardIds);
-
-                }
-                catch (Exception ex)
-                {
-                    Plugin.Log.Error("TwitchEventSubClient: Subscription batch failed: " + ex.Message);
-                }
-            });
+            QueueInitialSubscriptions();
         }
 
         private void HandleSessionReconnect(JObject obj)
@@ -346,14 +430,17 @@ namespace BeatSurgeon.Twitch
 
             // After reconnect, Twitch will send a new welcome with a new session_id, so we must re-subscribe.
             _sessionId = null;
-            _subscribedTypes.Clear();
+            ClearSubscribedTypes();
 
             await _ws.ConnectAsync(new Uri(reconnectUrl), _cts.Token);
 
             _isConnected = true;
             LogUtils.Debug(() => "TwitchEventSubClient: WebSocket reconnected");
 
-            _ = Task.Run(ListenLoopAsync);
+            _listenTask = Task.Run(ListenLoopAsync);
+            _listenTask.ContinueWith(
+                t => Plugin.Log.Error("TwitchEventSubClient: Listen task faulted: " + t.Exception?.GetBaseException().Message),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         /// <summary>
@@ -365,25 +452,29 @@ namespace BeatSurgeon.Twitch
                 throw new InvalidOperationException("Cannot subscribe without session_id");
 
             string key = $"{type}:{version}";
-            if (_subscribedTypes.Contains(key))
+            if (!TryBeginSubscription(key))
                 return;
 
             var payload = BuildSubscriptionPayload(type, version);
             string body = JsonConvert.SerializeObject(payload);
 
-            var content = new StringContent(body, Encoding.UTF8, "application/json");
-            var resp = await _http.PostAsync($"{HelixBase}/eventsub/subscriptions", content);
-
-            string respBody = await resp.Content.ReadAsStringAsync();
-
-            if (resp.IsSuccessStatusCode)
+            using (var req = CreateAuthedRequest(
+                HttpMethod.Post,
+                $"{HelixBase}/eventsub/subscriptions",
+                new StringContent(body, Encoding.UTF8, "application/json")))
+            using (var resp = await _http.SendAsync(req, _cts != null ? _cts.Token : CancellationToken.None))
             {
-                _subscribedTypes.Add(key);
-                LogUtils.Debug(() => $"TwitchEventSubClient: Subscribed OK -> {type} v{version}");
-            }
-            else
-            {
-                Plugin.Log.Warn($"TwitchEventSubClient: Subscribe failed -> {type} v{version} ({(int)resp.StatusCode}) {respBody}");
+                string respBody = await resp.Content.ReadAsStringAsync();
+
+                if (resp.IsSuccessStatusCode)
+                {
+                    LogUtils.Debug(() => $"TwitchEventSubClient: Subscribed OK -> {type} v{version}");
+                }
+                else
+                {
+                    CancelSubscription(key);
+                    Plugin.Log.Warn($"TwitchEventSubClient: Subscribe failed -> {type} v{version} ({(int)resp.StatusCode}) {respBody}");
+                }
             }
         }
 
@@ -642,15 +733,19 @@ namespace BeatSurgeon.Twitch
             };
 
             string body = JsonConvert.SerializeObject(payload);
-            var content = new StringContent(body, Encoding.UTF8, "application/json");
+            using (var req = CreateAuthedRequest(
+                HttpMethod.Post,
+                $"{HelixBase}/chat/messages",
+                new StringContent(body, Encoding.UTF8, "application/json")))
+            using (var resp = await _http.SendAsync(req, _cts != null ? _cts.Token : CancellationToken.None))
+            {
+                if (resp.IsSuccessStatusCode)
+                    return true;
 
-            var resp = await _http.PostAsync($"{HelixBase}/chat/messages", content);
-            if (resp.IsSuccessStatusCode)
-                return true;
-
-            string respBody = await resp.Content.ReadAsStringAsync();
-            Plugin.Log.Warn($"TwitchEventSubClient: SendChatMessage failed ({(int)resp.StatusCode}) {respBody}");
-            return false;
+                string respBody = await resp.Content.ReadAsStringAsync();
+                Plugin.Log.Warn($"TwitchEventSubClient: SendChatMessage failed ({(int)resp.StatusCode}) {respBody}");
+                return false;
+            }
         }
 
         public void Shutdown()
@@ -675,7 +770,19 @@ namespace BeatSurgeon.Twitch
 
             _sessionId = null;
             _reconnectUrl = null;
-            _subscribedTypes.Clear();
+            ClearSubscribedTypes();
+
+            Task listenTask = _listenTask;
+            Task reconnectTask = _reconnectTask;
+            Task subscriptionTask = _subscriptionTask;
+
+            try { listenTask?.Wait(500); } catch { }
+            try { reconnectTask?.Wait(500); } catch { }
+            try { subscriptionTask?.Wait(500); } catch { }
+
+            _listenTask = null;
+            _reconnectTask = null;
+            _subscriptionTask = null;
         }
 
         // New: ensure we subscribe once per configured reward id so we only receive redemptions for rewards we own
@@ -686,7 +793,7 @@ namespace BeatSurgeon.Twitch
             {
                 if (string.IsNullOrWhiteSpace(rewardId)) continue;
                 string key = $"channel.channel_points_custom_reward_redemption.add::1::{rewardId}";
-                if (_subscribedTypes.Contains(key)) continue;
+                if (!TryBeginSubscription(key)) continue;
 
                 var payload = new
                 {
@@ -701,17 +808,22 @@ namespace BeatSurgeon.Twitch
                 };
 
                 string body = JsonConvert.SerializeObject(payload);
-                var content = new StringContent(body, Encoding.UTF8, "application/json");
-                var resp = await _http.PostAsync($"{HelixBase}/eventsub/subscriptions", content);
-                string respBody = await resp.Content.ReadAsStringAsync();
-                if (resp.IsSuccessStatusCode)
+                using (var req = CreateAuthedRequest(
+                    HttpMethod.Post,
+                    $"{HelixBase}/eventsub/subscriptions",
+                    new StringContent(body, Encoding.UTF8, "application/json")))
+                using (var resp = await _http.SendAsync(req, _cts != null ? _cts.Token : CancellationToken.None))
                 {
-                    _subscribedTypes.Add(key);
-                    Plugin.Log.Info($"TwitchEventSubClient Subscribed to CP reward_id={rewardId}");
-                }
-                else
-                {
-                    Plugin.Log.Warn($"TwitchEventSubClient CP subscribe failed reward_id={rewardId} {(int)resp.StatusCode} {respBody}");
+                    string respBody = await resp.Content.ReadAsStringAsync();
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        Plugin.Log.Info($"TwitchEventSubClient Subscribed to CP reward_id={rewardId}");
+                    }
+                    else
+                    {
+                        CancelSubscription(key);
+                        Plugin.Log.Warn($"TwitchEventSubClient CP subscribe failed reward_id={rewardId} {(int)resp.StatusCode} {respBody}");
+                    }
                 }
             }
         }
