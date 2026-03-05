@@ -837,22 +837,22 @@ namespace BeatSurgeon.UI.Controllers
         {
             LogUtils.Debug(() => "BeatSurgeon: Start/Play button pressed!");
             LogUtils.Debug(() => $"Timer set to: {PlayTime} minutes");
-
-            var gameplayManager = BeatSurgeon.Gameplay.GameplayManager.GetInstance();
-
-            if (gameplayManager.IsPlaying())
-            {
-                gameplayManager.StopEndlessMode();
-                LogUtils.Debug(() => "BeatSurgeon: Stopped endless mode");
-                ChatManager.GetInstance().SendChatMessage("Saber Surgeon session ended!");
-            }
-            else
-            {
-                gameplayManager.StartEndlessMode(PlayTime);
-                LogUtils.Debug(() => $"BeatSurgeon: Started endless mode for {PlayTime} minutes");
-                ChatManager.GetInstance().SendChatMessage(
-                    $"Saber Surgeon started! Playing for {PlayTime} minutes. Request songs with !bsr <code>");
-            }
+            // Endless mode is intentionally disabled for now.
+            // var gameplayManager = BeatSurgeon.Gameplay.GameplayManager.GetInstance();
+            // if (gameplayManager.IsPlaying())
+            // {
+            //     gameplayManager.StopEndlessMode();
+            //     LogUtils.Debug(() => "BeatSurgeon: Stopped endless mode");
+            //     ChatManager.GetInstance().SendChatMessage("Saber Surgeon session ended!");
+            // }
+            // else
+            // {
+            //     gameplayManager.StartEndlessMode(PlayTime);
+            //     LogUtils.Debug(() => $"BeatSurgeon: Started endless mode for {PlayTime} minutes");
+            //     ChatManager.GetInstance().SendChatMessage(
+            //         $"Saber Surgeon started! Playing for {PlayTime} minutes. Request songs with !bsr <code>");
+            // }
+            ChatManager.GetInstance().SendChatMessage("Endless mode is currently disabled.");
         }
 
 

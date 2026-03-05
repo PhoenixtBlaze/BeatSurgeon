@@ -244,52 +244,39 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         public void StartEndlessMode(float durationMinutes)
         {
-            if (_isPlaying)
-            {
-                Plugin.Log.Warn("GameplayManager: Already playing!");
-                return;
-            }
-
-
-            // NEW: make sure MenuTransitionsHelper exists
-            if (!EnsureDependencies())
-            {
-                Plugin.Log.Error("GameplayManager: Cannot start – MenuTransitionsHelper missing");
-                return;
-            }
-
-
-            LogUtils.Debug(() => $"GameplayManager: Starting Endless Mode for {durationMinutes} minutes");
-
-            CapturePlayerSettings();
-            _totalTime = durationMinutes * 60f; // Convert to seconds
-            _remainingTime = _totalTime;
-            _isPlaying = true;
-            _playedLevelIds.Clear();
-            _requestQueue.Clear();
-
-            // Load available custom songs
-            LoadAvailableSongs();
-
-            if (_availableLevels.Count == 0)
-            {
-                Plugin.Log.Error("GameplayManager: No custom songs found!");
-                StopEndlessMode();
-                return;
-            }
-
-            _inLevelQueueProcessor?.StartProcessing();
-            // *** NEW: Subscribe to mid-song switch events ***
-            _inLevelQueueProcessor.SwitchRequested += OnSwitchRequestedDuringPlay;
-            _inLevelQueueProcessor.PreloadRequested += OnPreloadRequested;
-            _downloadPollerCoroutine = StartCoroutine(DownloadPoller());
-
-
-            LogUtils.Debug(() => $"GameplayManager: Found {_availableLevels.Count} custom songs");
-
-            // Start gameplay loop
-            _gameplayCoroutine = StartCoroutine(GameplayLoop());
-            _timerCoroutine = StartCoroutine(TimerCountdown());
+            // Endless mode is intentionally disabled for now.
+            // if (_isPlaying)
+            // {
+            //     Plugin.Log.Warn("GameplayManager: Already playing!");
+            //     return;
+            // }
+            // if (!EnsureDependencies())
+            // {
+            //     Plugin.Log.Error("GameplayManager: Cannot start – MenuTransitionsHelper missing");
+            //     return;
+            // }
+            // LogUtils.Debug(() => $"GameplayManager: Starting Endless Mode for {durationMinutes} minutes");
+            // CapturePlayerSettings();
+            // _totalTime = durationMinutes * 60f;
+            // _remainingTime = _totalTime;
+            // _isPlaying = true;
+            // _playedLevelIds.Clear();
+            // _requestQueue.Clear();
+            // LoadAvailableSongs();
+            // if (_availableLevels.Count == 0)
+            // {
+            //     Plugin.Log.Error("GameplayManager: No custom songs found!");
+            //     StopEndlessMode();
+            //     return;
+            // }
+            // _inLevelQueueProcessor?.StartProcessing();
+            // _inLevelQueueProcessor.SwitchRequested += OnSwitchRequestedDuringPlay;
+            // _inLevelQueueProcessor.PreloadRequested += OnPreloadRequested;
+            // _downloadPollerCoroutine = StartCoroutine(DownloadPoller());
+            // LogUtils.Debug(() => $"GameplayManager: Found {_availableLevels.Count} custom songs");
+            // _gameplayCoroutine = StartCoroutine(GameplayLoop());
+            // _timerCoroutine = StartCoroutine(TimerCountdown());
+            Plugin.Log.Info("GameplayManager: StartEndlessMode ignored because Endless mode is disabled.");
         }
 
 
@@ -721,69 +708,11 @@ namespace BeatSurgeon.Gameplay
         float? segmentLengthSeconds,
         out string rejectReason)
         {
-            rejectReason = null;
-
-            if (!_isPlaying)
-            {
-                rejectReason = "";
-                return false;
-            }
-
-            var cfg = Plugin.Settings;
-            if (cfg != null && !cfg.SongRequestsEnabled)
-            {
-                rejectReason = "Song requests are disabled.";
-                return false;
-            }
-
-            bsrCode = (bsrCode ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(bsrCode))
-            {
-                rejectReason = "Missing BSR code.";
-                return false;
-            }
-
-            int sizeLimit = cfg?.QueueSizeLimit ?? 20;
-            if (sizeLimit > 0 && _requestQueue.Count >= sizeLimit)
-            {
-                rejectReason = "";
-                return false;
-            }
-
-            int requeueLimit = cfg?.RequeueLimit ?? 10;
-            if (requeueLimit > 0 &&
-                _recentRequestOrPlayHistory.Contains(bsrCode, StringComparer.OrdinalIgnoreCase))
-            {
-                rejectReason = "";
-                return false;
-            }
-
-            var req = new SongRequest
-            {
-                BsrCode = bsrCode,
-                RequesterName = string.IsNullOrWhiteSpace(requesterName) ? "Unknown" : requesterName,
-                RequestTime = DateTime.UtcNow,
-
-                RequestedDifficulty = requestedDifficulty,
-                StartTimeSeconds = startTimeSeconds,
-                SegmentLengthSeconds = segmentLengthSeconds,
-
-                
-                SwitchAfterSeconds = switchAfterSeconds
-            };
-
-            _requestQueue.Enqueue(req);
-            EnsureDownloadStarted(req);
-
-            if (requeueLimit > 0)
-            {
-                _recentRequestOrPlayHistory.Enqueue(bsrCode);
-                while (_recentRequestOrPlayHistory.Count > requeueLimit)
-                    _recentRequestOrPlayHistory.Dequeue();
-            }
-
-            LogUtils.Debug(() => $"GameplayManager: Queued request {bsrCode} by {req.RequesterName}");
-            return true;
+            // Song requests are intentionally disabled for now (covers !sr / !bsr flows).
+            // rejectReason = null; 
+            // ...existing queueing logic temporarily disabled...
+            rejectReason = "Song requests are currently disabled.";
+            return false;
         }
 
 
@@ -915,8 +844,8 @@ namespace BeatSurgeon.Gameplay
         internal Task ApplyEndlessModeAsync(float durationMinutes, ChatContext ctx, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            StartEndlessMode(durationMinutes);
-            _log.Effect("EndlessMode", true, "durationMinutes=" + durationMinutes + " requestedBy=" + (ctx?.Username ?? "Unknown"));
+            // StartEndlessMode(durationMinutes);
+            _log.Effect("EndlessMode", false, "disabled=true requestedBy=" + (ctx?.Username ?? "Unknown"));
             return Task.CompletedTask;
         }
 
@@ -931,26 +860,11 @@ namespace BeatSurgeon.Gameplay
         internal Task<bool> ApplySongRequestAsync(string bsrCode, ChatContext ctx, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            bool ok = TryQueueSongRequest(
-                bsrCode,
-                ctx?.Username,
-                requestedDifficulty: null,
-                startTimeSeconds: null,
-                switchAfterSeconds: null,
-                segmentLengthSeconds: null,
-                rejectReason: out string rejectReason);
-
-            if (!ok)
-            {
-                _log.Effect("SongRequest", false, "bsrCode=" + bsrCode + " reason=" + rejectReason);
-                ChatManager.GetInstance()?.SendChatMessage("!!Request rejected: " + rejectReason);
-            }
-            else
-            {
-                _log.Effect("SongRequest", true, "bsrCode=" + bsrCode + " requestedBy=" + (ctx?.Username ?? "Unknown"));
-            }
-
-            return Task.FromResult(ok);
+            // !sr / !bsr handling is intentionally disabled for now.
+            // bool ok = TryQueueSongRequest(...);
+            // if (!ok) { ...chat response... }
+            _log.Effect("SongRequest", false, "bsrCode=" + bsrCode + " reason=disabled");
+            return Task.FromResult(false);
         }
 
         /// <summary>
