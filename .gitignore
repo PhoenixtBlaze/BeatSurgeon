@@ -366,3 +366,6 @@ FodyWeavers.xsd
 /BeatSurgeon/code_dump.txt
 /BeatSurgeon/Dump-Code.ps1
 /BeatSurgeon/Beat Surgeon Latest Decompiled.txt
+/DecompiledBeatSaberCodes(DO NOT EDIT)/
+tmpclaude*
+/BeatSurgeon/Chat/Processors/SongRequestProcessor.cs
