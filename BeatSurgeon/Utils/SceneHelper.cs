@@ -218,96 +218,103 @@ namespace BeatSurgeon
         {
             while (true)
             {
-                try
+                var sceneName = SceneManager.GetActiveScene().name;
+
+                // OPTIMIZATION: Only poll MP+ state in menu scenes, not during GameCore gameplay
+                // This prevents expensive reflection operations from causing frame drops and network overload
+                if (!string.Equals(sceneName, "GameCore", StringComparison.OrdinalIgnoreCase))
                 {
-                    EnsureMpAssembly();
-                    EnsureMpNetworkReflection();
-                    DumpNetworkManagerMembersOnce();
-                    EnsureMpFlowReflection();
-
-                    var sceneName = SceneManager.GetActiveScene().name;
-
-                    // ----- Network-based detection -----
-                    object statusObj = GetStaticValue(_mpStatusProp, _mpStatusField);
-                    string statusStr = statusObj?.ToString();
-
-                    object roomData = GetStaticValue(_mpRoomDataProp, _mpRoomDataField);
-                    bool hasRoomData = roomData != null;
-
-                    string roomCode = GetMemberString(roomData, "RoomCode");
-                    string roomState = GetMemberString(roomData, "State");
-                    string roomType = GetMemberString(roomData, "RoomType");
-
-                    bool statusSaysInRoom = string.Equals(statusStr, "InRoom", StringComparison.OrdinalIgnoreCase);
-                    bool mpInRoom = statusSaysInRoom || hasRoomData;
-
-                    // Keep exported flag in sync even if events fail / no events fire.
-                    SetMpPlusInRoom(mpInRoom, "poll", statusStr, hasRoomData);
-
-                    // "In MP+ lobby/room" meaning: MP+ room exists, and we're not currently playing a map.
-                    bool mpRoomSelecting = string.Equals(roomState, "SelectingSong", StringComparison.OrdinalIgnoreCase);
-                    bool mpRoomWarmingUp = string.Equals(roomState, "WarmingUp", StringComparison.OrdinalIgnoreCase);
-                    bool mpRoomPlaying = string.Equals(roomState, "Playing", StringComparison.OrdinalIgnoreCase);
-                    bool mpRoomResults = string.Equals(roomState, "Results", StringComparison.OrdinalIgnoreCase);
-
-                    bool mpInLobbyRoomState =
-                        mpInRoom && (mpRoomSelecting || mpRoomWarmingUp || mpRoomResults);
-
-                    // "In MP+ map" meaning: in GameCore and room state indicates playing/warmup/results.
-                    bool mpInMap =
-                        mpInRoom &&
-                        string.Equals(sceneName, "GameCore", StringComparison.OrdinalIgnoreCase) &&
-                        (mpRoomPlaying || mpRoomWarmingUp || mpRoomResults);
-
-
-
-                    object selfPlayer = GetStaticValue(_mpSelfPlayerProp, null);
-
-                    
-                    uint hostLuid = GetMemberUInt(roomData, "HostLUID");
-                    uint selfLuid = GetMemberUInt(selfPlayer, "LUID");
-
-                    bool isHost = hostLuid != 0 && selfLuid != 0 && hostLuid == selfLuid;
-
-                    SetMpPlusRoomInfo(roomCode, isHost);
-
-
-
-                    // ----- UI FlowCoordinator-based detection (MP+ menu/lobby UI open) -----
-                    object flow = GetStaticValue(_mpFlowInstanceProp, null);
-                    bool flowExists = flow != null;
-
-                    bool flowIsInMain = GetInstanceBool(flow, _mpFlowIsInMainViewProp);
-                    bool flowIsInRoom = GetInstanceBool(flow, _mpFlowIsInRoomViewProp);
-                    bool flowIsInResults = GetInstanceBool(flow, _mpFlowIsInResultsViewProp);
-                    bool flowInHierarchy = InvokeIsInHierarchy(flow);
-
-                    bool mpUiActive =
-                        flowExists &&
-                        (flowIsInMain || flowIsInRoom || flowIsInResults || flowInHierarchy);
-
-                    // ----- Single snapshot log -----
-                    string snapshot =
-                        $"Scene={sceneName} | " +
-                        $"MPAsm={(_mpAsm != null)} MPNet={(_mpNetworkManagerType != null)} | " +
-                        $"Status={statusStr ?? "null"} InRoom={mpInRoom} RoomData={hasRoomData} | " +
-                        $"RoomState={roomState ?? "null"} RoomCode={roomCode ?? "null"} RoomType={roomType ?? "null"} | " +
-                        $"MP_UI={mpUiActive} (Main={flowIsInMain},Room={flowIsInRoom},Results={flowIsInResults},Hierarchy={flowInHierarchy}) | " +
-                        $"MP_Lobby={mpInLobbyRoomState} MP_Map={mpInMap} | " +
-                        $"MpPlusInRoomFlag={MpPlusInRoom}";
-
-                    if (!string.Equals(snapshot, _lastSnapshot, StringComparison.Ordinal))
+                    try
                     {
-                        _lastSnapshot = snapshot;
-                        LogUtils.Debug(() => $"[SceneHelper] MP+ snapshot -> {snapshot}");
+                        EnsureMpAssembly();
+                        EnsureMpNetworkReflection();
+                        DumpNetworkManagerMembersOnce();
+                        EnsureMpFlowReflection();
+
+                        // ----- Network-based detection -----
+                        object statusObj = GetStaticValue(_mpStatusProp, _mpStatusField);
+                        string statusStr = statusObj?.ToString();
+
+                        object roomData = GetStaticValue(_mpRoomDataProp, _mpRoomDataField);
+                        bool hasRoomData = roomData != null;
+
+                        string roomCode = GetMemberString(roomData, "RoomCode");
+                        string roomState = GetMemberString(roomData, "State");
+                        string roomType = GetMemberString(roomData, "RoomType");
+
+                        bool statusSaysInRoom = string.Equals(statusStr, "InRoom", StringComparison.OrdinalIgnoreCase);
+                        bool mpInRoom = statusSaysInRoom || hasRoomData;
+
+                        // Keep exported flag in sync even if events fail / no events fire.
+                        SetMpPlusInRoom(mpInRoom, "poll", statusStr, hasRoomData);
+
+                        // "In MP+ lobby/room" meaning: MP+ room exists, and we're not currently playing a map.
+                        bool mpRoomSelecting = string.Equals(roomState, "SelectingSong", StringComparison.OrdinalIgnoreCase);
+                        bool mpRoomWarmingUp = string.Equals(roomState, "WarmingUp", StringComparison.OrdinalIgnoreCase);
+                        bool mpRoomPlaying = string.Equals(roomState, "Playing", StringComparison.OrdinalIgnoreCase);
+                        bool mpRoomResults = string.Equals(roomState, "Results", StringComparison.OrdinalIgnoreCase);
+
+                        bool mpInLobbyRoomState =
+                            mpInRoom && (mpRoomSelecting || mpRoomWarmingUp || mpRoomResults);
+
+                        // "In MP+ map" meaning: in GameCore and room state indicates playing/warmup/results.
+                        bool mpInMap =
+                            mpInRoom &&
+                            string.Equals(sceneName, "GameCore", StringComparison.OrdinalIgnoreCase) &&
+                            (mpRoomPlaying || mpRoomWarmingUp || mpRoomResults);
+
+
+
+                        object selfPlayer = GetStaticValue(_mpSelfPlayerProp, null);
+
+
+                        uint hostLuid = GetMemberUInt(roomData, "HostLUID");
+                        uint selfLuid = GetMemberUInt(selfPlayer, "LUID");
+
+                        bool isHost = hostLuid != 0 && selfLuid != 0 && hostLuid == selfLuid;
+
+                        SetMpPlusRoomInfo(roomCode, isHost);
+
+
+
+                        // ----- UI FlowCoordinator-based detection (MP+ menu/lobby UI open) -----
+                        object flow = GetStaticValue(_mpFlowInstanceProp, null);
+                        bool flowExists = flow != null;
+
+                        bool flowIsInMain = GetInstanceBool(flow, _mpFlowIsInMainViewProp);
+                        bool flowIsInRoom = GetInstanceBool(flow, _mpFlowIsInRoomViewProp);
+                        bool flowIsInResults = GetInstanceBool(flow, _mpFlowIsInResultsViewProp);
+                        bool flowInHierarchy = InvokeIsInHierarchy(flow);
+
+                        bool mpUiActive =
+                            flowExists &&
+                            (flowIsInMain || flowIsInRoom || flowIsInResults || flowInHierarchy);
+
+                        // ----- Single snapshot log -----
+                        string snapshot =
+                            $"Scene={sceneName} | " +
+                            $"MPAsm={(_mpAsm != null)} MPNet={(_mpNetworkManagerType != null)} | " +
+                            $"Status={statusStr ?? "null"} InRoom={mpInRoom} RoomData={hasRoomData} | " +
+                            $"RoomState={roomState ?? "null"} RoomCode={roomCode ?? "null"} RoomType={roomType ?? "null"} | " +
+                            $"MP_UI={mpUiActive} (Main={flowIsInMain},Room={flowIsInRoom},Results={flowIsInResults},Hierarchy={flowInHierarchy}) | " +
+                            $"MP_Lobby={mpInLobbyRoomState} MP_Map={mpInMap} | " +
+                            $"MpPlusInRoomFlag={MpPlusInRoom}";
+
+                        if (!string.Equals(snapshot, _lastSnapshot, StringComparison.Ordinal))
+                        {
+                            _lastSnapshot = snapshot;
+                            LogUtils.Debug(() => $"[SceneHelper] MP+ snapshot -> {snapshot}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogUtils.Warn($"[SceneHelper] MP+ poll error: {ex.GetType().Name}: {ex.Message}");
                     }
                 }
-                catch (Exception ex)
-                {
-                    LogUtils.Warn($"[SceneHelper] MP+ poll error: {ex.GetType().Name}: {ex.Message}");
-                }
 
-                yield return new WaitForSecondsRealtime(0.5f);
+                // OPTIMIZATION: Longer polling interval in scenes where MP+ state won't change frequently
+                // This reduces CPU usage from reflection operations and improves frame rate
+                yield return new WaitForSecondsRealtime(1f);
             }
         }
 
@@ -366,7 +373,7 @@ namespace BeatSurgeon
                 "BeatSaberPlus_Multiplayer",
             };
 
-            // 1) Resolve by BSIPA plugin id first
+            // 1) Resolve by BSIPA plugin id first (FASTEST - caches in BSIPA)
             foreach (var id in candidatePluginIds)
             {
                 var mpPlugin = PluginManager.EnabledPlugins
@@ -380,7 +387,7 @@ namespace BeatSurgeon
                 }
             }
 
-            // 2) Resolve by assembly name in plugin list
+            // 2) Resolve by assembly name in plugin list (SECOND FASTEST)
             foreach (var asmName in candidateAssemblyNames)
             {
                 var mpPlugin = PluginManager.EnabledPlugins
@@ -394,43 +401,36 @@ namespace BeatSurgeon
                 }
             }
 
-            // 3) Resolve by AppDomain assembly name
+            // 3) Resolve by AppDomain assembly name (Cache AppDomain lookup to avoid repeated scans)
             foreach (var asmName in candidateAssemblyNames)
-            {
-                var domainAsm = AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => string.Equals(a.GetName().Name, asmName, StringComparison.Ordinal));
-
-                if (domainAsm != null)
-                {
-                    _mpAsm = domainAsm;
-                    LogUtils.Debug(() => $"[SceneHelper] MP+ assembly resolved via AppDomain '{asmName}': {_mpAsm.GetName().Name}");
-                    return;
-                }
-            }
-
-            // 4) Last resort: type probe across all loaded assemblies
-            const string probeType = "BeatSaberPlusMultiplayer.Network.NetworkManager";
-            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 try
                 {
-                    if (asm.GetType(probeType, throwOnError: false) != null)
+                    // Only call AppDomain.GetAssemblies() as last resort, and cache the result
+                    var domainAsm = AppDomain.CurrentDomain.GetAssemblies()
+                        .FirstOrDefault(a => string.Equals(a.GetName().Name, asmName, StringComparison.Ordinal));
+
+                    if (domainAsm != null)
                     {
-                        _mpAsm = asm;
-                        LogUtils.Debug(() => $"[SceneHelper] MP+ assembly resolved via global type probe: {_mpAsm.GetName().Name}");
+                        _mpAsm = domainAsm;
+                        LogUtils.Debug(() => $"[SceneHelper] MP+ assembly resolved via AppDomain '{asmName}': {_mpAsm.GetName().Name}");
                         return;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // ignore
+                    LogUtils.Warn($"[SceneHelper] AppDomain lookup failed: {ex.Message}");
+                    return; // Don't repeatedly try if AppDomain lookup fails
                 }
             }
+
+            // 4) Last resort skipped if not found in 3 attempts to avoid CPU spike
+            // If MP+ is not installed via BSIPA, we won't find it and that's OK
 
             if (!_loggedNoMpAsm)
             {
                 _loggedNoMpAsm = true;
-                LogUtils.Warn("[SceneHelper] MP+ assembly still not found (all resolution strategies failed).");
+                LogUtils.Warn("[SceneHelper] MP+ assembly not found (expected if MP+ is not installed).");
             }
         }
 

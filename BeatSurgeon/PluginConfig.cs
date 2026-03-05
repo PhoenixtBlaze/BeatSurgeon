@@ -1,5 +1,5 @@
-﻿using IPA.Config.Stores;
-using Newtonsoft.Json;
+using BeatSurgeon.Utils;
+using IPA.Config.Stores.Attributes;
 using UnityEngine;
 
 namespace BeatSurgeon
@@ -7,24 +7,51 @@ namespace BeatSurgeon
     // Must be public or internal with public virtual properties for BSIPA Generated<T>()
     public class PluginConfig
     {
+        private static readonly LogUtil _log = LogUtil.GetLogger("PluginConfig");
+        private long _tokenExpiryTicks;
+
         public static PluginConfig Instance { get; set; }
 
-        // --- Commands / Toggles ---
+        // --- Auth (PRD canonical fields) ---
+        public virtual string AccessToken { get; set; } = string.Empty;
+        public virtual string RefreshToken { get; set; } = string.Empty;
+        public virtual string ClientId { get; set; } = "dyq6orcrvl9cxd8d1usx6rtczt3tfb";
+        public virtual string ChannelUserId { get; set; } = string.Empty;
+        public virtual long TokenExpiryTicks
+        {
+            get => _tokenExpiryTicks;
+            set => _tokenExpiryTicks = value;
+        }
 
-        // Bomb command keyword (without leading '!')
+        [Ignore]
+        public System.DateTime TokenExpiry
+        {
+            get => _tokenExpiryTicks > 0
+                ? new System.DateTime(_tokenExpiryTicks, System.DateTimeKind.Utc)
+                : System.DateTime.MinValue;
+            set => _tokenExpiryTicks = value == System.DateTime.MinValue
+                ? 0
+                : value.ToUniversalTime().Ticks;
+        }
+
+        [Ignore]
+        public bool HasValidToken =>
+            !string.IsNullOrEmpty(AccessToken) &&
+            TokenExpiry > System.DateTime.UtcNow.AddMinutes(1);
+
+        // --- Commands / Toggles ---
         public virtual string BombCommandName { get; set; } = "bomb";
 
-        // Command toggles
         public virtual bool RainbowEnabled { get; set; } = true;
-        public virtual float RainbowCycleSpeed { get; set; } = 0.1f; // 0.5 = one full cycle every 2 seconds
+        public virtual float RainbowCycleSpeed { get; set; } = 0.1f;
         public virtual bool RainbowGradientFadeEnabled { get; set; } = true;
         public virtual bool DisappearEnabled { get; set; } = true;
         public virtual bool GhostEnabled { get; set; } = true;
         public virtual bool BombEnabled { get; set; } = true;
-        public virtual float BombTextHeight { get; set; } = 1.0f;     // vertical scale
-        public virtual float BombTextWidth { get; set; } = 1.0f;      // horizontal scale
-        public virtual float BombSpawnDistance { get; set; } = 20.0f; // units forward from player
-        public virtual string BombFontType { get; set; } = "Default"; // dropdown selection
+        public virtual float BombTextHeight { get; set; } = 1.0f;
+        public virtual float BombTextWidth { get; set; } = 1.0f;
+        public virtual float BombSpawnDistance { get; set; } = 20.0f;
+        public virtual string BombFontType { get; set; } = "Default";
         public virtual string BombFireworksTextureType { get; set; }
         public virtual Color BombGradientStart { get; set; } = Color.blue;
         public virtual Color BombGradientEnd { get; set; } = Color.red;
@@ -34,10 +61,9 @@ namespace BeatSurgeon
         public virtual bool FlashbangEnabled { get; set; } = true;
         public virtual int FlashbangBrightnessMultiplier { get; set; } = 90;
 
-
-        // Global + per‑command cooldowns
-        public virtual bool GlobalCooldownEnabled { get; set; } = true;
-        public virtual bool PerCommandCooldownsEnabled { get; set; } = false;
+        // --- Cooldowns ---
+        public virtual bool GlobalCooldownEnabled { get; set; } = false;
+        public virtual bool PerCommandCooldownsEnabled { get; set; } = true;
         public virtual float GlobalCooldownSeconds { get; set; } = 60f;
 
         public virtual float RainbowCooldownSeconds { get; set; } = 60f;
@@ -49,131 +75,145 @@ namespace BeatSurgeon
         public virtual float SlowerCooldownSeconds { get; set; } = 60f;
         public virtual float FlashbangCooldownSeconds { get; set; } = 60f;
 
-        // Only one speed effect at a time
         public virtual bool SpeedExclusiveEnabled { get; set; } = true;
 
-        // --- OAuth Token Storage (Encrypted, used by TwitchAuthManager) ---
+        // --- Legacy encrypted auth fields (backwards compatibility) ---
+        public virtual string EncryptedAccessToken { get; set; } = string.Empty;
+        public virtual string EncryptedRefreshToken { get; set; } = string.Empty;
 
-        public virtual string EncryptedAccessToken { get; set; } = "";
-        public virtual string EncryptedRefreshToken { get; set; } = "";
-        public virtual long TokenExpiryTicks { get; set; } = 0; // DateTime.Ticks
-
-        // --- Twitch / Backend Settings ---
-
-        // Cached info about the currently linked Twitch user (broadcaster)
-        // Used by TwitchApiClient and TwitchEventClient
-        public virtual string CachedBroadcasterId { get; set; } = "";
-        public virtual string CachedBroadcasterLogin { get; set; } = "";
-
-        // Supporter cache: subscription tier to phoenixblaze0
+        // --- Twitch / backend settings ---
+        public virtual string CachedBroadcasterId { get; set; } = string.Empty;
+        public virtual string CachedBroadcasterLogin { get; set; } = string.Empty;
         public virtual int CachedSupporterTier { get; set; } = 0;
-
-        // Backend selection and status
-        public virtual bool PreferNativeTwitchBackend { get; set; } = true;   // Use your WebSocket backend first
-        public virtual bool AllowChatPlexFallback { get; set; } = true;   // Fall back to ChatPlex if native fails
-        public virtual string BackendStatus { get; set; } = "";     // For UI/debugging
-
-        // WebSocket endpoint for your server (no channel_id here; added in TwitchEventClient)
-        
-
-        // Cached bot identity (for EventSub conditions like moderator_user_id / user_id)
-        public virtual string CachedBotUserId { get; set; } = "";
-        public virtual string CachedBotUserLogin { get; set; } = "";
-
-        // Optional toggle so you can disable autoconnect from settings later
+        public virtual bool PreferNativeTwitchBackend { get; set; } = true;
+        public virtual bool AllowChatPlexFallback { get; set; } = true;
+        public virtual string BackendStatus { get; set; } = string.Empty;
+        public virtual string CachedBotUserId { get; set; } = string.Empty;
+        public virtual string CachedBotUserLogin { get; set; } = string.Empty;
         public virtual bool AutoConnectTwitch { get; set; } = true;
         public virtual bool TwitchReauthRequired { get; set; } = false;
 
-
-
         // --- Endless / Song Requests ---
-
-        /// Master toggle for chat song requests (!sr / !bsr).
         public virtual bool SongRequestsEnabled { get; set; } = true;
-
-        /// Allow requesters to specify difficulty (e.g. "ex", "e+", "expert+", "hard").
         public virtual bool RequestAllowSpecificDifficulty { get; set; } = true;
-
-        /// Allow requesters to specify time/range (e.g. "1:20" or "1:20-2:10").
         public virtual bool RequestAllowSpecificTime { get; set; } = true;
-
-        /// Max number of pending requests in the queue. If exceeded, new requests are rejected.
         public virtual int QueueSizeLimit { get; set; } = 20;
-
-        /// Prevent the same song being requested again too soon (simple “history window” size).
-        /// 0 disables requeue blocking.
         public virtual int RequeueLimit { get; set; } = 10;
-
-        /// Optional: allow old command name.
         public virtual bool BsrCommandAliasEnabled { get; set; } = true;
         public virtual bool PlayFirstSubmitLaterEnabled { get; set; } = true;
         public virtual bool ScoreSubmissionEnabled { get; set; } = true;
         public virtual bool AutoPauseOnMapEnd { get; set; } = true;
         public virtual bool DebugMode { get; set; } = false;
 
+        // --- Multiplayer ---
+        public virtual string MpClientId { get; set; } = string.Empty;
 
-        // --- Multiplayer / Backend Identity ---
-        public virtual string MpClientId { get; set; } = "";
-
-
-        // ===== Channel Points (per-command) =====
+        // --- Channel Points ---
         public virtual bool CpRainbowEnabled { get; set; } = false;
         public virtual int CpRainbowCost { get; set; } = 500;
         public virtual int CpRainbowCooldownSeconds { get; set; } = 0;
-        public virtual string CpRainbowRewardId { get; set; } = "";
+        public virtual string CpRainbowRewardId { get; set; } = string.Empty;
         public virtual Color CpRainbowBackgroundColor { get; set; } = Color.white;
-
 
         public virtual bool CpDisappearEnabled { get; set; } = false;
         public virtual int CpDisappearCost { get; set; } = 500;
         public virtual int CpDisappearCooldownSeconds { get; set; } = 0;
-        public virtual string CpDisappearRewardId { get; set; } = "";
+        public virtual string CpDisappearRewardId { get; set; } = string.Empty;
         public virtual Color CpDisappearBackgroundColor { get; set; } = Color.white;
-
 
         public virtual bool CpGhostEnabled { get; set; } = false;
         public virtual int CpGhostCost { get; set; } = 500;
         public virtual int CpGhostCooldownSeconds { get; set; } = 0;
-        public virtual string CpGhostRewardId { get; set; } = "";
+        public virtual string CpGhostRewardId { get; set; } = string.Empty;
         public virtual Color CpGhostBackgroundColor { get; set; } = Color.white;
-
 
         public virtual bool CpBombEnabled { get; set; } = false;
         public virtual int CpBombCost { get; set; } = 500;
         public virtual int CpBombCooldownSeconds { get; set; } = 0;
-        public virtual string CpBombRewardId { get; set; } = "";
+        public virtual string CpBombRewardId { get; set; } = string.Empty;
         public virtual Color CpBombBackgroundColor { get; set; } = Color.white;
-
 
         public virtual bool CpFasterEnabled { get; set; } = false;
         public virtual int CpFasterCost { get; set; } = 500;
         public virtual int CpFasterCooldownSeconds { get; set; } = 0;
-        public virtual string CpFasterRewardId { get; set; } = "";
+        public virtual string CpFasterRewardId { get; set; } = string.Empty;
         public virtual Color CpFasterBackgroundColor { get; set; } = Color.white;
-
 
         public virtual bool CpSuperFastEnabled { get; set; } = false;
         public virtual int CpSuperFastCost { get; set; } = 500;
         public virtual int CpSuperFastCooldownSeconds { get; set; } = 0;
-        public virtual string CpSuperFastRewardId { get; set; } = "";
+        public virtual string CpSuperFastRewardId { get; set; } = string.Empty;
         public virtual Color CpSuperFastBackgroundColor { get; set; } = Color.white;
-
 
         public virtual bool CpSlowerEnabled { get; set; } = false;
         public virtual int CpSlowerCost { get; set; } = 500;
         public virtual int CpSlowerCooldownSeconds { get; set; } = 0;
-        public virtual string CpSlowerRewardId { get; set; } = "";
+        public virtual string CpSlowerRewardId { get; set; } = string.Empty;
         public virtual Color CpSlowerBackgroundColor { get; set; } = Color.white;
-
 
         public virtual bool CpFlashbangEnabled { get; set; } = false;
         public virtual int CpFlashbangCost { get; set; } = 500;
         public virtual int CpFlashbangCooldownSeconds { get; set; } = 0;
-        public virtual string CpFlashbangRewardId { get; set; } = "";
+        public virtual string CpFlashbangRewardId { get; set; } = string.Empty;
         public virtual Color CpFlashbangBackgroundColor { get; set; } = Color.white;
 
-        
+        // --- PRD aliases ---
+        public virtual bool ChannelPointsEnabled { get; set; } = false;
 
+        [Ignore]
+        public bool RainbowNotesEnabled { get => RainbowEnabled; set => RainbowEnabled = value; }
 
+        [Ignore]
+        public bool GhostNotesEnabled { get => GhostEnabled; set => GhostEnabled = value; }
+
+        [Ignore]
+        public bool DisappearingArrowsEnabled { get => DisappearEnabled; set => DisappearEnabled = value; }
+
+        [Ignore]
+        public bool BombsEnabled { get => BombEnabled; set => BombEnabled = value; }
+
+        [Ignore]
+        public bool SpeedChangeEnabled
+        {
+            get => FasterEnabled || SuperFastEnabled || SlowerEnabled;
+            set
+            {
+                FasterEnabled = value;
+                SuperFastEnabled = value;
+                SlowerEnabled = value;
+            }
+        }
+
+        [Ignore]
+        public bool EndlessModeEnabled { get => PlayFirstSubmitLaterEnabled; set => PlayFirstSubmitLaterEnabled = value; }
+        public virtual string RainbowNotePermission { get; set; } = "everyone";
+        public virtual string GhostNotePermission { get; set; } = "everyone";
+        public virtual int MaxCommandsPerSecond { get; set; } = 3;
+
+        [Ignore]
+        public int RainbowNotesCooldownSeconds { get => (int)RainbowCooldownSeconds; set => RainbowCooldownSeconds = value; }
+
+        [Ignore]
+        public int GhostNotesCooldownSeconds { get => (int)GhostCooldownSeconds; set => GhostCooldownSeconds = value; }
+
+        public virtual void Changed()
+        {
+            _log.Debug("PluginConfig changed - BSIPA config store notification");
+        }
+
+        public virtual void CopyFrom(PluginConfig other)
+        {
+            if (other == null) return;
+
+            AccessToken = other.AccessToken;
+            RefreshToken = other.RefreshToken;
+            ClientId = other.ClientId;
+            TokenExpiryTicks = other.TokenExpiryTicks;
+            ChannelUserId = other.ChannelUserId;
+            CachedBroadcasterId = other.CachedBroadcasterId;
+            CachedBroadcasterLogin = other.CachedBroadcasterLogin;
+            CachedBotUserId = other.CachedBotUserId;
+            CachedBotUserLogin = other.CachedBotUserLogin;
+        }
     }
 }

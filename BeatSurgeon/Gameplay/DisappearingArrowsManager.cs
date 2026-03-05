@@ -31,11 +31,10 @@ namespace BeatSurgeon.Gameplay
         /// <summary>Enable disappearing arrows for durationSeconds. Returns false if not in a map.</summary>
         public bool StartDisappearingArrows(float durationSeconds)
         {
-            // Require being in a map (same pattern as RainbowManager)
-            var inMap = Resources.FindObjectsOfTypeAll<BeatmapObjectSpawnController>().Length > 0;
-            if (!inMap)
+            GameplayManager gameplayManager = GameplayManager.GetInstance();
+            if (gameplayManager == null || !gameplayManager.IsInMap)
             {
-                Plugin.Log.Warn("DisappearingArrowsManager: Not in a map, no BeatmapObjectSpawnController.");
+                Plugin.Log.Warn("DisappearingArrowsManager: Not in a map.");
                 return false;
             }
 

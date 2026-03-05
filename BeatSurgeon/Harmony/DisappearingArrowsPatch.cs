@@ -1,51 +1,46 @@
-﻿using System.Reflection;
 using HarmonyLib;
-using UnityEngine;
 using BeatSurgeon.Gameplay;
+using BeatSurgeon.Utils;
+using System.Reflection;
 
 namespace BeatSurgeon.HarmonyPatches
 {
     [HarmonyPatch(typeof(ColorNoteVisuals))]
     internal static class DisappearingArrowsPatch
     {
+        private static readonly LogUtil _log = LogUtil.GetLogger("DisappearingArrowsPatch");
+        private static readonly FieldInfo NoteControllerField = AccessTools.Field(typeof(ColorNoteVisuals), "_noteController");
+
         [HarmonyPostfix]
         [HarmonyPatch("HandleNoteControllerDidInit")]
         private static void Postfix(ColorNoteVisuals __instance)
         {
-            // Only affect notes while our DA effect is active
-            if (!DisappearingArrowsManager.DisappearingActive)
-                return;
-
-            var type = typeof(ColorNoteVisuals);
-
-            // We need the underlying NoteController to get noteData.time
-            var noteControllerField = AccessTools.Field(type, "_noteController");
-            if (noteControllerField == null)
+            try
             {
-                Plugin.Log.Warn("DisappearingArrowsPatch: Failed to reflect _noteController field.");
-                return;
+                if (!DisappearingArrowsManager.DisappearingActive)
+                    return;
+
+                if (NoteControllerField == null)
+                    return;
+
+                var noteController = NoteControllerField.GetValue(__instance) as NoteControllerBase;
+                if (noteController == null || noteController.noteData == null)
+                    return;
+
+                var gameNote = NoteUtils.FindNoteControllerParent(__instance);
+                if (gameNote == null)
+                    return;
+
+                var controller = gameNote.gameObject.GetComponent<DisappearingArrowsVisualController>();
+                if (controller == null)
+                    controller = gameNote.gameObject.AddComponent<DisappearingArrowsVisualController>();
+
+                controller.Initialize(gameNote, noteController.noteData.time);
             }
-
-            var noteController = noteControllerField.GetValue(__instance) as NoteControllerBase;
-            if (noteController == null || noteController.noteData == null)
-                return;
-
-            var noteData = noteController.noteData;
-
-            // We now affect both directional and dot notes, so no cutDirection/Any check
-
-            var gameNote = NoteUtils.FindNoteControllerParent(__instance);
-            if (gameNote == null)
+            catch (System.Exception ex)
             {
-                Plugin.Log.Warn("DisappearingArrowsPatch: No note controller parent found");
-                return;
+                _log.Exception(ex, "Postfix");
             }
-
-            var controller = gameNote.gameObject.GetComponent<DisappearingArrowsVisualController>();
-            if (controller == null)
-                controller = gameNote.gameObject.AddComponent<DisappearingArrowsVisualController>();
-
-            controller.Initialize(gameNote, noteData.time);
         }
     }
 }

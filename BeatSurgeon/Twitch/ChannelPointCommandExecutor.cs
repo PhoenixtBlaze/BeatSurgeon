@@ -1,351 +1,240 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
-using UnityEngine;
+using BeatSurgeon.Chat;
+using BeatSurgeon.Gameplay;
+using BeatSurgeon.Utils;
+using Zenject;
 
 namespace BeatSurgeon.Twitch
 {
-    /// <summary>
-    /// Handles channel point redemption execution, automatic refunds on failure,
-    /// and mirrors the command cooldown onto the Twitch reward itself by
-    /// disabling it immediately on success and re-enabling it after the cooldown expires.
-    /// </summary>
-    internal sealed class ChannelPointCommandExecutor
+    internal sealed class ChannelPointCommandExecutor : IInitializable, IDisposable
     {
-        // ── Singleton ────────────────────────────────────────────────────────────
-        private static ChannelPointCommandExecutor instance;
-        public static ChannelPointCommandExecutor Instance
+        private static readonly LogUtil _log = LogUtil.GetLogger("ChannelPointCommandExecutor");
+        private static readonly TimeSpan DeduplicationWindow = TimeSpan.FromSeconds(30);
+        private static ChannelPointCommandExecutor _instance;
+
+        private readonly ChannelPointRouter _router;
+        private readonly GameplayManager _gameplayManager;
+        private readonly TwitchEventSubClient _eventSubClient;
+        private readonly TwitchChannelPointsManager _channelPointsManager;
+        private readonly CommandHandler _commandHandler;
+
+        private readonly ConcurrentDictionary<string, DateTime> _processedRedemptions =
+            new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
+
+        private Timer _cleanupTimer;
+        private CancellationTokenSource _cts;
+
+        internal static ChannelPointCommandExecutor Instance =>
+            _instance ?? (_instance = new ChannelPointCommandExecutor(
+                new ChannelPointRouter(),
+                GameplayManager.GetInstance(),
+                TwitchEventSubClient.Instance,
+                TwitchChannelPointsManager.Instance,
+                CommandHandler.Instance));
+
+        [Inject]
+        public ChannelPointCommandExecutor(
+            ChannelPointRouter router,
+            GameplayManager gameplayManager,
+            TwitchEventSubClient eventSubClient,
+            TwitchChannelPointsManager channelPointsManager,
+            CommandHandler commandHandler)
         {
-            get
+            _instance = this;
+            _router = router;
+            _gameplayManager = gameplayManager;
+            _eventSubClient = eventSubClient;
+            _channelPointsManager = channelPointsManager;
+            _commandHandler = commandHandler;
+        }
+
+        public void Initialize()
+        {
+            _log.Lifecycle("Initialize - starting deduplication cleanup timer");
+            _cts = new CancellationTokenSource();
+            _cleanupTimer = new Timer(
+                _ => CleanupStaleDedupEntries(),
+                state: null,
+                dueTime: TimeSpan.FromSeconds(60),
+                period: TimeSpan.FromSeconds(60));
+
+            _eventSubClient.OnChannelPointRedeemed += HandleRedemption;
+        }
+
+        public void Dispose()
+        {
+            _log.Lifecycle("Dispose");
+            _eventSubClient.OnChannelPointRedeemed -= HandleRedemption;
+            _cleanupTimer?.Dispose();
+            _processedRedemptions.Clear();
+            _cts?.Cancel();
+            _cts?.Dispose();
+        }
+
+        internal void Shutdown() => Dispose();
+
+        internal void Initialize(TwitchEventSubClient newClient)
+        {
+            _eventSubClient.OnChannelPointRedeemed -= HandleRedemption;
+            if (newClient != null)
             {
-                if (instance == null) instance = new ChannelPointCommandExecutor(); // C# 7.3 safe
-                return instance;
+                newClient.OnChannelPointRedeemed += HandleRedemption;
             }
         }
 
-        private TwitchEventSubClient eventSubClient;
-        private readonly Action<TwitchEventSubClient.ChannelPointRedemption> _channelPointRedemptionHandler;
-
-        // Per-reward cooldown task management. Key = rewardId.
-        private readonly object _rewardCooldownLock = new object();
-        private readonly Dictionary<string, CancellationTokenSource> _rewardCooldownTasks
-            = new Dictionary<string, CancellationTokenSource>(StringComparer.OrdinalIgnoreCase);
-
-        private ChannelPointCommandExecutor()
+        internal async Task ResubscribeRewardsAsync(params string[] rewardIds)
         {
-            _channelPointRedemptionHandler = redemption => _ = HandleChannelPointRedemptionAsync(redemption);
+            if (rewardIds == null || rewardIds.Length == 0) return;
+            await _eventSubClient.EnsureChannelPointSubscriptionsAsync(rewardIds).ConfigureAwait(false);
         }
 
-        // ── Lifecycle ─────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Subscribe to channel point events from the EventSub client.
-        /// Call this after initializing your TwitchEventSubClient.
-        /// </summary>
-        public void Initialize(TwitchEventSubClient newClient)
+        private async void HandleRedemption(TwitchEventSubClient.ChannelPointRedemption redemption)
         {
-            if (eventSubClient != null)
-                eventSubClient.OnChannelPointRedeemed -= _channelPointRedemptionHandler;
-
-            eventSubClient = newClient;
-
-            if (eventSubClient != null)
-                eventSubClient.OnChannelPointRedeemed += _channelPointRedemptionHandler;
-        }
-
-        /// <summary>
-        /// Unsubscribes events and cancels all pending reward cooldown re-enable tasks.
-        /// </summary>
-        public void Shutdown()
-        {
-            if (eventSubClient != null)
-                eventSubClient.OnChannelPointRedeemed -= _channelPointRedemptionHandler;
-            eventSubClient = null;
-
-            lock (_rewardCooldownLock)
-            {
-                foreach (var cts in _rewardCooldownTasks.Values)
-                    try { cts.Cancel(); cts.Dispose(); } catch { }
-                _rewardCooldownTasks.Clear();
-            }
-        }
-
-        /// <summary>
-        /// Adds EventSub subscriptions for one or more newly created or re-enabled rewards.
-        /// Accepts a single string, a string[], or comma-separated strings.
-        /// Call from SurgeonGameplaySetupHost after a reward is created/enabled.
-        /// </summary>
-        public async Task ResubscribeRewardsAsync(params string[] rewardIds)
-        {
-            if (eventSubClient == null || rewardIds == null || rewardIds.Length == 0) return;
-
-            // Filter out nulls/empty strings before forwarding.
-            var valid = new System.Collections.Generic.List<string>();
-            foreach (var id in rewardIds)
-                if (!string.IsNullOrWhiteSpace(id)) valid.Add(id);
-
-            if (valid.Count == 0) return;
+            if (redemption == null) return;
 
             try
             {
-                await eventSubClient.EnsureChannelPointSubscriptionsAsync(valid);
-                Plugin.Log.Info("ChannelPointCommandExecutor: Subscribed EventSub for "
-                    + valid.Count + " reward(s).");
+                await ExecuteRedemptionAsync(
+                    redemption.RewardId,
+                    redemption.RedemptionId,
+                    redemption.UserId,
+                    redemption.UserName,
+                    redemption.UserInput,
+                    _cts?.Token ?? CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                Plugin.Log.Warn("ChannelPointCommandExecutor: ResubscribeRewardsAsync failed: " + ex.Message);
+                _log.Exception(ex, "HandleRedemption");
             }
         }
 
-
-        // ── Redemption handling ───────────────────────────────────────────────────
-
-        private async Task HandleChannelPointRedemptionAsync(TwitchEventSubClient.ChannelPointRedemption redemption)
+        private void CleanupStaleDedupEntries()
         {
-            string command = null;
+            DateTime cutoff = DateTime.UtcNow - DeduplicationWindow - TimeSpan.FromSeconds(5);
+            int removed = 0;
+
+            foreach (string key in _processedRedemptions.Keys)
+            {
+                if (_processedRedemptions.TryGetValue(key, out DateTime ts) && ts < cutoff)
+                {
+                    _processedRedemptions.TryRemove(key, out _);
+                    removed++;
+                }
+            }
+
+            if (removed > 0)
+            {
+                _log.Debug("Deduplication cleanup: removed " + removed + " stale entries");
+            }
+        }
+
+        internal async Task ExecuteRedemptionAsync(
+            string rewardId,
+            string redemptionId,
+            string userId,
+            string userLogin,
+            string userInput,
+            CancellationToken ct = default(CancellationToken))
+        {
+            if (string.IsNullOrWhiteSpace(redemptionId))
+            {
+                _log.Warn("ExecuteRedemptionAsync called with empty redemption id");
+                return;
+            }
+
+            if (!_processedRedemptions.TryAdd(redemptionId, DateTime.UtcNow))
+            {
+                _log.ChannelPoint(rewardId, "DuplicateRejected", "redemptionId=" + redemptionId + " user=" + userLogin);
+                return;
+            }
+
+            _log.ChannelPoint(rewardId, "RedemptionReceived", "redemptionId=" + redemptionId + " user=" + userLogin + " input=" + userInput);
+
+            if (!_gameplayManager.IsInMap)
+            {
+                _log.ChannelPoint(rewardId, "RejectedNotInMap", "redemptionId=" + redemptionId + " user=" + userLogin);
+                await TryRefundAsync(rewardId, redemptionId, userLogin, null, "NotInMap", ct).ConfigureAwait(false);
+                return;
+            }
+
+            if (!_router.TryGetCommand(rewardId, out string command))
+            {
+                _log.Warn("No command mapped for rewardId=" + rewardId + " - reward exists in EventSub but not in router");
+                await TryRefundAsync(rewardId, redemptionId, userLogin, null, "RouteMissing", ct).ConfigureAwait(false);
+                return;
+            }
+
+            var ctx = new ChatContext
+            {
+                SenderName = string.IsNullOrWhiteSpace(userLogin) ? "Unknown" : userLogin,
+                MessageText = command,
+                Source = ChatSource.NativeTwitch,
+                TriggerSource = TriggerSource.ChannelPoints,
+                IsChannelPoint = true,
+                IsSubscriber = true
+            };
+
+            _log.ChannelPoint(rewardId, "Dispatching", "command=" + command + " user=" + userLogin);
             try
             {
-                command = ChannelPointRouter.TryBuildCommandFromReward(redemption);
-                if (string.IsNullOrEmpty(command))
+                CommandExecutionResult result = await _commandHandler
+                    .HandleMessageAsync(ctx, TriggerSource.ChannelPoints, ct)
+                    .ConfigureAwait(false);
+
+                if (result != null && result.Executed)
                 {
-                    Plugin.Log.Debug($"Ignoring non-Beat Surgeon reward: {redemption.RewardTitle}");
+                    _log.ChannelPoint(rewardId, "DispatchedOK", "command=" + command + " user=" + userLogin);
+                    await TryFulfillAsync(rewardId, redemptionId, ct).ConfigureAwait(false);
                     return;
                 }
 
-                // Use Plugin.Log.Debug directly — avoids LogUtils.Debug Func<string> overload mismatch
-                Plugin.Log.Debug("ChannelPointCommandExecutor: Processing '" + command + "' from " + redemption.UserName);
-
-                bool success = await ExecuteCommandAsync(command, redemption.UserName);
-
-                if (success)
-                {
-                    // Mark fulfilled on Twitch.
-                    try
-                    {
-                        using (var fulfillCts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
-                        {
-                            await TwitchChannelPointsManager.Instance.FulfillRedemptionAsync(
-                                redemption.RewardId, redemption.RedemptionId, fulfillCts.Token);
-                        }
-                    }
-                    catch (Exception fulfillEx)
-                    {
-                        Plugin.Log.Warn("ChannelPointCommandExecutor: Failed to fulfill redemption: "
-                            + fulfillEx.Message);
-                    }
-
-                    // Mirror command cooldown onto the Twitch reward itself.
-                    string commandKey = command.TrimStart('!').ToLowerInvariant();
-                    double cooldownSeconds = BeatSurgeon.Chat.CommandHandler.GetCooldownSeconds(commandKey);
-
-                    if (cooldownSeconds > 0.0 && !string.IsNullOrWhiteSpace(redemption.RewardId))
-                    {
-                        // Fire-and-forget, tracked internally for clean cancellation.
-                        var _ = ApplyRewardCooldownAsync(redemption.RewardId, cooldownSeconds);
-                    }
-                }
-                else
-                {
-                    // Command failed — refund the viewer.
-                    try
-                    {
-                        using (var refundCts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
-                        {
-                            await TwitchChannelPointsManager.Instance.RefundRedemptionAsync(
-                                redemption.RewardId, redemption.RedemptionId, refundCts.Token);
-                        }
-                        Plugin.Log.Info("ChannelPointCommandExecutor: Refunded '" + command
-                            + "' for " + redemption.UserName + " — command failed.");
-                    }
-                    catch (Exception refundEx)
-                    {
-                        Plugin.Log.Error("ChannelPointCommandExecutor: Failed to refund: " + refundEx.Message);
-                    }
-                }
+                string reason = result == null
+                    ? "UnknownFailure"
+                    : result.Reason.ToString();
+                _log.ChannelPoint(rewardId, "Rejected", "command=" + command + " user=" + userLogin + " reason=" + reason);
+                await TryRefundAsync(rewardId, redemptionId, userLogin, command, reason, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error("ChannelPointCommandExecutor: Exception executing command: " + ex.Message);
-                try
-                {
-                    using (var refundCts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
-                    {
-                        await TwitchChannelPointsManager.Instance.RefundRedemptionAsync(
-                            redemption.RewardId, redemption.RedemptionId, refundCts.Token);
-                    }
-                    Plugin.Log.Info("ChannelPointCommandExecutor: Refunded '" + command
-                        + "' for " + redemption.UserName + " due to exception.");
-                }
-                catch (Exception refundEx)
-                {
-                    Plugin.Log.Error("ChannelPointCommandExecutor: Failed to refund after exception: "
-                        + refundEx.Message);
-                }
+                _log.Exception(ex, "ExecuteRedemptionAsync rewardId=" + rewardId + " user=" + userLogin);
+                await TryRefundAsync(rewardId, redemptionId, userLogin, command, "ExecutionFailed", ct).ConfigureAwait(false);
             }
         }
 
-        // ── Reward cooldown ───────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Disables the Twitch reward immediately, waits for the cooldown, then re-enables it.
-        /// Replaces any previously pending cooldown task for the same reward.
-        /// </summary>
-        private async Task ApplyRewardCooldownAsync(string rewardId, double cooldownSeconds)
+        private async Task TryFulfillAsync(string rewardId, string redemptionId, CancellationToken ct)
         {
-            CancellationTokenSource newCts;
-            lock (_rewardCooldownLock)
-            {
-                CancellationTokenSource oldCts;
-                if (_rewardCooldownTasks.TryGetValue(rewardId, out oldCts))
-                    try { oldCts.Cancel(); oldCts.Dispose(); } catch { }
-
-                newCts = new CancellationTokenSource();
-                _rewardCooldownTasks[rewardId] = newCts;
-            }
-
-            var ct = newCts.Token;
             try
             {
-                // Disable immediately so Twitch blocks further redemptions.
-                using (var disableCts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
-                {
-                    await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(
-                        rewardId, false, disableCts.Token);
-                }
-                Plugin.Log.Info("ChannelPointCommandExecutor: Reward " + rewardId
-                    + " disabled for " + ((int)cooldownSeconds) + "s cooldown.");
-
-                // Wait the full cooldown duration.
-                await Task.Delay(TimeSpan.FromSeconds(cooldownSeconds), ct);
-
-                // Re-enable after cooldown.
-                using (var reEnableCts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
-                {
-                    await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(
-                        rewardId, true, reEnableCts.Token);
-                }
-                Plugin.Log.Info("ChannelPointCommandExecutor: Reward " + rewardId
-                    + " re-enabled after " + ((int)cooldownSeconds) + "s.");
-            }
-            catch (OperationCanceledException)
-            {
-                // Check whether a new cooldown task already replaced this one.
-                bool anotherTaskPending;
-                lock (_rewardCooldownLock)
-                {
-                    CancellationTokenSource current;
-                    anotherTaskPending = _rewardCooldownTasks.TryGetValue(rewardId, out current)
-                                         && !ReferenceEquals(current, newCts);
-                }
-
-                if (!anotherTaskPending)
-                {
-                    // Shutdown() was called — best-effort re-enable (no-op if game is quitting,
-                    // Plugin.cs DisableAllRewardsOnQuitAsync handles that path).
-                    try
-                    {
-                        using (var shutdownReEnableCts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
-                        {
-                            await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(
-                                rewardId, true, shutdownReEnableCts.Token);
-                        }
-                        Plugin.Log.Warn("ChannelPointCommandExecutor: Reward " + rewardId
-                            + " re-enabled (cooldown interrupted by shutdown).");
-                    }
-                    catch (Exception reEnableEx)
-                    {
-                        Plugin.Log.Warn("ChannelPointCommandExecutor: Could not re-enable reward "
-                            + rewardId + ": " + reEnableEx.Message);
-                    }
-                }
-                // If anotherTaskPending == true, the new task manages disable/re-enable cleanly.
+                await _channelPointsManager.FulfillRedemptionAsync(rewardId, redemptionId, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error("ChannelPointCommandExecutor: ApplyRewardCooldown failed for "
-                    + rewardId + ": " + ex.Message);
-                // Best-effort re-enable so reward doesn't stay stuck disabled.
-                try
-                {
-                    using (var failReEnableCts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
-                    {
-                        await TwitchChannelPointsManager.Instance.SetRewardEnabledAsync(
-                            rewardId, true, failReEnableCts.Token);
-                    }
-                }
-                catch { }
-            }
-            finally
-            {
-                lock (_rewardCooldownLock)
-                {
-                    CancellationTokenSource current;
-                    if (_rewardCooldownTasks.TryGetValue(rewardId, out current)
-                        && ReferenceEquals(current, newCts))
-                        _rewardCooldownTasks.Remove(rewardId);
-                }
-                try { newCts.Dispose(); } catch { }
+                _log.Exception(ex, "TryFulfillAsync");
             }
         }
 
-        // ── Command execution ─────────────────────────────────────────────────────
-
-        private Task<bool> ExecuteCommandAsync(string command, string userName)
-        {
-            if (!IsInGame())
-            {
-                Plugin.Log.Warn("ChannelPointCommandExecutor: Command " + command + " failed — not in game.");
-                return Task.FromResult(false);
-            }
-
-            try
-            {
-                // ChatContext is a POCO — use object initializer, not constructor named params.
-                var context = new BeatSurgeon.Chat.ChatContext
-                {
-                    SenderName = userName ?? "Unknown",
-                    MessageText = command,
-                    IsBroadcaster = false,
-                    IsModerator = false,
-                    IsVip = false,
-                    IsSubscriber = true,
-                    Bits = 0,
-                    Source = BeatSurgeon.Chat.ChatSource.NativeTwitch,
-                    IsChannelPoint = true
-                };
-
-                bool success = BeatSurgeon.Chat.CommandHandler.Instance.ProcessCommand(command, context);
-                if (success) Plugin.Log.Info("Command '" + command + "' executed for " + userName + ".");
-                else Plugin.Log.Warn("Command '" + command + "' failed for " + userName + ".");
-                return Task.FromResult(success);
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Error("ChannelPointCommandExecutor: Command execution threw exception: "
-                    + ex.Message);
-                return Task.FromResult(false);
-            }
-        }
-
-        private bool IsInGame()
+        private async Task TryRefundAsync(
+            string rewardId,
+            string redemptionId,
+            string userLogin,
+            string command,
+            string reason,
+            CancellationToken ct)
         {
             try
             {
-                var audio = Resources.FindObjectsOfTypeAll<AudioTimeSyncController>().FirstOrDefault();
-                if (audio != null && audio.state == AudioTimeSyncController.State.Playing) return true;
-                if (Resources.FindObjectsOfTypeAll<ScoreController>().FirstOrDefault() != null) return true;
-                if (Resources.FindObjectsOfTypeAll<PauseMenuManager>().FirstOrDefault() != null) return true;
-                var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-                if (scene.name != null && scene.name.Contains("GameCore")) return true;
-                return false;
+                await _channelPointsManager.RefundRedemptionAsync(rewardId, redemptionId, ct).ConfigureAwait(false);
+                string user = string.IsNullOrWhiteSpace(userLogin) ? "viewer" : userLogin;
+                string cmd = string.IsNullOrWhiteSpace(command) ? "channel point redemption" : command;
+                string suffix = string.IsNullOrWhiteSpace(reason) ? string.Empty : " (" + reason + ")";
+                ChatManager.GetInstance()?.SendChatMessage("!!Refunded " + user + " for " + cmd + suffix + ".");
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error("ChannelPointCommandExecutor: IsInGame check failed: " + ex.Message);
-                return false;
+                _log.Exception(ex, "TryRefundAsync");
             }
         }
     }

@@ -1,831 +1,398 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using BeatSurgeon.Chat;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using UnityEngine;
+using BeatSurgeon.Utils;
+using Newtonsoft.Json.Linq;
+using Zenject;
 
 namespace BeatSurgeon.Twitch
 {
-    /// <summary>
-    /// Direct Twitch EventSub WebSocket client (no backend needed).
-    /// - Connects to wss://eventsub.wss.twitch.tv/ws
-    /// - On session_welcome: receives session_id
-    /// - Creates subscriptions via Helix POST /helix/eventsub/subscriptions using transport=websocket + session_id
-    /// - Receives notifications for chat/follow/sub/raid and emits C# events for ChatManager
-    /// </summary>
-    public class TwitchEventSubClient
+    internal sealed class TwitchEventSubClient : IInitializable, IDisposable
     {
-        private const string EventSubWsUrl = "wss://eventsub.wss.twitch.tv/ws";
-        private const string HelixBase = "https://api.twitch.tv/helix";
-        private const int ReceiveBufferSize = 32 * 1024;
+        private static readonly LogUtil _log = LogUtil.GetLogger("TwitchEventSubClient");
+        private static readonly TimeSpan[] BackoffDelays =
+        {
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(2),
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(30)
+        };
 
-        private readonly string _userAccessToken;
-        private readonly string _clientId;
-        private readonly string _broadcasterId;
-        private readonly string _botUserId;
+        internal sealed class ChannelPointRedemption
+        {
+            internal string RedemptionId;
+            internal string RewardId;
+            internal string RewardTitle;
+            internal string UserName;
+            internal string UserId;
+            internal string UserInput;
+        }
 
-        private ClientWebSocket _ws;
+        internal static string CurrentSessionId { get; private set; }
+
+        private static TwitchEventSubClient _instance;
+        internal static TwitchEventSubClient Instance =>
+            _instance ?? (_instance = new TwitchEventSubClient(
+                TwitchAuthManager.Instance,
+                TwitchApiClient.Instance));
+
+        private readonly TwitchAuthManager _authManager;
+        private readonly TwitchApiClient _apiClient;
+
+        private readonly Dictionary<string, string> _rewardSubscriptions = new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly SemaphoreSlim _subscriptionLock = new SemaphoreSlim(1, 1);
+        private readonly object _stateLock = new object();
+
         private CancellationTokenSource _cts;
+        private Task _receiveLoop;
+        private volatile bool _isConnected;
 
-        private string _sessionId;
-        private string _reconnectUrl;
-        private bool _isConnecting;
-        private bool _isConnected;
+        internal event Action<ChannelPointRedemption> OnChannelPointRedeemed;
 
-        // Reconnect/backoff state
-        private int _reconnectAttempts = 0;
-        private const int MaxReconnectAttempts = 10;          // safety cap
-        private const int BaseReconnectDelaySeconds = 2;      // 2, 4, 8, ... up to 60
-        private bool _allowReconnect = true;                  // disabled on Shutdown()
+        internal bool IsConnected => _isConnected;
 
-
-        // Track subscription attempts so we don't spam
-        private readonly HashSet<string> _subscribedTypes = new HashSet<string>();
-        private readonly object _subscribedTypesLock = new object();
-        private readonly SemaphoreSlim _reconnectGate = new SemaphoreSlim(1, 1);
-        private readonly SemaphoreSlim _subscriptionBatchGate = new SemaphoreSlim(1, 1);
-        private Task _listenTask;
-        private Task _reconnectTask;
-        private Task _subscriptionTask;
-
-        // Reuse one HttpClient per instance (fine for a mod)
-        private readonly HttpClient _http = new HttpClient();
-
-        // Events (match ChatManager wiring)
-        public event Action<ChatContext> OnChatMessage;
-        public event Action<string> OnFollow;
-        public event Action<string, int> OnSubscription;
-        public event Action<string, int> OnRaid;
-        public sealed class ChannelPointRedemption
+        [Inject]
+        public TwitchEventSubClient(
+            TwitchAuthManager authManager,
+            TwitchApiClient apiClient)
         {
-            public string RedemptionId;      // ADD THIS LINE
-            public string RewardId;
-            public string RewardTitle;
-            public string UserName;
-            public string UserId;
-            public string UserInput;
+            _instance = this;
+            _authManager = authManager;
+            _apiClient = apiClient;
         }
 
-
-        public event Action<ChannelPointRedemption> OnChannelPointRedeemed;
-
-
-        public bool IsConnected => _isConnected && _ws != null && _ws.State == WebSocketState.Open;
-        public bool HasSession => !string.IsNullOrEmpty(_sessionId);
-
-        public TwitchEventSubClient(string userAccessToken, string clientId, string broadcasterId, string botUserId)
+        public void Initialize()
         {
-            _userAccessToken = userAccessToken;
-            _clientId = clientId;
-            _broadcasterId = broadcasterId;
-            _botUserId = botUserId;
-        }
+            _log.Lifecycle("Initialize");
+            _authManager.OnAuthReady += HandleAuthReady;
 
-        private HttpRequestMessage CreateAuthedRequest(HttpMethod method, string url, HttpContent content = null)
-        {
-            var req = new HttpRequestMessage(method, url);
-            if (content != null)
-                req.Content = content;
-
-            string token = TwitchAuthManager.Instance.GetAccessToken();
-            if (string.IsNullOrWhiteSpace(token))
-                token = _userAccessToken;
-
-            req.Headers.TryAddWithoutValidation("Client-Id", _clientId);
-            req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
-            return req;
-        }
-
-        private void ClearSubscribedTypes()
-        {
-            lock (_subscribedTypesLock)
-                _subscribedTypes.Clear();
-        }
-
-        private bool TryBeginSubscription(string key)
-        {
-            lock (_subscribedTypesLock)
+            if (PluginConfig.Instance != null && PluginConfig.Instance.HasValidToken)
             {
-                if (_subscribedTypes.Contains(key))
-                    return false;
-
-                _subscribedTypes.Add(key);
-                return true;
+                StartReceiveLoop();
+            }
+            else
+            {
+                _log.TwitchState("DeferredConnect", "WaitingForAuthReady");
             }
         }
 
-        private void CancelSubscription(string key)
+        public void Dispose()
         {
-            lock (_subscribedTypesLock)
-                _subscribedTypes.Remove(key);
-        }
-
-        private void QueueReconnect(string targetUrl)
-        {
-            Task existing = _reconnectTask;
-            if (existing != null && !existing.IsCompleted)
-                return;
-
-            _reconnectTask = Task.Run(async () =>
-            {
-                await _reconnectGate.WaitAsync();
-                try
-                {
-                    if (!_allowReconnect)
-                        return;
-
-                    await ReconnectWithBackoffAsync(targetUrl);
-                }
-                finally
-                {
-                    _reconnectGate.Release();
-                }
-            });
-
-            _reconnectTask.ContinueWith(
-                t => Plugin.Log.Error("TwitchEventSubClient: Reconnect task faulted: " + t.Exception?.GetBaseException().Message),
-                TaskContinuationOptions.OnlyOnFaulted);
-        }
-
-        private void QueueInitialSubscriptions()
-        {
-            Task existing = _subscriptionTask;
-            if (existing != null && !existing.IsCompleted)
-                return;
-
-            _subscriptionTask = Task.Run(async () =>
-            {
-                CancellationToken ct = _cts != null ? _cts.Token : CancellationToken.None;
-                bool gateEntered = false;
-                try
-                {
-                    await _subscriptionBatchGate.WaitAsync(ct);
-                    gateEntered = true;
-
-                    await EnsureSubscriptionAsync("channel.chat.message", "1");
-                    await EnsureSubscriptionAsync("channel.follow", "2");
-                    await EnsureSubscriptionAsync("channel.subscribe", "1");
-                    await EnsureSubscriptionAsync("channel.raid", "1");
-
-                    var cfg = Plugin.Settings;
-                    var rewardIds = new List<string>
-                    {
-                        cfg.CpRainbowEnabled    ? cfg.CpRainbowRewardId    : null,
-                        cfg.CpDisappearEnabled  ? cfg.CpDisappearRewardId  : null,
-                        cfg.CpGhostEnabled      ? cfg.CpGhostRewardId      : null,
-                        cfg.CpBombEnabled       ? cfg.CpBombRewardId       : null,
-                        cfg.CpFasterEnabled     ? cfg.CpFasterRewardId     : null,
-                        cfg.CpSuperFastEnabled  ? cfg.CpSuperFastRewardId  : null,
-                        cfg.CpSlowerEnabled     ? cfg.CpSlowerRewardId     : null,
-                        cfg.CpFlashbangEnabled  ? cfg.CpFlashbangRewardId  : null,
-                    }.Where(id => !string.IsNullOrWhiteSpace(id));
-
-                    await EnsureChannelPointSubscriptionsAsync(rewardIds);
-                }
-                finally
-                {
-                    if (gateEntered)
-                        _subscriptionBatchGate.Release();
-                }
-            });
-
-            _subscriptionTask.ContinueWith(
-                t => Plugin.Log.Error("TwitchEventSubClient: Subscription batch failed: " + t.Exception?.GetBaseException().Message),
-                TaskContinuationOptions.OnlyOnFaulted);
-        }
-
-        /// <summary>
-        /// Unity coroutine wrapper (your ChatManager already expects a coroutine).
-        /// </summary>
-        public IEnumerator ConnectCoroutine()
-        {
-            if (_isConnecting || IsConnected)
-                yield break;
-
-            _isConnecting = true;
-
-            var task = ConnectAsync();
-            while (!task.IsCompleted)
-                yield return null;
-
-            _isConnecting = false;
-
-            if (task.IsFaulted)
-            {
-                Plugin.Log.Error("TwitchEventSubClient: ConnectAsync faulted: " + task.Exception?.GetBaseException().Message);
-            }
-        }
-
-        public async Task ConnectAsync()
-        {
-            Shutdown(); // clean any prior state
-
-            _allowReconnect = true;
-            _reconnectAttempts = 0;
-
-            _cts = new CancellationTokenSource();
-            _ws = new ClientWebSocket();
-
-            _sessionId = null;
-            _reconnectUrl = null;
-            ClearSubscribedTypes();
-
-            LogUtils.Debug(() => $"TwitchEventSubClient: Connecting to {EventSubWsUrl}");
-            await _ws.ConnectAsync(new Uri(EventSubWsUrl), _cts.Token);
-            _isConnected = true;
-            LogUtils.Debug(() => "TwitchEventSubClient: WebSocket connected");
-
-            _listenTask = Task.Run(ListenLoopAsync);
-            _listenTask.ContinueWith(
-                t => Plugin.Log.Error("TwitchEventSubClient: Listen task faulted: " + t.Exception?.GetBaseException().Message),
-                TaskContinuationOptions.OnlyOnFaulted);
-        }
-
-
-        private async Task ListenLoopAsync()
-        {
-            var buffer = new byte[ReceiveBufferSize];
-            var builder = new StringBuilder();
+            _log.Lifecycle("Dispose - cancelling EventSub receive loop");
+            _authManager.OnAuthReady -= HandleAuthReady;
 
             try
             {
-                while (_ws != null && _ws.State == WebSocketState.Open && !_cts.IsCancellationRequested)
-                {
-                    var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
-                    if (result.MessageType == WebSocketMessageType.Close)
-                        break;
-
-                    if (result.Count > 0)
-                    {
-                        builder.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
-                    }
-
-                    if (result.EndOfMessage)
-                    {
-                        var json = builder.ToString();
-                        builder.Clear();
-
-                        if (!string.IsNullOrEmpty(json))
-                            HandleWsMessage(json);
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // normal on shutdown
+                _cts?.Cancel();
+                _receiveLoop?.Wait(TimeSpan.FromSeconds(5));
+                _log.Lifecycle("Dispose - receive loop stopped");
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error("TwitchEventSubClient: ListenLoop exception: " + ex.Message);
+                _log.Exception(ex, "Dispose");
             }
             finally
             {
+                _cts?.Dispose();
+                _cts = null;
+                _receiveLoop = null;
                 _isConnected = false;
-                Plugin.Log.Warn("TwitchEventSubClient: WebSocket disconnected");
-
-                // If shutdown was requested, do NOT auto-reconnect
-                if (_allowReconnect)
-                {
-                    // Prefer Twitch-provided reconnect URL; otherwise fall back to the default WS URL
-                    string targetUrl = !string.IsNullOrEmpty(_reconnectUrl)
-                        ? _reconnectUrl
-                        : EventSubWsUrl;
-
-                    _reconnectUrl = null;
-
-                    QueueReconnect(targetUrl);
-                }
             }
         }
 
-        private async Task ReconnectWithBackoffAsync(string url)
+        internal Task ConnectAsync()
         {
-            while (_allowReconnect)
+            StartReceiveLoop();
+
+            return Task.CompletedTask;
+        }
+
+        internal void Shutdown() => Dispose();
+
+        private void HandleAuthReady()
+        {
+            _log.TwitchState("AuthReady", "Starting EventSub receive loop");
+            StartReceiveLoop();
+        }
+
+        private void StartReceiveLoop()
+        {
+            if (_cts != null)
             {
-                if (_reconnectAttempts >= MaxReconnectAttempts)
-                {
-                    Plugin.Log.Error($"TwitchEventSubClient: Reconnect aborted after {_reconnectAttempts} attempts.");
-                    // At this point ChatManager will see IsConnected == false and keep using ChatPlex if that backend is active.
-                    return;
-                }
+                return;
+            }
 
-                int delaySeconds = (int)Math.Min(
-                    BaseReconnectDelaySeconds * Math.Pow(2, _reconnectAttempts), // 2,4,8,16,32,64...
-                    60
-                );
+            _cts = new CancellationTokenSource();
+            _receiveLoop = Task.Run(() => RunWithReconnectAsync(_cts.Token), _cts.Token);
+        }
 
-                if (_reconnectAttempts > 0)
-                {
-                    Plugin.Log.Warn(
-                        $"TwitchEventSubClient: Waiting {delaySeconds}s before reconnect attempt #{_reconnectAttempts + 1}..."
-                    );
-                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
-                }
-
+        private async Task RunWithReconnectAsync(CancellationToken ct)
+        {
+            int attempt = 0;
+            while (!ct.IsCancellationRequested)
+            {
                 try
                 {
-                    await ReconnectAsync(url);
-                    _reconnectAttempts = 0;
-                    return; // success -> ListenLoopAsync will be started by ReconnectAsync
+                    _log.TwitchState("Connecting", "Attempt=" + (attempt + 1));
+                    await ConnectAndReceiveAsync(ct).ConfigureAwait(false);
+                    attempt = 0;
                 }
                 catch (OperationCanceledException)
                 {
-                    // Cancellation from outside – treat as intentional shutdown.
-                    return;
+                    _log.TwitchState("ConnectLoop cancelled - shutting down");
+                    break;
                 }
                 catch (Exception ex)
                 {
-                    _reconnectAttempts++;
-                    Plugin.Log.Error($"TwitchEventSubClient: Reconnect attempt failed: {ex.Message}");
-                    // Loop and try again with longer delay
+                    _log.Exception(ex, "EventSub receive loop (attempt " + (attempt + 1) + ")");
+                }
+
+                if (!ct.IsCancellationRequested)
+                {
+                    TimeSpan delay = BackoffDelays[Math.Min(attempt, BackoffDelays.Length - 1)];
+                    _log.TwitchState("WaitingBeforeReconnect", "Delay=" + delay.TotalSeconds + "s");
+                    await Task.Delay(delay, ct).ConfigureAwait(false);
+                    attempt++;
                 }
             }
         }
 
-
-        private void HandleWsMessage(string json)
+        internal async Task SubscribeToRewardAsync(
+            string rewardId,
+            string channelUserId,
+            CancellationToken ct = default(CancellationToken))
         {
+            await _subscriptionLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                var obj = JObject.Parse(json);
-                string messageType = (string)obj["metadata"]?["message_type"];
-
-                switch (messageType)
+                if (_rewardSubscriptions.ContainsKey(rewardId))
                 {
-                    case "session_welcome":
-                        HandleSessionWelcome(obj);
-                        break;
-
-                    case "session_keepalive":
-                        // no action needed
-                        break;
-
-                    case "notification":
-                        HandleNotification(obj);
-                        break;
-
-                    case "session_reconnect":
-                        HandleSessionReconnect(obj);
-                        break;
-
-                    case "revocation":
-                        HandleRevocation(obj);
-                        break;
-
-                    default:
-                        Plugin.Log.Debug($"TwitchEventSubClient: Unknown message_type={messageType}");
-                        break;
+                    _log.EventSub(rewardId, "AlreadySubscribed - skipping duplicate");
+                    return;
                 }
+
+                if (string.IsNullOrWhiteSpace(CurrentSessionId))
+                {
+                    throw new InvalidOperationException("Cannot create EventSub reward subscription before session_welcome.");
+                }
+
+                _log.EventSub(rewardId, "Subscribing", "channelUserId=" + channelUserId);
+                string subscriptionId = await _apiClient.CreateEventSubSubscriptionAsync(
+                    type: "channel.channel_points_custom_reward_redemption.add",
+                    version: "1",
+                    condition: new Dictionary<string, string>
+                    {
+                        { "broadcaster_user_id", channelUserId },
+                        { "reward_id", rewardId }
+                    },
+                    ct: ct).ConfigureAwait(false);
+
+                _rewardSubscriptions[rewardId] = subscriptionId;
+                _log.EventSub(rewardId, "SubscribedOK", "subscriptionId=" + subscriptionId);
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error($"TwitchEventSubClient: Failed parsing WS message: {ex}");
-                Plugin.Log.Error($"TwitchEventSubClient: Offending JSON (first 2000): {json?.Substring(0, Math.Min(2000, json.Length))}");
+                _log.Exception(ex, "SubscribeToRewardAsync rewardId=" + rewardId);
+                throw;
             }
-
+            finally
+            {
+                _subscriptionLock.Release();
+            }
         }
 
-        private void HandleSessionWelcome(JObject obj)
+        internal async Task UnsubscribeFromRewardAsync(
+            string rewardId,
+            CancellationToken ct = default(CancellationToken))
         {
-            _sessionId = (string)obj["payload"]?["session"]?["id"];
-            int keepaliveTimeout = (int?)obj["payload"]?["session"]?["keepalive_timeout_seconds"] ?? 0;
+            await _subscriptionLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                if (!_rewardSubscriptions.TryGetValue(rewardId, out string subscriptionId))
+                {
+                    _log.EventSub(rewardId, "UnsubscribeNoOp - not subscribed");
+                    return;
+                }
 
-            LogUtils.Debug(() => $"TwitchEventSubClient: session_welcome session_id={_sessionId}, keepalive_timeout_seconds={keepaliveTimeout}");
-
-            // IMPORTANT: Twitch expects you to subscribe shortly after welcome (about 10s by default) [web docs] .
-            QueueInitialSubscriptions();
+                _log.EventSub(rewardId, "Unsubscribing", "subscriptionId=" + subscriptionId);
+                await _apiClient.DeleteEventSubSubscriptionAsync(subscriptionId, ct).ConfigureAwait(false);
+                _rewardSubscriptions.Remove(rewardId);
+                _log.EventSub(rewardId, "UnsubscribedOK");
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "UnsubscribeFromRewardAsync rewardId=" + rewardId);
+            }
+            finally
+            {
+                _subscriptionLock.Release();
+            }
         }
 
-        private void HandleSessionReconnect(JObject obj)
+        internal async Task EnsureChannelPointSubscriptionsAsync(IEnumerable<string> rewardIds)
         {
-            _reconnectUrl = (string)obj["payload"]?["session"]?["reconnect_url"];
-            Plugin.Log.Warn($"TwitchEventSubClient: session_reconnect reconnect_url={_reconnectUrl}");
-        }
-
-        private void HandleRevocation(JObject obj)
-        {
-            string subType = (string)obj["metadata"]?["subscription_type"];
-            string status = (string)obj["payload"]?["subscription"]?["status"];
-            Plugin.Log.Warn($"TwitchEventSubClient: revocation type={subType} status={status}");
-        }
-
-        private async Task ReconnectAsync(string reconnectUrl)
-        {
-            Plugin.Log.Warn($"TwitchEventSubClient: Reconnecting to {reconnectUrl}");
-
-            // Close old ws
-            try { _cts?.Cancel(); } catch { }
-            try { _ws?.Dispose(); } catch { }
-
-            _cts = new CancellationTokenSource();
-            _ws = new ClientWebSocket();
-
-            // After reconnect, Twitch will send a new welcome with a new session_id, so we must re-subscribe.
-            _sessionId = null;
-            ClearSubscribedTypes();
-
-            await _ws.ConnectAsync(new Uri(reconnectUrl), _cts.Token);
-
-            _isConnected = true;
-            LogUtils.Debug(() => "TwitchEventSubClient: WebSocket reconnected");
-
-            _listenTask = Task.Run(ListenLoopAsync);
-            _listenTask.ContinueWith(
-                t => Plugin.Log.Error("TwitchEventSubClient: Listen task faulted: " + t.Exception?.GetBaseException().Message),
-                TaskContinuationOptions.OnlyOnFaulted);
-        }
-
-        /// <summary>
-        /// Creates subscription if we haven't already created it for this session.
-        /// </summary>
-        private async Task EnsureSubscriptionAsync(string type, string version)
-        {
-            if (string.IsNullOrEmpty(_sessionId))
-                throw new InvalidOperationException("Cannot subscribe without session_id");
-
-            string key = $"{type}:{version}";
-            if (!TryBeginSubscription(key))
+            if (rewardIds == null)
+            {
                 return;
+            }
 
-            var payload = BuildSubscriptionPayload(type, version);
-            string body = JsonConvert.SerializeObject(payload);
-
-            using (var req = CreateAuthedRequest(
-                HttpMethod.Post,
-                $"{HelixBase}/eventsub/subscriptions",
-                new StringContent(body, Encoding.UTF8, "application/json")))
-            using (var resp = await _http.SendAsync(req, _cts != null ? _cts.Token : CancellationToken.None))
+            string channelUserId = await _authManager.GetChannelUserIdAsync(_cts?.Token ?? CancellationToken.None).ConfigureAwait(false);
+            foreach (string rewardId in rewardIds.Where(id => !string.IsNullOrWhiteSpace(id)))
             {
-                string respBody = await resp.Content.ReadAsStringAsync();
-
-                if (resp.IsSuccessStatusCode)
-                {
-                    LogUtils.Debug(() => $"TwitchEventSubClient: Subscribed OK -> {type} v{version}");
-                }
-                else
-                {
-                    CancelSubscription(key);
-                    Plugin.Log.Warn($"TwitchEventSubClient: Subscribe failed -> {type} v{version} ({(int)resp.StatusCode}) {respBody}");
-                }
+                await SubscribeToRewardAsync(rewardId, channelUserId, _cts?.Token ?? CancellationToken.None).ConfigureAwait(false);
             }
         }
 
-        /// <summary>
-        /// IMPORTANT: Conditions differ by subscription type.
-        /// - channel.chat.message requires broadcaster_user_id + user_id [Twitch docs]
-        /// - channel.follow v2 requires broadcaster_user_id + moderator_user_id [Twitch docs]
-        /// </summary>
-        private object BuildSubscriptionPayload(string type, string version)
+        private async Task ConnectAndReceiveAsync(CancellationToken ct)
         {
-            if (type == "channel.chat.message")
+            using (var ws = new ClientWebSocket())
             {
-                return new
-                {
-                    type,
-                    version,
-                    condition = new
-                    {
-                        broadcaster_user_id = _broadcasterId,
-                        user_id = _botUserId
-                    },
-                    transport = new
-                    {
-                        method = "websocket",
-                        session_id = _sessionId
-                    }
-                };
-            }
+                string token = await _authManager.GetAccessTokenAsync(ct).ConfigureAwait(false);
+                ws.Options.SetRequestHeader("Authorization", "Bearer " + token);
 
-            if (type == "channel.subscribe")
-            {
-                return new
-                {
-                    type,
-                    version,
-                    condition = new
-                    {
-                        broadcaster_user_id = _broadcasterId
-                    },
-                    transport = new
-                    {
-                        method = "websocket",
-                        session_id = _sessionId
-                    }
-                };
-            }
+                _log.TwitchState("WebSocket.Connecting", "wss://eventsub.wss.twitch.tv/ws");
+                await ws.ConnectAsync(new Uri("wss://eventsub.wss.twitch.tv/ws"), ct).ConfigureAwait(false);
 
-            if (type == "channel.raid")
-            {
-                return new
+                lock (_stateLock)
                 {
-                    type,
-                    version,
-                    condition = new
-                    {
-                        to_broadcaster_user_id = _broadcasterId
-                    },
-                    transport = new
-                    {
-                        method = "websocket",
-                        session_id = _sessionId
-                    }
-                };
-            }
-
-
-            if (type == "channel.follow")
-            {
-                return new
-                {
-                    type,
-                    version, // v2 recommended for follows
-                    condition = new
-                    {
-                        broadcaster_user_id = _broadcasterId,
-                        moderator_user_id = _botUserId
-                    },
-                    transport = new
-                    {
-                        method = "websocket",
-                        session_id = _sessionId
-                    }
-                };
-            }
-
-            // Removed broad channel points subscription case to avoid accidental non-filtered subscriptions.
-
-            // These are common broadcaster-scoped events (simple condition)
-            // If Twitch ever requires more fields for a type, add a dedicated case like above.
-            return new
-            {
-                type,
-                version,
-                condition = new
-                {
-                    broadcaster_user_id = _broadcasterId
-                },
-                transport = new
-                {
-                    method = "websocket",
-                    session_id = _sessionId
+                    _isConnected = true;
                 }
-            };
+
+                _log.TwitchState("WebSocket.Connected");
+
+                var buffer = new byte[16 * 1024];
+                while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
+                {
+                    WebSocketReceiveResult result;
+                    var messageBuilder = new StringBuilder();
+                    try
+                    {
+                        do
+                        {
+                            result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct).ConfigureAwait(false);
+                            if (result.MessageType == WebSocketMessageType.Close)
+                            {
+                                _log.TwitchState("WebSocket.CloseReceived", "Status=" + result.CloseStatus + " Desc=" + result.CloseStatusDescription);
+                                return;
+                            }
+
+                            messageBuilder.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                        }
+                        while (!result.EndOfMessage);
+                    }
+                    catch (WebSocketException wsEx)
+                    {
+                        _log.Warn("WebSocket receive error: " + wsEx.Message + " - reconnecting");
+                        break;
+                    }
+
+                    try
+                    {
+                        string message = messageBuilder.ToString();
+                        _log.Debug("WebSocket.MessageReceived bytes=" + message.Length);
+                        await ProcessMessageAsync(message, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Exception(ex, "ProcessMessageAsync - message dropped");
+                    }
+                }
+            }
+
+            lock (_stateLock)
+            {
+                _isConnected = false;
+            }
+
+            _log.TwitchState("WebSocket.Disconnected", "State=Closed");
         }
 
-        private void HandleNotification(JObject obj)
+        private async Task ProcessMessageAsync(string message, CancellationToken ct)
         {
-            string subType = (string)obj["metadata"]?["subscription_type"];
-            var eventData = obj["payload"]?["event"];
-            if (eventData == null)
-                return;
+            JObject json = JObject.Parse(message);
+            string messageType = json["metadata"]?["message_type"]?.ToString() ?? string.Empty;
 
-            switch (subType)
+            switch (messageType)
             {
-                case "channel.chat.message":
-                    HandleChatMessage(eventData);
+                case "session_welcome":
+                    CurrentSessionId = json["payload"]?["session"]?["id"]?.ToString();
+                    _log.TwitchState("SessionWelcome", "sessionId=" + CurrentSessionId);
+                    await ResubscribeAllAsync(ct).ConfigureAwait(false);
                     break;
 
-                case "channel.follow":
-                    HandleFollow(eventData);
+                case "session_keepalive":
+                    _log.Debug("SessionKeepalive");
                     break;
 
-                case "channel.subscribe":
-                    HandleSubscribe(eventData);
+                case "session_reconnect":
+                    _log.TwitchState("SessionReconnectRequested");
                     break;
 
-                case "channel.raid":
-                    HandleRaid(eventData);
-                    break;
-
-                case "channel.channel_points_custom_reward_redemption.add":
-                    HandleChannelPointRedemption(eventData);
+                case "notification":
+                    await HandleNotificationAsync(json, ct).ConfigureAwait(false);
                     break;
 
                 default:
-                    // Keep quiet to avoid log spam
+                    _log.Debug("Unhandled message_type=" + messageType);
                     break;
             }
         }
 
-        private void HandleChatMessage(JToken eventData)
+        private Task HandleNotificationAsync(JObject json, CancellationToken ct)
         {
-            string senderName = (string)eventData["chatter_user_name"] ?? "Unknown";
-
-            // message is an object; still safer to cast
-            var messageObj = eventData["message"] as JObject;
-            string messageText = (string)messageObj?["text"] ?? string.Empty;
-
-            string chatterId = (string)eventData["chatter_user_id"];
-
-            // IMPORTANT: cheer can be null (JValue), so cast to JObject first
-            var cheerObj = eventData["cheer"] as JObject;
-            int bits = (int?)cheerObj?["bits"] ?? 0;
-
-            var badges = eventData["badges"] as JArray;
-            bool HasBadge(string setId) =>
-                badges != null && badges.Any(b =>
-                    string.Equals((string)b?["set_id"], setId, StringComparison.OrdinalIgnoreCase));
-
-            var ctx = new ChatContext
+            string subscriptionType = json["metadata"]?["subscription_type"]?.ToString();
+            if (!string.Equals(subscriptionType, "channel.channel_points_custom_reward_redemption.add", StringComparison.Ordinal))
             {
-                SenderName = senderName,
-                MessageText = messageText,
-                IsBroadcaster = (!string.IsNullOrEmpty(chatterId) && chatterId == _broadcasterId) || HasBadge("broadcaster"),
-                IsModerator = HasBadge("moderator"),
-                IsVip = HasBadge("vip"),
-                IsSubscriber = HasBadge("subscriber") || HasBadge("founder"),
-                Bits = bits,
-                Source = ChatSource.NativeTwitch
-            };
+                return Task.CompletedTask;
+            }
 
-            OnChatMessage?.Invoke(ctx);
-        }
+            JToken payload = json["payload"]?["event"];
+            if (payload == null)
+            {
+                return Task.CompletedTask;
+            }
 
+            string rewardId = payload["reward"]?["id"]?.ToString();
+            string redemptionId = payload["id"]?.ToString();
+            string user = payload["user_login"]?.ToString() ?? payload["user_name"]?.ToString();
+            _log.ChannelPoint(rewardId ?? "UNKNOWN", "RedemptionReceived", "redemptionId=" + redemptionId + " user=" + user);
 
-
-
-        private void HandleFollow(JToken eventData)
-        {
-            // v2 follow event typically includes user_name of follower
-            string userName = (string)eventData["user_name"] ?? "Unknown";
-            OnFollow?.Invoke(userName);
-        }
-
-        private void HandleSubscribe(JToken eventData)
-        {
-            string userName = (string)eventData["user_name"] ?? "Unknown";
-            string tier = (string)eventData["tier"] ?? "1000";
-
-            int tierNum = 1;
-            if (tier == "2000") tierNum = 2;
-            else if (tier == "3000") tierNum = 3;
-
-            OnSubscription?.Invoke(userName, tierNum);
-        }
-
-        private void HandleRaid(JToken eventData)
-        {
-            string raiderName = (string)eventData["from_broadcaster_user_name"] ?? "Unknown";
-            int viewers = (int?)eventData["viewers"] ?? 0;
-
-            OnRaid?.Invoke(raiderName, viewers);
-        }
-
-        private void HandleChannelPointRedemption(JToken eventData)
-        {
             try
             {
-                // ADD THIS LINE - Extract redemption ID
-                string redemptionId = (string)eventData["id"] ?? "";
-
-                string userName = (string)eventData["user_name"] ?? "Unknown";
-                string userId = (string)eventData["user_id"] ?? "";
-                string userInput = (string)eventData["user_input"] ?? "";
-
-                string rewardId = (string)eventData["reward"]?["id"] ?? "";
-                string rewardTitle = (string)eventData["reward"]?["title"] ?? "";
-
-                if (string.IsNullOrWhiteSpace(rewardId))
-                    return;
-
                 OnChannelPointRedeemed?.Invoke(new ChannelPointRedemption
                 {
-                    RedemptionId = redemptionId,  // ADD THIS LINE
-                    RewardId = rewardId,
-                    RewardTitle = rewardTitle,
-                    UserName = userName,
-                    UserId = userId,
-                    UserInput = userInput
+                    RedemptionId = redemptionId ?? string.Empty,
+                    RewardId = rewardId ?? string.Empty,
+                    RewardTitle = payload["reward"]?["title"]?.ToString() ?? string.Empty,
+                    UserName = payload["user_name"]?.ToString() ?? "Unknown",
+                    UserId = payload["user_id"]?.ToString() ?? string.Empty,
+                    UserInput = payload["user_input"]?.ToString() ?? string.Empty
                 });
             }
             catch (Exception ex)
             {
-                Plugin.Log.Warn("TwitchEventSubClient: Failed parsing channel points redemption: " + ex.Message);
+                _log.Exception(ex, "OnChannelPointRedeemed invoke");
             }
+
+            return Task.CompletedTask;
         }
 
-
-
-        /// <summary>
-        /// Replacement for TwitchEventClient.SendChatMessage(): send via Helix.
-        /// NOTE: This requires proper scopes and parameters; ChatManager can call this.
-        /// </summary>
-        public async Task<bool> SendChatMessageAsync(string message)
+        private async Task ResubscribeAllAsync(CancellationToken ct)
         {
-            if (string.IsNullOrWhiteSpace(message))
-                return false;
-
-            // Helix endpoint: Send Chat Message (Twitch docs)
-            // We keep it simple: send as the bot user to the broadcaster's channel.
-            var payload = new
+            var localSnapshot = new Dictionary<string, string>(_rewardSubscriptions, StringComparer.Ordinal);
+            _log.Info("Resubscribing " + localSnapshot.Count + " known rewards after reconnect");
+            _rewardSubscriptions.Clear();
+            string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+            foreach (var kvp in localSnapshot)
             {
-                broadcaster_id = _broadcasterId,
-                sender_id = _botUserId,
-                message = message
-            };
-
-            string body = JsonConvert.SerializeObject(payload);
-            using (var req = CreateAuthedRequest(
-                HttpMethod.Post,
-                $"{HelixBase}/chat/messages",
-                new StringContent(body, Encoding.UTF8, "application/json")))
-            using (var resp = await _http.SendAsync(req, _cts != null ? _cts.Token : CancellationToken.None))
-            {
-                if (resp.IsSuccessStatusCode)
-                    return true;
-
-                string respBody = await resp.Content.ReadAsStringAsync();
-                Plugin.Log.Warn($"TwitchEventSubClient: SendChatMessage failed ({(int)resp.StatusCode}) {respBody}");
-                return false;
+                await SubscribeToRewardAsync(kvp.Key, channelUserId, ct).ConfigureAwait(false);
             }
-        }
-
-        public void Shutdown()
-        {
-            LogUtils.Debug(() => "TwitchEventSubClient: Shutdown requested");
-            _allowReconnect = false;
-            _isConnected = false;
-
-            try { _cts?.Cancel(); } catch { }
-            try
-            {
-                if (_ws != null)
-                {
-                    try { _ws.Dispose(); } catch { }
-                }
-                _ws = null;
-            }
-            catch { }
-
-            try { _cts?.Dispose(); } catch { }
-            _cts = null;
-
-            _sessionId = null;
-            _reconnectUrl = null;
-            ClearSubscribedTypes();
-
-            Task listenTask = _listenTask;
-            Task reconnectTask = _reconnectTask;
-            Task subscriptionTask = _subscriptionTask;
-
-            try { listenTask?.Wait(500); } catch { }
-            try { reconnectTask?.Wait(500); } catch { }
-            try { subscriptionTask?.Wait(500); } catch { }
-
-            _listenTask = null;
-            _reconnectTask = null;
-            _subscriptionTask = null;
-        }
-
-        // New: ensure we subscribe once per configured reward id so we only receive redemptions for rewards we own
-        public async Task EnsureChannelPointSubscriptionsAsync(IEnumerable<string> rewardIds)
-        {
-            if (rewardIds == null) return;
-            foreach (var rewardId in rewardIds)
-            {
-                if (string.IsNullOrWhiteSpace(rewardId)) continue;
-                string key = $"channel.channel_points_custom_reward_redemption.add::1::{rewardId}";
-                if (!TryBeginSubscription(key)) continue;
-
-                var payload = new
-                {
-                    type = "channel.channel_points_custom_reward_redemption.add",
-                    version = "1",
-                    condition = new
-                    {
-                        broadcaster_user_id = _broadcasterId,
-                        reward_id = rewardId
-                    },
-                    transport = new { method = "websocket", session_id = _sessionId }
-                };
-
-                string body = JsonConvert.SerializeObject(payload);
-                using (var req = CreateAuthedRequest(
-                    HttpMethod.Post,
-                    $"{HelixBase}/eventsub/subscriptions",
-                    new StringContent(body, Encoding.UTF8, "application/json")))
-                using (var resp = await _http.SendAsync(req, _cts != null ? _cts.Token : CancellationToken.None))
-                {
-                    string respBody = await resp.Content.ReadAsStringAsync();
-                    if (resp.IsSuccessStatusCode)
-                    {
-                        Plugin.Log.Info($"TwitchEventSubClient Subscribed to CP reward_id={rewardId}");
-                    }
-                    else
-                    {
-                        CancelSubscription(key);
-                        Plugin.Log.Warn($"TwitchEventSubClient CP subscribe failed reward_id={rewardId} {(int)resp.StatusCode} {respBody}");
-                    }
-                }
-            }
+            _log.Info("Resubscription complete");
         }
     }
 }

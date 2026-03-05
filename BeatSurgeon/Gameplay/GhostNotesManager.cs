@@ -43,10 +43,10 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         public bool StartGhost(float durationSeconds, string requesterName = null)
         {
-            var inMap = Resources.FindObjectsOfTypeAll<BeatmapObjectSpawnController>().Length > 0;
-            if (!inMap)
+            GameplayManager gameplayManager = GameplayManager.GetInstance();
+            if (gameplayManager == null || !gameplayManager.IsInMap)
             {
-                Plugin.Log.Warn("GhostNotesManager: Not in a map (no BeatmapObjectSpawnController).");
+                Plugin.Log.Warn("GhostNotesManager: Not in a map.");
                 return false;
             }
 

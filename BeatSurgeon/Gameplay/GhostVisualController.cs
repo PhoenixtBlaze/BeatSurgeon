@@ -1,10 +1,14 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
+using Unity.Profiling;
 
 namespace BeatSurgeon.Gameplay
 {
     public class GhostVisualController : MonoBehaviour
     {
+        private static readonly ProfilerMarker UpdateProfiler = new ProfilerMarker("BeatSurgeon.GhostVisualController.Update");
+        private static float _nextAudioSearchAt;
+
         // How long before hit arrows/dots should disappear
         public float hideLeadTime = 0.15f;
 
@@ -81,50 +85,49 @@ namespace BeatSurgeon.Gameplay
 
         private void Update()
         {
-            if (!_initialized)
-                return;
-
-            // If ghost was turned off, restore everything and stop running
-            if (!GhostNotesManager.GhostActive)
+            using (UpdateProfiler.Auto())
             {
-                ShowCubes();
-                SetOverlaysVisible(true);
-                enabled = false;
-                return;
-            }
+                if (!_initialized)
+                    return;
 
-            // Lazy-bind AudioTimeSyncController once we are in a level
-            if (Audio == null)
-            {
-                var audios = Resources.FindObjectsOfTypeAll<AudioTimeSyncController>();
-                if (audios != null && audios.Length > 0)
+                // If ghost was turned off, restore everything and stop running
+                if (!GhostNotesManager.GhostActive)
                 {
-                    Audio = audios[0];
-                    LogUtils.Debug(() => "GhostVisualController: bound AudioTimeSyncController from Update()");
+                    ShowCubes();
+                    SetOverlaysVisible(true);
+                    enabled = false;
+                    return;
                 }
+
+                // Shared throttled bind: avoid one expensive search per-note per-frame.
+                if (Audio == null && Time.unscaledTime >= _nextAudioSearchAt)
+                {
+                    _nextAudioSearchAt = Time.unscaledTime + 0.5f;
+                    Audio = Object.FindObjectOfType<AudioTimeSyncController>();
+                }
+
+                if (Audio == null)
+                    return;
+
+                float songTime = Audio.songTime;
+                float remaining = _noteHitTime - songTime;
+
+                bool shouldHideOverlays = remaining <= hideLeadTime;
+
+                if (!_overlaysHidden && shouldHideOverlays)
+                {
+                    // Near the hit: hide arrows and dots too
+                    SetOverlaysVisible(false);
+                }
+                else if (_overlaysHidden && !shouldHideOverlays)
+                {
+                    // Early in jump / pool reuse while ghost active: show overlays again
+                    SetOverlaysVisible(true);
+                }
+
+                // Cubes stay hidden the whole time while ghost is active
+                HideCubes();
             }
-
-            if (Audio == null)
-                return;
-
-            float songTime = Audio.songTime;
-            float remaining = _noteHitTime - songTime;
-
-            bool shouldHideOverlays = remaining <= hideLeadTime;
-
-            if (!_overlaysHidden && shouldHideOverlays)
-            {
-                // Near the hit: hide arrows and dots too
-                SetOverlaysVisible(false);
-            }
-            else if (_overlaysHidden && !shouldHideOverlays)
-            {
-                // Early in jump / pool reuse while ghost active: show overlays again
-                SetOverlaysVisible(true);
-            }
-
-            // Cubes stay hidden the whole time while ghost is active
-            HideCubes();
         }
 
         private void OnDisable()

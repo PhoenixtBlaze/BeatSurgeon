@@ -1,10 +1,14 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
+using Unity.Profiling;
 
 namespace BeatSurgeon.Gameplay
 {
     public class DisappearingArrowsVisualController : MonoBehaviour
     {
+        private static readonly ProfilerMarker UpdateProfiler = new ProfilerMarker("BeatSurgeon.DisappearingArrowsVisualController.Update");
+        private static float _nextAudioSearchAt;
+
         // How long before the hit arrows/dots should disappear
         public float hideLeadTime = 0.6f;
 
@@ -57,44 +61,43 @@ namespace BeatSurgeon.Gameplay
 
         private void Update()
         {
-            if (!_initialized)
-                return;
-
-            // If the effect window ended, restore overlays and stop running
-            if (!DisappearingArrowsManager.DisappearingActive)
+            using (UpdateProfiler.Auto())
             {
-                SetOverlaysVisible(true);
-                enabled = false;
-                return;
-            }
+                if (!_initialized)
+                    return;
 
-            // Lazy-bind AudioTimeSyncController once
-            if (Audio == null)
-            {
-                var audios = Resources.FindObjectsOfTypeAll<AudioTimeSyncController>();
-                if (audios != null && audios.Length > 0)
+                // If the effect window ended, restore overlays and stop running
+                if (!DisappearingArrowsManager.DisappearingActive)
                 {
-                    Audio = audios[0];
-                    LogUtils.Debug(() => "DisappearingArrowsVisualController: bound AudioTimeSyncController from Update()");
+                    SetOverlaysVisible(true);
+                    enabled = false;
+                    return;
                 }
-            }
 
-            if (Audio == null)
-                return;
+                // Shared throttled bind: avoid one expensive search per-note per-frame.
+                if (Audio == null && Time.unscaledTime >= _nextAudioSearchAt)
+                {
+                    _nextAudioSearchAt = Time.unscaledTime + 0.5f;
+                    Audio = Object.FindObjectOfType<AudioTimeSyncController>();
+                }
 
-            float songTime = Audio.songTime;
-            float remaining = _noteHitTime - songTime;
-            bool shouldHide = remaining <= hideLeadTime;
+                if (Audio == null)
+                    return;
 
-            if (!_overlaysHidden && shouldHide)
-            {
-                // Near the hit: hide arrows and dots, leaving the plain cube
-                SetOverlaysVisible(false);
-            }
-            else if (_overlaysHidden && !shouldHide)
-            {
-                // Early in jump / pooled reuse while effect is active: show overlays again
-                SetOverlaysVisible(true);
+                float songTime = Audio.songTime;
+                float remaining = _noteHitTime - songTime;
+                bool shouldHide = remaining <= hideLeadTime;
+
+                if (!_overlaysHidden && shouldHide)
+                {
+                    // Near the hit: hide arrows and dots, leaving the plain cube
+                    SetOverlaysVisible(false);
+                }
+                else if (_overlaysHidden && !shouldHide)
+                {
+                    // Early in jump / pooled reuse while effect is active: show overlays again
+                    SetOverlaysVisible(true);
+                }
             }
         }
 

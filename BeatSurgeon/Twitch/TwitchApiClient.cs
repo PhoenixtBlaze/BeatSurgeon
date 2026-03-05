@@ -1,308 +1,612 @@
-﻿using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using BeatSurgeon.Utils;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.Networking;
+using Zenject;
 
 namespace BeatSurgeon.Twitch
 {
-    public sealed class TwitchApiClient
+    internal sealed class TwitchApiClient
     {
-        public static event Action OnSubscriberStatusChanged;
+        internal static event Action OnSubscriberStatusChanged;
 
-        private static readonly Dictionary<string, Sprite> _spriteCache = new Dictionary<string, Sprite>();
-        private static readonly HttpClient _http = new HttpClient();
-
+        private static readonly LogUtil _log = LogUtil.GetLogger("TwitchApiClient");
+        private static readonly Dictionary<string, Sprite> _spriteCache = new Dictionary<string, Sprite>(StringComparer.Ordinal);
         private static TwitchApiClient _instance;
-        public static TwitchApiClient Instance
+
+        // Singleton HttpClient - never new-ed per request.
+        private readonly HttpClient _http;
+        private readonly TwitchAuthManager _authManager;
+
+        internal static TwitchApiClient Instance => _instance ?? (_instance = new TwitchApiClient(TwitchAuthManager.Instance));
+
+        internal string BroadcasterId { get; private set; }
+        internal string BroadcasterName { get; private set; }
+
+        private const string BackendBaseUrl = "https://phoenixblaze0.duckdns.org";
+        private const string BackendEntitlementsUrl = BackendBaseUrl + "/entitlements";
+
+        [Inject]
+        public TwitchApiClient(TwitchAuthManager authManager)
         {
-            get
+            _instance = this;
+            _authManager = authManager;
+            _http = new HttpClient
             {
-                if (_instance == null)
+                BaseAddress = new Uri("https://api.twitch.tv/helix/"),
+                Timeout = TimeSpan.FromSeconds(15)
+            };
+            _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            _log.Lifecycle("HttpClient initialized - BaseAddress=https://api.twitch.tv/helix/");
+        }
+
+        private async Task AuthorizeRequestAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            string token = await _authManager.GetAccessTokenAsync(ct).ConfigureAwait(false);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            request.Headers.TryAddWithoutValidation("Client-Id", PluginConfig.Instance.ClientId);
+        }
+
+        private async Task<HttpResponseMessage> SendHelixAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            await AuthorizeRequestAsync(request, ct).ConfigureAwait(false);
+            HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            _log.Debug($"HTTP {request.Method} {request.RequestUri} => {(int)response.StatusCode}");
+            return response;
+        }
+
+        internal async Task<string> CreateEventSubSubscriptionAsync(
+            string type,
+            string version,
+            Dictionary<string, string> condition,
+            CancellationToken ct = default(CancellationToken))
+        {
+            _log.Debug("CreateEventSubSubscription type=" + type);
+
+            var body = new JObject
+            {
+                ["type"] = type,
+                ["version"] = version,
+                ["condition"] = JObject.FromObject(condition ?? new Dictionary<string, string>()),
+                ["transport"] = new JObject
                 {
-                    _instance = new TwitchApiClient();
+                    ["method"] = "websocket",
+                    // Twitch infers session from connected WS + bearer context for this setup flow.
+                    // Session binding is handled by TwitchEventSubClient during WS lifecycle.
+                    ["session_id"] = TwitchEventSubClient.CurrentSessionId ?? string.Empty
                 }
-                return _instance;
+            };
+
+            using (var request = new HttpRequestMessage(HttpMethod.Post, "eventsub/subscriptions"))
+            {
+                request.Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                using (HttpResponseMessage response = await SendHelixAsync(request, ct).ConfigureAwait(false))
+                {
+                    string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    _log.Debug("CreateEventSubSubscription response=" + response.StatusCode);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _log.Error("CreateEventSubSubscription FAILED status=" + response.StatusCode + " body=" + json);
+                        throw new HttpRequestException("EventSub subscription creation failed: " + response.StatusCode);
+                    }
+
+                    string subscriptionId = JObject.Parse(json)["data"]?[0]?["id"]?.ToString();
+                    if (string.IsNullOrWhiteSpace(subscriptionId))
+                    {
+                        throw new InvalidOperationException("EventSub subscription create response did not contain a subscription id.");
+                    }
+
+                    _log.Info("EventSub subscription created type=" + type);
+                    return subscriptionId;
+                }
             }
         }
 
-        public string BroadcasterId { get; private set; }
-        public string BroadcasterName { get; private set; }
-
-        private const string HelixUrl = "https://api.twitch.tv/helix";
-        private const string BackendEntitlementsUrl = "https://phoenixblaze0.duckdns.org/entitlements";
-        private const string BackendBaseUrl = "https://phoenixblaze0.duckdns.org";
-        private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
-        private const int MaxHttpAttempts = 3;
-
-        private TwitchApiClient() { }
-
-        private static bool IsRetryableStatus(HttpStatusCode code)
-        {
-            int status = (int)code;
-            return status == 429 || status >= 500;
-        }
-
-        private static async Task<Tuple<HttpStatusCode, string>> GetWithRetryAsync(
-            string url,
-            Action<HttpRequestHeaders> configureHeaders,
+        internal async Task DeleteEventSubSubscriptionAsync(
+            string subscriptionId,
             CancellationToken ct = default(CancellationToken))
         {
-            Exception lastException = null;
-
-            for (int attempt = 1; attempt <= MaxHttpAttempts; attempt++)
+            _log.Debug("DeleteEventSubSubscription subscriptionId=" + subscriptionId);
+            using (var request = new HttpRequestMessage(
+                       HttpMethod.Delete, "eventsub/subscriptions?id=" + Uri.EscapeDataString(subscriptionId)))
             {
-                ct.ThrowIfCancellationRequested();
-
-                using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                using (HttpResponseMessage response = await SendHelixAsync(request, ct).ConfigureAwait(false))
                 {
-                    configureHeaders?.Invoke(req.Headers);
-
-                    using (var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                    if (response.IsSuccessStatusCode)
                     {
-                        timeoutCts.CancelAfter(RequestTimeout);
-
-                        try
-                        {
-                            using (var resp = await _http.SendAsync(req, timeoutCts.Token).ConfigureAwait(false))
-                            {
-                                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-                                if (attempt < MaxHttpAttempts && IsRetryableStatus(resp.StatusCode))
-                                {
-                                    await Task.Delay(TimeSpan.FromMilliseconds(300 * attempt), ct).ConfigureAwait(false);
-                                    continue;
-                                }
-
-                                return Tuple.Create(resp.StatusCode, body);
-                            }
-                        }
-                        catch (OperationCanceledException) when (!ct.IsCancellationRequested && attempt < MaxHttpAttempts)
-                        {
-                            await Task.Delay(TimeSpan.FromMilliseconds(300 * attempt), ct).ConfigureAwait(false);
-                        }
-                        catch (HttpRequestException ex) when (attempt < MaxHttpAttempts)
-                        {
-                            lastException = ex;
-                            await Task.Delay(TimeSpan.FromMilliseconds(300 * attempt), ct).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            lastException = ex;
-                            break;
-                        }
+                        _log.Info("EventSub subscription deleted subscriptionId=" + subscriptionId);
+                    }
+                    else
+                    {
+                        _log.Warn("DeleteEventSub failed status=" + response.StatusCode + " subscriptionId=" + subscriptionId);
                     }
                 }
             }
-
-            if (lastException != null)
-                throw lastException;
-
-            return Tuple.Create(HttpStatusCode.ServiceUnavailable, string.Empty);
         }
 
-        public static IEnumerator GetSpriteFromUrl(string url, Action<Sprite> callback)
+        internal async Task<string> CreateCustomRewardAsync(
+            string channelUserId,
+            string title,
+            int cost,
+            CancellationToken ct = default(CancellationToken))
         {
-            if (string.IsNullOrEmpty(url))
+            JObject reward = await CreateOrUpdateCustomRewardAsync(
+                channelUserId,
+                rewardId: null,
+                title: title,
+                prompt: string.Empty,
+                cost: cost,
+                cooldownSeconds: 0,
+                backgroundColorHex: null,
+                enabled: true,
+                ct: ct).ConfigureAwait(false);
+
+            string rewardId = reward?["id"]?.ToString();
+            if (string.IsNullOrWhiteSpace(rewardId))
+            {
+                throw new InvalidOperationException("CreateCustomReward response missing id.");
+            }
+
+            return rewardId;
+        }
+
+        internal async Task<JObject> CreateCustomRewardAsync(
+            string channelUserId,
+            string title,
+            string prompt,
+            int cost,
+            int cooldownSeconds,
+            string backgroundColorHex,
+            bool enabled,
+            CancellationToken ct = default(CancellationToken))
+        {
+            return await CreateOrUpdateCustomRewardAsync(
+                channelUserId,
+                rewardId: null,
+                title: title,
+                prompt: prompt,
+                cost: cost,
+                cooldownSeconds: cooldownSeconds,
+                backgroundColorHex: backgroundColorHex,
+                enabled: enabled,
+                ct: ct).ConfigureAwait(false);
+        }
+
+        internal async Task<JObject> UpdateCustomRewardAsync(
+            string channelUserId,
+            string rewardId,
+            string title,
+            string prompt,
+            int cost,
+            int cooldownSeconds,
+            string backgroundColorHex,
+            bool enabled,
+            CancellationToken ct = default(CancellationToken))
+        {
+            return await CreateOrUpdateCustomRewardAsync(
+                channelUserId,
+                rewardId: rewardId,
+                title: title,
+                prompt: prompt,
+                cost: cost,
+                cooldownSeconds: cooldownSeconds,
+                backgroundColorHex: backgroundColorHex,
+                enabled: enabled,
+                ct: ct).ConfigureAwait(false);
+        }
+
+        private async Task<JObject> CreateOrUpdateCustomRewardAsync(
+            string channelUserId,
+            string rewardId,
+            string title,
+            string prompt,
+            int cost,
+            int cooldownSeconds,
+            string backgroundColorHex,
+            bool enabled,
+            CancellationToken ct)
+        {
+            bool isUpdate = !string.IsNullOrWhiteSpace(rewardId);
+            var payload = new JObject
+            {
+                ["title"] = title ?? string.Empty,
+                ["prompt"] = prompt ?? string.Empty,
+                ["cost"] = Math.Max(1, cost),
+                ["is_enabled"] = enabled,
+                ["is_user_input_required"] = false
+            };
+
+            if (cooldownSeconds > 0)
+            {
+                payload["global_cooldown_setting"] = new JObject
+                {
+                    ["is_enabled"] = true,
+                    ["global_cooldown_seconds"] = Math.Max(1, cooldownSeconds)
+                };
+            }
+            else
+            {
+                payload["global_cooldown_setting"] = new JObject
+                {
+                    ["is_enabled"] = false,
+                    ["global_cooldown_seconds"] = 0
+                };
+            }
+
+            string normalizedHex = NormalizeHexColor(backgroundColorHex);
+            if (!string.IsNullOrWhiteSpace(normalizedHex))
+            {
+                payload["background_color"] = normalizedHex;
+            }
+
+            string uri = "channel_points/custom_rewards?broadcaster_id=" + Uri.EscapeDataString(channelUserId);
+            if (isUpdate)
+            {
+                uri += "&id=" + Uri.EscapeDataString(rewardId);
+            }
+
+            using (var request = new HttpRequestMessage(isUpdate ? new HttpMethod("PATCH") : HttpMethod.Post, uri))
+            {
+                request.Content = new StringContent(payload.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                using (HttpResponseMessage response = await SendHelixAsync(request, ct).ConfigureAwait(false))
+                {
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        string op = isUpdate ? "UpdateCustomReward" : "CreateCustomReward";
+                        throw new HttpRequestException(op + " failed: " + response.StatusCode + " body=" + body);
+                    }
+
+                    return JObject.Parse(body)["data"]?[0] as JObject;
+                }
+            }
+        }
+
+        private static string NormalizeHexColor(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            string trimmed = value.Trim();
+            if (!trimmed.StartsWith("#", StringComparison.Ordinal))
+            {
+                trimmed = "#" + trimmed;
+            }
+
+            Color color;
+            if (!ColorUtility.TryParseHtmlString(trimmed, out color))
+            {
+                return null;
+            }
+
+            return "#" + ColorUtility.ToHtmlStringRGB(color);
+        }
+
+        internal async Task SetRewardEnabledAsync(
+            string channelUserId,
+            string rewardId,
+            bool enabled,
+            CancellationToken ct = default(CancellationToken))
+        {
+            var payload = new JObject { ["is_enabled"] = enabled };
+            string uri = "channel_points/custom_rewards?broadcaster_id="
+                         + Uri.EscapeDataString(channelUserId)
+                         + "&id=" + Uri.EscapeDataString(rewardId);
+
+            using (var request = new HttpRequestMessage(new HttpMethod("PATCH"), uri))
+            {
+                request.Content = new StringContent(payload.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                using (HttpResponseMessage response = await SendHelixAsync(request, ct).ConfigureAwait(false))
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        throw new HttpRequestException("SetRewardEnabled failed: " + response.StatusCode + " body=" + body);
+                    }
+                }
+            }
+        }
+
+        internal async Task<JArray> GetManageableRewardsAsync(string channelUserId, CancellationToken ct = default(CancellationToken))
+        {
+            string uri = "channel_points/custom_rewards?broadcaster_id="
+                         + Uri.EscapeDataString(channelUserId)
+                         + "&only_manageable_rewards=true";
+
+            using (var request = new HttpRequestMessage(HttpMethod.Get, uri))
+            {
+                using (HttpResponseMessage response = await SendHelixAsync(request, ct).ConfigureAwait(false))
+                {
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        throw new HttpRequestException("GetManageableRewards failed: " + response.StatusCode + " body=" + body);
+                    }
+
+                    return (JArray)(JObject.Parse(body)["data"] ?? new JArray());
+                }
+            }
+        }
+
+        internal async Task UpdateRedemptionStatusAsync(
+            string channelUserId,
+            string rewardId,
+            string redemptionId,
+            string status,
+            CancellationToken ct = default(CancellationToken))
+        {
+            string uri = "channel_points/custom_rewards/redemptions?broadcaster_id="
+                         + Uri.EscapeDataString(channelUserId)
+                         + "&reward_id=" + Uri.EscapeDataString(rewardId)
+                         + "&id=" + Uri.EscapeDataString(redemptionId);
+
+            var payload = new JObject { ["status"] = status };
+            using (var request = new HttpRequestMessage(new HttpMethod("PATCH"), uri))
+            {
+                request.Content = new StringContent(payload.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                using (HttpResponseMessage response = await SendHelixAsync(request, ct).ConfigureAwait(false))
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        throw new HttpRequestException("UpdateRedemptionStatus failed: " + response.StatusCode + " body=" + body);
+                    }
+                }
+            }
+        }
+
+        internal async Task<bool> SendChatMessageAsync(
+            string channelUserId,
+            string senderUserId,
+            string message,
+            CancellationToken ct = default(CancellationToken))
+        {
+            var payload = new JObject
+            {
+                ["broadcaster_id"] = channelUserId,
+                ["sender_id"] = senderUserId,
+                ["message"] = message
+            };
+
+            using (var request = new HttpRequestMessage(HttpMethod.Post, "chat/messages"))
+            {
+                request.Content = new StringContent(payload.ToString(Formatting.None), Encoding.UTF8, "application/json");
+                using (HttpResponseMessage response = await SendHelixAsync(request, ct).ConfigureAwait(false))
+                {
+                    if (response.IsSuccessStatusCode)
+                    {
+                        return true;
+                    }
+
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    _log.Warn("SendChatMessage failed status=" + response.StatusCode + " body=" + body);
+                    return false;
+                }
+            }
+        }
+
+        internal async Task FetchBroadcasterAndEntitlementsAsync(CancellationToken ct = default(CancellationToken))
+        {
+            string token = await _authManager.GetAccessTokenAsync(ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return;
+            }
+
+            await FetchIdentityAsync(token, ct).ConfigureAwait(false);
+            await RefreshEntitlementsAsync(token, ct).ConfigureAwait(false);
+        }
+
+        internal async Task RefreshEntitlementsAsync(string userAccessToken, CancellationToken ct = default(CancellationToken))
+        {
+            try
+            {
+                using (var request = new HttpRequestMessage(HttpMethod.Get, BackendEntitlementsUrl))
+                {
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
+                    using (HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false))
+                    {
+                        string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            EntitlementsState.Clear();
+                            OnSubscriberStatusChanged?.Invoke();
+                            return;
+                        }
+
+                        JObject json = JObject.Parse(body);
+                        string entitlementToken = json["entitlementToken"]?.ToString();
+                        if (!TryVerifyAndParseEntitlement(entitlementToken, out EntitlementsSnapshot snapshot))
+                        {
+                            EntitlementsState.Clear();
+                            OnSubscriberStatusChanged?.Invoke();
+                            return;
+                        }
+
+                        EntitlementsState.Set(snapshot);
+                        PluginConfig.Instance.CachedSupporterTier = (int)snapshot.Tier;
+                        OnSubscriberStatusChanged?.Invoke();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "RefreshEntitlementsAsync");
+                EntitlementsState.Clear();
+                OnSubscriberStatusChanged?.Invoke();
+            }
+        }
+
+        internal async Task<bool> CheckVisualsPermissionAsync(CancellationToken ct = default(CancellationToken))
+        {
+            string accessToken = await _authManager.GetAccessTokenAsync(ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(accessToken))
+            {
+                return false;
+            }
+
+            EntitlementsSnapshot current = EntitlementsState.Current;
+            if (string.IsNullOrWhiteSpace(current.SignedEntitlementToken) ||
+                DateTime.UtcNow >= current.ExpiresAtUtc.AddMinutes(-5))
+            {
+                _log.Info("Entitlement token expired or missing, refreshing...");
+                await RefreshEntitlementsAsync(accessToken, ct).ConfigureAwait(false);
+                current = EntitlementsState.Current;
+                if (string.IsNullOrWhiteSpace(current.SignedEntitlementToken))
+                {
+                    _log.Warn("Failed to refresh entitlement token");
+                    return false;
+                }
+            }
+
+            using (var request = new HttpRequestMessage(HttpMethod.Get, BackendBaseUrl + "/visuals/permission"))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                request.Headers.TryAddWithoutValidation("X-Entitlement", current.SignedEntitlementToken);
+                using (HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false))
+                {
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _log.Warn("CheckVisualsPermission failed: " + response.StatusCode + " - " + body);
+                        return false;
+                    }
+
+                    try
+                    {
+                        return JObject.Parse(body)["allowed"]?.Value<bool>() == true;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        internal static IEnumerator GetSpriteFromUrl(string url, Action<Sprite> callback)
+        {
+            if (string.IsNullOrWhiteSpace(url))
             {
                 callback?.Invoke(null);
                 yield break;
             }
 
-            if (_spriteCache.TryGetValue(url, out var cached) && cached != null)
+            if (_spriteCache.TryGetValue(url, out Sprite cached) && cached != null)
             {
                 callback?.Invoke(cached);
                 yield break;
             }
 
-            using (var req = UnityWebRequestTexture.GetTexture(url))
+            using (var request = UnityWebRequestTexture.GetTexture(url))
             {
-                yield return req.SendWebRequest();
-
-                if (req.result != UnityWebRequest.Result.Success)
+                yield return request.SendWebRequest();
+                if (request.result != UnityWebRequest.Result.Success)
                 {
                     callback?.Invoke(null);
                     yield break;
                 }
 
-                var texture = DownloadHandlerTexture.GetContent(req);
+                Texture texture = DownloadHandlerTexture.GetContent(request);
                 if (texture == null)
                 {
                     callback?.Invoke(null);
                     yield break;
                 }
 
-                var sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0.5f));
+                Sprite sprite = Sprite.Create(
+                    (Texture2D)texture,
+                    new Rect(0, 0, texture.width, texture.height),
+                    new Vector2(0.5f, 0.5f));
+
                 _spriteCache[url] = sprite;
                 callback?.Invoke(sprite);
             }
         }
 
-        public static void ClearCache()
+        internal static void ClearCache()
         {
-            foreach (var sprite in _spriteCache.Values)
+            foreach (Sprite sprite in _spriteCache.Values)
             {
                 if (sprite == null) continue;
                 if (sprite.texture != null) UnityEngine.Object.Destroy(sprite.texture);
                 UnityEngine.Object.Destroy(sprite);
             }
+
             _spriteCache.Clear();
         }
 
-        public async Task FetchBroadcasterAndEntitlementsAsync(CancellationToken ct = default(CancellationToken))
+        private async Task FetchIdentityAsync(string userAccessToken, CancellationToken ct)
         {
-            await TwitchAuthManager.Instance.EnsureValidTokenAsync(ct);
-
-            var token = TwitchAuthManager.Instance.GetAccessToken();
-            if (string.IsNullOrEmpty(token)) return;
-
-            // Identity (Helix /users)
-            await FetchIdentityAsync(token, ct).ConfigureAwait(false);
-
-            // Entitlements (backend /entitlements -> JWT)
-            await RefreshEntitlementsAsync(token, ct).ConfigureAwait(false);
-        }
-
-        private async Task FetchIdentityAsync(string userAccessToken, CancellationToken ct = default(CancellationToken))
-        {
-            var result = await GetWithRetryAsync(
-                HelixUrl + "/users",
-                headers =>
+            using (var request = new HttpRequestMessage(HttpMethod.Get, "users"))
+            {
+                request.Headers.TryAddWithoutValidation("Client-Id", _authManager.ClientId);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
+                using (HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false))
                 {
-                    headers.Add("Client-Id", TwitchAuthManager.Instance.ClientId);
-                    headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken);
-                },
-                ct).ConfigureAwait(false);
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        throw new HttpRequestException("FetchIdentity failed: " + response.StatusCode + " body=" + body);
+                    }
 
-            if ((int)result.Item1 < 200 || (int)result.Item1 > 299)
-                return;
+                    JToken data = JObject.Parse(body)["data"]?[0];
+                    if (data == null)
+                    {
+                        return;
+                    }
 
-            var text = result.Item2;
-            var json = JObject.Parse(text);
-            var data = json["data"]?[0];
-            if (data == null) return;
-
-            BroadcasterId = data["id"]?.ToString();
-            BroadcasterName = data["login"]?.ToString();
-
-            Plugin.Settings.CachedBroadcasterId = BroadcasterId;
-            Plugin.Settings.CachedBotUserId = BroadcasterId;
-            Plugin.Settings.CachedBotUserLogin = BroadcasterName;
-            Plugin.Settings.CachedBroadcasterLogin = BroadcasterName;
-        }
-
-        public async Task RefreshEntitlementsAsync(string userAccessToken, CancellationToken ct = default(CancellationToken))
-        {
-            var result = await GetWithRetryAsync(
-                BackendEntitlementsUrl,
-                headers => headers.Authorization = new AuthenticationHeaderValue("Bearer", userAccessToken),
-                ct).ConfigureAwait(false);
-
-            if ((int)result.Item1 < 200 || (int)result.Item1 > 299)
-            {
-                EntitlementsState.Clear();
-                OnSubscriberStatusChanged?.Invoke();
-                return;
-            }
-
-            var json = JObject.Parse(result.Item2);
-            var entitlementToken = json["entitlementToken"]?.ToString();
-
-            if (!TryVerifyAndParseEntitlement(entitlementToken, out var snapshot))
-            {
-                EntitlementsState.Clear();
-                OnSubscriberStatusChanged?.Invoke();
-                return;
-            }
-
-            EntitlementsState.Set(snapshot);
-            Plugin.Settings.CachedSupporterTier = (int)snapshot.Tier;
-            OnSubscriberStatusChanged?.Invoke();
-        }
-
-        public async Task<bool> CheckVisualsPermissionAsync(CancellationToken ct = default(CancellationToken))
-        {
-            await TwitchAuthManager.Instance.EnsureValidTokenAsync(ct).ConfigureAwait(false);
-
-            var accessToken = TwitchAuthManager.Instance.GetAccessToken();
-            if (string.IsNullOrEmpty(accessToken)) return false;
-
-            // Check if entitlement is expired or missing 
-            var current = EntitlementsState.Current;
-            if (string.IsNullOrEmpty(current.SignedEntitlementToken) ||
-                DateTime.UtcNow >= current.ExpiresAtUtc.AddMinutes(-5)) // Refresh 5 min early
-            {
-                Plugin.Log.Info("Entitlement token expired or missing, refreshing...");
-                await RefreshEntitlementsAsync(accessToken, ct).ConfigureAwait(false);
-
-                // Re-check after refresh
-                current = EntitlementsState.Current;
-                if (string.IsNullOrEmpty(current.SignedEntitlementToken))
-                {
-                    Plugin.Log.Warn("Failed to refresh entitlement token");
-                    return false;
+                    BroadcasterId = data["id"]?.ToString();
+                    BroadcasterName = data["login"]?.ToString();
+                    PluginConfig.Instance.CachedBroadcasterId = BroadcasterId ?? string.Empty;
+                    PluginConfig.Instance.CachedBotUserId = BroadcasterId ?? string.Empty;
+                    PluginConfig.Instance.CachedBotUserLogin = BroadcasterName ?? string.Empty;
+                    PluginConfig.Instance.CachedBroadcasterLogin = BroadcasterName ?? string.Empty;
                 }
-            }
-
-            var entitlement = current.SignedEntitlementToken;
-            // *** END CHANGE ***
-
-            var result = await GetWithRetryAsync(
-                BackendBaseUrl + "/visuals/permission",
-                headers =>
-                {
-                    headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                    headers.Add("X-Entitlement", entitlement);
-                },
-                ct).ConfigureAwait(false);
-            var body = result.Item2;
-
-            if ((int)result.Item1 < 200 || (int)result.Item1 > 299)
-            {
-                Plugin.Log.Warn($"CheckVisualsPermission failed: {result.Item1} - {body}");
-                return false;
-            }
-
-            try
-            {
-                var json = JObject.Parse(body);
-                return json["allowed"]?.Value<bool>() == true;
-            }
-            catch
-            {
-                return false;
             }
         }
 
         private static bool TryVerifyAndParseEntitlement(string signedToken, out EntitlementsSnapshot snapshot)
         {
-            snapshot = default;
-
-            if (!JwtEd25519.TryVerify(signedToken, out var verified))
+            snapshot = default(EntitlementsSnapshot);
+            if (!JwtEd25519.TryVerify(signedToken, out JwtEd25519.VerifiedJwt verified))
+            {
                 return false;
+            }
 
-            var payload = verified.Payload;
-
-            // Standard claims
+            JObject payload = verified.Payload;
             long exp = payload["exp"]?.Value<long>() ?? 0;
-            string sub = payload["sub"]?.ToString(); // Twitch user id on server
-
-            if (exp <= 0) return false;
-            if (string.IsNullOrEmpty(sub)) return false;
-
-            // Ensure token is for THIS logged-in user
-            string expectedUserId = TwitchAuthManager.Instance.BroadcasterId;
-            if (!string.IsNullOrEmpty(expectedUserId) && !string.Equals(sub, expectedUserId, StringComparison.Ordinal))
+            string sub = payload["sub"]?.ToString();
+            if (exp <= 0 || string.IsNullOrWhiteSpace(sub))
+            {
                 return false;
+            }
 
-            // Tier claim (you set this server-side)
+            string expectedUserId = TwitchAuthManager.Instance?.BroadcasterId;
+            if (!string.IsNullOrWhiteSpace(expectedUserId) &&
+                !string.Equals(sub, expectedUserId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
             int tierInt = payload["tier"]?.Value<int>() ?? 0;
-            if (tierInt < 0 || tierInt > 3) return false;
+            if (tierInt < 0 || tierInt > 3)
+            {
+                return false;
+            }
 
             snapshot = new EntitlementsSnapshot
             {

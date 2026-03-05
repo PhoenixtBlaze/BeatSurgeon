@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
+using BeatSurgeon.Twitch;
 
 // Alias to avoid ambiguity
 using ABTAssetBundleExtensions = AssetBundleLoadingTools.Utilities.AssetBundleExtensions;
@@ -69,11 +70,21 @@ namespace BeatSurgeon.Gameplay
 
         internal static string GetSelectedBombFontOption()
         {
+            if (!EntitlementsState.HasVisualsAccess)
+            {
+                return DefaultSelectionValue;
+            }
+
             return BeatSurgeon.Plugin.Settings?.BombFontType ?? DefaultSelectionValue;
         }
 
         internal static void SetSelectedBombFontOption(string selection)
         {
+            if (!EntitlementsState.HasVisualsAccess)
+            {
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(selection)) selection = DefaultSelectionValue;
 
             if (BeatSurgeon.Plugin.Settings != null)

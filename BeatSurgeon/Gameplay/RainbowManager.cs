@@ -147,11 +147,10 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         public bool StartRainbow(float durationSeconds)
         {
-            // Optional: require being in a map (notes exist)
-            var inMap = Resources.FindObjectsOfTypeAll<BeatmapObjectSpawnController>().Length > 0;
-            if (!inMap)
+            GameplayManager gameplayManager = GameplayManager.GetInstance();
+            if (gameplayManager == null || !gameplayManager.IsInMap)
             {
-                Plugin.Log.Warn("RainbowManager: Not in a map (no BeatmapObjectSpawnController).");
+                Plugin.Log.Warn("RainbowManager: Not in a map.");
                 return false;
             }
 
@@ -183,11 +182,10 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         public bool StartNoteColor(Color left, Color right, float durationSeconds)
         {
-            // Optional: require being in a map (notes exist)
-            var inMap = Resources.FindObjectsOfTypeAll<BeatmapObjectSpawnController>().Length > 0;
-            if (!inMap)
+            GameplayManager gameplayManager = GameplayManager.GetInstance();
+            if (gameplayManager == null || !gameplayManager.IsInMap)
             {
-                Plugin.Log.Warn("RainbowManager: Not in a map (no BeatmapObjectSpawnController).");
+                Plugin.Log.Warn("RainbowManager: Not in a map.");
                 return false;
             }
 

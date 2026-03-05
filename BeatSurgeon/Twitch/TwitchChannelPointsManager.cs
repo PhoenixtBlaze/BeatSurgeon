@@ -1,383 +1,354 @@
-﻿using Newtonsoft.Json.Linq;
 using System;
-using System.Net.Http;
-using System.Text;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using BeatSurgeon.Utils;
+using Newtonsoft.Json.Linq;
+using UnityEngine;
+using Zenject;
 
 namespace BeatSurgeon.Twitch
 {
-    internal sealed class TwitchChannelPointsManager
+    internal sealed class TwitchChannelPointsManager : IInitializable, IDisposable
     {
-        private const string HelixBase = "https://api.twitch.tv/helix";
-        private static readonly HttpClient _http = new HttpClient();
-
+        private static readonly LogUtil _log = LogUtil.GetLogger("TwitchChannelPointsManager");
         private static TwitchChannelPointsManager _instance;
-        public static TwitchChannelPointsManager Instance => _instance ?? (_instance = new TwitchChannelPointsManager());
-
-        private TwitchChannelPointsManager() { }
 
         internal sealed class RewardSpec
         {
-            public string Key;
-            public string Title;
-            public string Prompt;
-            public int Cost;
-            public int CooldownSeconds; // 0 = no cooldown
-
-            public string BackgroundColorHex; // "#RRGGBB" (optional)
+            internal string Key;
+            internal string Title;
+            internal string Prompt;
+            internal int Cost;
+            internal int CooldownSeconds;
+            internal string BackgroundColorHex;
         }
 
-        private async Task<HttpRequestMessage> CreateAuthedRequestAsync(
-            HttpMethod method,
-            string url,
-            CancellationToken ct,
-            HttpContent content = null)
+        internal sealed class RewardRecord
         {
-            await TwitchAuthManager.Instance.EnsureReadyAsync(ct);
-            ct.ThrowIfCancellationRequested();
+            internal RewardRecord(string rewardId, string title, bool isEnabled, bool isOwned)
+            {
+                RewardId = rewardId;
+                Title = title;
+                IsEnabled = isEnabled;
+                IsOwned = isOwned;
+            }
 
-            string token = TwitchAuthManager.Instance.GetAccessToken();
-            string clientId = TwitchAuthManager.Instance.ClientId;
+            internal string RewardId { get; private set; }
+            internal string Title { get; private set; }
+            internal bool IsEnabled { get; private set; }
+            internal bool IsOwned { get; private set; }
 
-            if (string.IsNullOrEmpty(token))
-                throw new InvalidOperationException("No Twitch access token.");
-
-            var req = new HttpRequestMessage(method, url);
-            if (content != null)
-                req.Content = content;
-
-            req.Headers.TryAddWithoutValidation("Client-Id", clientId);
-            req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + token);
-            return req;
+            internal RewardRecord WithEnabled(bool enabled)
+                => new RewardRecord(RewardId, Title, enabled, IsOwned);
         }
 
-        private async Task RetryAsync(
-            Func<Task> operation,
-            int maxAttempts = 3,
-            int delayMs = 3000,
+        private readonly TwitchApiClient _apiClient;
+        private readonly TwitchEventSubClient _eventSubClient;
+        private readonly TwitchAuthManager _authManager;
+
+        private readonly ConcurrentDictionary<string, RewardRecord> _rewards =
+            new ConcurrentDictionary<string, RewardRecord>(StringComparer.Ordinal);
+
+        private readonly SemaphoreSlim _operationLock = new SemaphoreSlim(1, 1);
+        private CancellationTokenSource _shutdownCts;
+
+        internal static TwitchChannelPointsManager Instance =>
+            _instance ?? (_instance = new TwitchChannelPointsManager(
+                TwitchApiClient.Instance,
+                TwitchEventSubClient.Instance,
+                TwitchAuthManager.Instance));
+
+        [Inject]
+        public TwitchChannelPointsManager(
+            TwitchApiClient apiClient,
+            TwitchEventSubClient eventSubClient,
+            TwitchAuthManager authManager)
+        {
+            _instance = this;
+            _apiClient = apiClient;
+            _eventSubClient = eventSubClient;
+            _authManager = authManager;
+        }
+
+        public void Initialize()
+        {
+            _log.Lifecycle("Initialize");
+            _shutdownCts = new CancellationTokenSource();
+            Application.quitting += OnApplicationQuitting;
+            _log.Info("Registered Application.quitting handler");
+        }
+
+        public void Dispose()
+        {
+            _log.Lifecycle("Dispose");
+            Application.quitting -= OnApplicationQuitting;
+            _shutdownCts?.Dispose();
+        }
+
+        private void OnApplicationQuitting()
+        {
+            _log.Lifecycle("OnApplicationQuitting - disabling all owned CP rewards");
+            try
+            {
+                using (var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+                {
+                    DisableAllOwnedRewardsAsync(timeoutCts.Token).GetAwaiter().GetResult();
+                }
+                _log.Info("All owned CP rewards disabled on quit");
+            }
+            catch (OperationCanceledException)
+            {
+                _log.Warn("DisableAllOwnedRewards timed out during quit (>5s) - some rewards may remain enabled");
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "OnApplicationQuitting");
+            }
+        }
+
+        internal async Task<string> CreateRewardAsync(
+            string title,
+            int cost,
             CancellationToken ct = default(CancellationToken))
         {
-            if (operation == null) throw new ArgumentNullException(nameof(operation));
+            _log.ChannelPoint("NEW", "CreateRewardStarted", "title=" + title + " cost=" + cost);
 
-            Exception last = null;
-            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            await _operationLock.WaitAsync(ct).ConfigureAwait(false);
+            try
             {
-                ct.ThrowIfCancellationRequested();
-                try
-                {
-                    await operation();
-                    return;
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    last = ex;
-                    if (attempt >= maxAttempts) break;
+                string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+                string rewardId = await _apiClient.CreateCustomRewardAsync(channelUserId, title, cost, ct).ConfigureAwait(false);
 
-                    Plugin.Log.Warn(
-                        $"TwitchChannelPointsManager: Helix attempt {attempt}/{maxAttempts} failed; retrying in {delayMs}ms. " +
-                        ex.Message);
-                    await Task.Delay(delayMs, ct);
-                }
+                _rewards[rewardId] = new RewardRecord(rewardId, title, isEnabled: true, isOwned: true);
+                _log.ChannelPoint(rewardId, "RewardCreated", "title=" + title);
+
+                await _eventSubClient.SubscribeToRewardAsync(rewardId, channelUserId, ct).ConfigureAwait(false);
+                _log.ChannelPoint(rewardId, "EventSubSubscribed", "immediately after creation");
+
+                return rewardId;
             }
-
-            throw last ?? new Exception("RetryAsync failed without an exception.");
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "CreateRewardAsync title=" + title);
+                throw;
+            }
+            finally
+            {
+                _operationLock.Release();
+            }
         }
 
-        private static string RequireBroadcasterId()
+        internal async Task<string> CreateRewardAsync(RewardSpec spec, bool enabled, CancellationToken ct)
         {
-            string broadcasterId = TwitchAuthManager.Instance.BroadcasterId;
-            if (string.IsNullOrEmpty(broadcasterId))
-                throw new InvalidOperationException("BroadcasterId not resolved yet.");
-            return broadcasterId;
-        }
+            string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+            JObject created = await _apiClient.CreateCustomRewardAsync(
+                channelUserId,
+                spec.Title,
+                spec.Prompt,
+                spec.Cost,
+                spec.CooldownSeconds,
+                spec.BackgroundColorHex,
+                enabled,
+                ct).ConfigureAwait(false);
 
-        public async Task<JArray> GetManageableRewardsAsync(CancellationToken ct)
-        {
-            string broadcasterId = RequireBroadcasterId();
-
-            string url =
-                $"{HelixBase}/channel_points/custom_rewards" +
-                $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
-                $"&only_manageable_rewards=true";
-
-            using (var req = await CreateAuthedRequestAsync(HttpMethod.Get, url, ct))
-            using (var resp = await _http.SendAsync(req, ct))
+            string rewardId = created?["id"]?.ToString();
+            if (string.IsNullOrWhiteSpace(rewardId))
             {
-                string body = await resp.Content.ReadAsStringAsync();
-
-                if (!resp.IsSuccessStatusCode)
-                    throw new Exception($"GetManageableRewards failed HTTP={(int)resp.StatusCode} body={body}");
-
-                var json = JObject.Parse(body);
-                return (JArray)(json["data"] ?? new JArray());
-            }
-        }
-
-        public async Task<string> CreateRewardAsync(RewardSpec spec, bool enabled, CancellationToken ct)
-        {
-            string broadcasterId = RequireBroadcasterId();
-
-            var payload = new JObject
-            {
-                ["title"] = spec.Title,
-                ["cost"] = Math.Max(1, spec.Cost),
-                ["prompt"] = spec.Prompt ?? "",
-                ["is_enabled"] = enabled,
-                ["is_user_input_required"] = false,
-                ["is_max_per_stream_enabled"] = false,
-                ["is_max_per_user_per_stream_enabled"] = false,
-            };
-
-            if (!string.IsNullOrWhiteSpace(spec.BackgroundColorHex))
-                payload["background_color"] = spec.BackgroundColorHex;
-
-            if (spec.CooldownSeconds > 0)
-            {
-                payload["is_global_cooldown_enabled"] = true;
-                payload["global_cooldown_seconds"] = Math.Min(604800, Math.Max(1, spec.CooldownSeconds));
-            }
-            else
-            {
-                payload["is_global_cooldown_enabled"] = false;
-                // IMPORTANT: do NOT include global_cooldown_seconds when disabled
+                throw new InvalidOperationException("CreateRewardAsync: Twitch did not return reward id.");
             }
 
-            string url =
-                $"{HelixBase}/channel_points/custom_rewards" +
-                $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}";
-
-            using (var req = await CreateAuthedRequestAsync(
-                HttpMethod.Post,
-                url,
-                ct,
-                new StringContent(payload.ToString(), Encoding.UTF8, "application/json")))
-            using (var resp = await _http.SendAsync(req, ct))
-            {
-                string body = await resp.Content.ReadAsStringAsync();
-
-                if (!resp.IsSuccessStatusCode)
-                    throw new Exception($"CreateReward failed HTTP={(int)resp.StatusCode} body={body}");
-
-                var json = JObject.Parse(body);
-                var id = json["data"]?[0]?["id"]?.ToString();
-
-                if (string.IsNullOrEmpty(id))
-                    throw new Exception("CreateReward succeeded but response had no reward id.");
-
-                return id;
-            }
+            bool rewardEnabled = created["is_enabled"]?.Value<bool?>() ?? enabled;
+            _rewards[rewardId] = new RewardRecord(rewardId, spec.Title, rewardEnabled, isOwned: true);
+            return rewardId;
         }
 
-        public async Task UpdateRewardAsync(string rewardId, RewardSpec spec, bool enabled, CancellationToken ct)
-        {
-            await RetryAsync(async () =>
-            {
-                string broadcasterId = RequireBroadcasterId();
-
-                var payload = new JObject
-                {
-                    ["title"] = spec.Title,
-                    ["cost"] = Math.Max(1, spec.Cost),
-                    ["prompt"] = spec.Prompt ?? "",
-                    ["is_enabled"] = enabled,
-                };
-
-                if (!string.IsNullOrWhiteSpace(spec.BackgroundColorHex))
-                    payload["background_color"] = spec.BackgroundColorHex;
-
-                if (spec.CooldownSeconds > 0)
-                {
-                    payload["is_global_cooldown_enabled"] = true;
-                    payload["global_cooldown_seconds"] = Math.Min(604800, Math.Max(1, spec.CooldownSeconds));
-                }
-                else
-                {
-                    payload["is_global_cooldown_enabled"] = false;
-
-                    // Still include the seconds field to satisfy Helix validation.
-                    // Use 1 to avoid “minimum is 1” validation edge cases.
-                    payload["global_cooldown_seconds"] = 1;
-                }
-
-                string url =
-                    $"{HelixBase}/channel_points/custom_rewards" +
-                    $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
-                    $"&id={Uri.EscapeDataString(rewardId)}";
-
-                using (var req = await CreateAuthedRequestAsync(
-                    new HttpMethod("PATCH"),
-                    url,
-                    ct,
-                    new StringContent(payload.ToString(), Encoding.UTF8, "application/json")))
-                using (var resp = await _http.SendAsync(req, ct))
-                {
-                    string body = await resp.Content.ReadAsStringAsync();
-
-                    if (!resp.IsSuccessStatusCode)
-                        throw new Exception($"UpdateReward failed HTTP={(int)resp.StatusCode} body={body}");
-                }
-            }, maxAttempts: 3, delayMs: 3000, ct: ct);
-        }
-
-        /// <summary>
-        /// Lightweight enable/disable without rewriting title/cost/prompt.
-        /// This fixes your Plugin.cs build error (missing SetRewardEnabledAsync). [file:221]
-        /// </summary>
-        public async Task SetRewardEnabledAsync(string rewardId, bool enabled, CancellationToken ct)
+        internal async Task SetRewardEnabledAsync(string rewardId, bool enabled, CancellationToken ct = default(CancellationToken))
         {
             if (string.IsNullOrWhiteSpace(rewardId))
+            {
                 return;
+            }
 
-            string broadcasterId = RequireBroadcasterId();
+            string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+            await _apiClient.SetRewardEnabledAsync(channelUserId, rewardId, enabled, ct).ConfigureAwait(false);
 
-            var payload = new JObject
+            if (_rewards.TryGetValue(rewardId, out RewardRecord existing))
             {
-                ["is_enabled"] = enabled
-            };
-
-            string url =
-                $"{HelixBase}/channel_points/custom_rewards" +
-                $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
-                $"&id={Uri.EscapeDataString(rewardId)}";
-
-            using (var req = await CreateAuthedRequestAsync(
-                new HttpMethod("PATCH"),
-                url,
-                ct,
-                new StringContent(payload.ToString(), Encoding.UTF8, "application/json")))
-            using (var resp = await _http.SendAsync(req, ct))
-            {
-                string body = await resp.Content.ReadAsStringAsync();
-
-                if (!resp.IsSuccessStatusCode)
-                    throw new Exception($"SetRewardEnabled failed HTTP={(int)resp.StatusCode} body={body}");
+                _rewards[rewardId] = existing.WithEnabled(enabled);
             }
         }
 
-
-        /// <summary>
-        /// Updates the status of a custom reward redemption.
-        /// Status can be "FULFILLED" or "CANCELED" (CANCELED refunds the points).
-        /// Requires channel:manage:redemptions scope.
-        /// </summary>
-        public async Task UpdateRedemptionStatusAsync(
-            string rewardId,
-            string redemptionId,
-            string status, // "FULFILLED" or "CANCELED"
-            CancellationToken ct)
+        internal async Task FulfillRedemptionAsync(string rewardId, string redemptionId, CancellationToken ct)
         {
-            if (string.IsNullOrWhiteSpace(rewardId))
-                throw new ArgumentException("Reward ID is required", nameof(rewardId));
-
-            if (string.IsNullOrWhiteSpace(redemptionId))
-                throw new ArgumentException("Redemption ID is required", nameof(redemptionId));
-
-            if (status != "FULFILLED" && status != "CANCELED")
-                throw new ArgumentException("Status must be FULFILLED or CANCELED", nameof(status));
-
-            await RetryAsync(async () =>
-            {
-                string broadcasterId = RequireBroadcasterId();
-
-                var payload = new JObject
-                {
-                    ["status"] = status
-                };
-
-                string url =
-                    $"{HelixBase}/channel_points/custom_rewards/redemptions" +
-                    $"?broadcaster_id={Uri.EscapeDataString(broadcasterId)}" +
-                    $"&reward_id={Uri.EscapeDataString(rewardId)}" +
-                    $"&id={Uri.EscapeDataString(redemptionId)}";
-
-                using (var req = await CreateAuthedRequestAsync(
-                    new HttpMethod("PATCH"),
-                    url,
-                    ct,
-                    new StringContent(payload.ToString(), Encoding.UTF8, "application/json")))
-                using (var resp = await _http.SendAsync(req, ct))
-                {
-                    string body = await resp.Content.ReadAsStringAsync();
-
-                    if (!resp.IsSuccessStatusCode)
-                        throw new Exception($"UpdateRedemptionStatus failed HTTP={(int)resp.StatusCode} body={body}");
-                }
-            }, maxAttempts: 3, delayMs: 3000, ct: ct);
+            string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+            await _apiClient.UpdateRedemptionStatusAsync(channelUserId, rewardId, redemptionId, "FULFILLED", ct).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// Convenience method to cancel/refund a redemption.
-        /// </summary>
-        public async Task RefundRedemptionAsync(string rewardId, string redemptionId, CancellationToken ct)
+        internal async Task RefundRedemptionAsync(string rewardId, string redemptionId, CancellationToken ct)
         {
-            await UpdateRedemptionStatusAsync(rewardId, redemptionId, "CANCELED", ct);
+            string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+            await _apiClient.UpdateRedemptionStatusAsync(channelUserId, rewardId, redemptionId, "CANCELED", ct).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// Convenience method to fulfill a redemption.
-        /// </summary>
-        public async Task FulfillRedemptionAsync(string rewardId, string redemptionId, CancellationToken ct)
+        internal async Task<JArray> GetManageableRewardsAsync(CancellationToken ct)
         {
-            await UpdateRedemptionStatusAsync(rewardId, redemptionId, "FULFILLED", ct);
+            string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+            return await _apiClient.GetManageableRewardsAsync(channelUserId, ct).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// Signature that matches your SurgeonGameplaySetupHost call site (storedRewardId/saveRewardId). [file:223]
-        /// </summary>
-        public async Task<string> EnsureRewardAsync(
+        internal async Task<string> EnsureRewardAsync(
             RewardSpec spec,
             string storedRewardId,
             Action<string> saveRewardId,
             bool enabled,
             CancellationToken ct)
         {
-            string storedId = (storedRewardId ?? "").Trim();
-            var rewards = await GetManageableRewardsAsync(ct);
-
+            string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+            JArray rewards = await _apiClient.GetManageableRewardsAsync(channelUserId, ct).ConfigureAwait(false);
             JObject found = null;
 
+            string storedId = (storedRewardId ?? string.Empty).Trim();
             if (!string.IsNullOrEmpty(storedId))
             {
-                foreach (var r in rewards)
-                {
-                    if (r?["id"]?.ToString() == storedId)
-                    {
-                        found = (JObject)r;
-                        break;
-                    }
-                }
+                found = rewards.OfType<JObject>().FirstOrDefault(x => string.Equals(x["id"]?.ToString(), storedId, StringComparison.Ordinal));
             }
 
             if (found == null)
             {
-                foreach (var r in rewards)
-                {
-                    if (string.Equals(r?["title"]?.ToString(), spec.Title, StringComparison.Ordinal))
-                    {
-                        found = (JObject)r;
-                        break;
-                    }
-                }
+                found = rewards.OfType<JObject>().FirstOrDefault(x => string.Equals(x["title"]?.ToString(), spec.Title, StringComparison.Ordinal));
             }
 
             if (found == null)
             {
-                string newId = await CreateRewardAsync(spec, enabled, ct);
-                saveRewardId?.Invoke(newId);
-                return newId;
+                if (!enabled)
+                {
+                    saveRewardId?.Invoke(string.Empty);
+                    return string.Empty;
+                }
+
+                string created = await CreateRewardAsync(spec, enabled, ct).ConfigureAwait(false);
+                saveRewardId?.Invoke(created);
+                if (enabled)
+                {
+                    await _eventSubClient.SubscribeToRewardAsync(created, channelUserId, ct).ConfigureAwait(false);
+                }
+                return created;
             }
 
             string id = found["id"]?.ToString();
-            if (!string.IsNullOrEmpty(id))
-                saveRewardId?.Invoke(id);
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                throw new InvalidOperationException("EnsureRewardAsync: Twitch reward missing id.");
+            }
 
-            await UpdateRewardAsync(id, spec, enabled, ct);
+            saveRewardId?.Invoke(id);
+
+            JObject updated = await _apiClient.UpdateCustomRewardAsync(
+                channelUserId,
+                id,
+                spec.Title,
+                spec.Prompt,
+                spec.Cost,
+                spec.CooldownSeconds,
+                spec.BackgroundColorHex,
+                enabled,
+                ct).ConfigureAwait(false);
+
+            bool rewardEnabled = updated?["is_enabled"]?.Value<bool?>()
+                ?? found["is_enabled"]?.Value<bool?>()
+                ?? enabled;
+            _rewards[id] = new RewardRecord(id, spec.Title, rewardEnabled, true);
+
+            if (enabled)
+            {
+                await _eventSubClient.SubscribeToRewardAsync(id, channelUserId, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await _eventSubClient.UnsubscribeFromRewardAsync(id, ct).ConfigureAwait(false);
+            }
+
             return id;
+        }
+
+        internal async Task CreateAllConfiguredRewardsAsync(CancellationToken ct = default(CancellationToken))
+        {
+            PluginConfig cfg = PluginConfig.Instance;
+            if (cfg == null)
+            {
+                return;
+            }
+
+            if (cfg.CpRainbowEnabled)
+            {
+                cfg.CpRainbowRewardId = await CreateRewardAsync("Rainbow Notes", cfg.CpRainbowCost, ct).ConfigureAwait(false);
+            }
+            if (cfg.CpGhostEnabled)
+            {
+                cfg.CpGhostRewardId = await CreateRewardAsync("Ghost Notes", cfg.CpGhostCost, ct).ConfigureAwait(false);
+            }
+            if (cfg.CpDisappearEnabled)
+            {
+                cfg.CpDisappearRewardId = await CreateRewardAsync("Disappearing Arrows", cfg.CpDisappearCost, ct).ConfigureAwait(false);
+            }
+            if (cfg.CpBombEnabled)
+            {
+                cfg.CpBombRewardId = await CreateRewardAsync("Bomb Note", cfg.CpBombCost, ct).ConfigureAwait(false);
+            }
+            if (cfg.CpFasterEnabled)
+            {
+                cfg.CpFasterRewardId = await CreateRewardAsync("Faster Song", cfg.CpFasterCost, ct).ConfigureAwait(false);
+            }
+            if (cfg.CpSuperFastEnabled)
+            {
+                cfg.CpSuperFastRewardId = await CreateRewardAsync("SuperFast Song", cfg.CpSuperFastCost, ct).ConfigureAwait(false);
+            }
+            if (cfg.CpSlowerEnabled)
+            {
+                cfg.CpSlowerRewardId = await CreateRewardAsync("Slower Song", cfg.CpSlowerCost, ct).ConfigureAwait(false);
+            }
+            if (cfg.CpFlashbangEnabled)
+            {
+                cfg.CpFlashbangRewardId = await CreateRewardAsync("Flashbang", cfg.CpFlashbangCost, ct).ConfigureAwait(false);
+            }
+        }
+
+        internal IReadOnlyCollection<string> GetTrackedRewardIdsSnapshot()
+        {
+            return _rewards.Keys.ToList();
+        }
+
+        private async Task DisableAllOwnedRewardsAsync(CancellationToken ct)
+        {
+            List<RewardRecord> ownedRewards = _rewards.Values.Where(r => r.IsOwned && r.IsEnabled).ToList();
+            _log.Info("Disabling " + ownedRewards.Count + " owned rewards");
+
+            string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+            foreach (RewardRecord reward in ownedRewards)
+            {
+                if (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                try
+                {
+                    await _apiClient.SetRewardEnabledAsync(channelUserId, reward.RewardId, false, ct).ConfigureAwait(false);
+                    if (_rewards.TryGetValue(reward.RewardId, out RewardRecord existing))
+                    {
+                        _rewards[reward.RewardId] = existing.WithEnabled(false);
+                    }
+
+                    _log.ChannelPoint(reward.RewardId, "DisabledOK", "title=" + reward.Title);
+                }
+                catch (Exception ex)
+                {
+                    _log.Exception(ex, "DisableReward rewardId=" + reward.RewardId);
+                }
+            }
         }
     }
 }

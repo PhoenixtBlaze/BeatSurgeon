@@ -1,45 +1,61 @@
-﻿using System;
+using System;
+using BeatSurgeon.Utils;
 
 namespace BeatSurgeon.Twitch
 {
-    public struct EntitlementsSnapshot
+    internal struct EntitlementsSnapshot
     {
-        public SupporterTier Tier;
-        public DateTime ExpiresAtUtc;
+        internal SupporterTier Tier;
+        internal DateTime ExpiresAtUtc;
+        internal string SignedEntitlementToken;
 
-        // Store the signed token that *proved* this snapshot.
-        // Server expects this token for premium endpoints.
-        public string SignedEntitlementToken;
-
-        public bool IsValid =>
+        internal bool IsValid =>
             Tier != SupporterTier.None &&
             !string.IsNullOrEmpty(SignedEntitlementToken) &&
             DateTime.UtcNow < ExpiresAtUtc;
     }
 
-    public static class EntitlementsState
+    internal static class EntitlementsState
     {
-        public static event Action Changed;
+        private static readonly LogUtil _log = LogUtil.GetLogger("EntitlementsState");
 
-        public static EntitlementsSnapshot Current { get; private set; } =
-            new EntitlementsSnapshot
-            {
-                Tier = SupporterTier.None,
-                ExpiresAtUtc = DateTime.MinValue,
-                SignedEntitlementToken = null
-            };
+        internal static event Action Changed;
 
-        public static void Set(EntitlementsSnapshot snapshot)
+        private static EntitlementsSnapshot _current = new EntitlementsSnapshot
         {
-            Current = snapshot;
+            Tier = SupporterTier.None,
+            ExpiresAtUtc = DateTime.MinValue,
+            SignedEntitlementToken = null
+        };
 
-            // Keep your existing mirror, but this file cannot verify SupporterState exists.
-            SupporterState.CurrentTier = snapshot.Tier;
+        internal static EntitlementsSnapshot Current => _current;
 
-            Changed?.Invoke();
+        internal static bool HasVisualsAccess
+        {
+            get
+            {
+                EntitlementsSnapshot snapshot = _current;
+                return snapshot.IsValid && snapshot.Tier >= SupporterTier.Tier1;
+            }
         }
 
-        public static void Clear()
+        internal static void Set(EntitlementsSnapshot snapshot)
+        {
+            bool changed = _current.Tier != snapshot.Tier ||
+                           _current.ExpiresAtUtc != snapshot.ExpiresAtUtc ||
+                           !string.Equals(_current.SignedEntitlementToken, snapshot.SignedEntitlementToken, StringComparison.Ordinal);
+
+            _current = snapshot;
+            SupporterState.CurrentTier = snapshot.Tier;
+
+            if (changed)
+            {
+                _log.Info("EntitlementsState changed -> Tier=" + snapshot.Tier + " ExpiresAt=" + snapshot.ExpiresAtUtc.ToString("u"));
+                Changed?.Invoke();
+            }
+        }
+
+        internal static void Clear()
         {
             Set(new EntitlementsSnapshot
             {

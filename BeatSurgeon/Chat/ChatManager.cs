@@ -1,708 +1,485 @@
-﻿using IPA.Loader;
-using BeatSurgeon.Twitch;
 using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
+using System.Collections.Concurrent;
+using System.IO;
+using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
-using BeatSaberMarkupLanguage;
-using UnityEngine;
-using UnityEngine.Rendering;
-using IPA.Utilities.Async;
+using BeatSurgeon.Twitch;
+using BeatSurgeon.Utils;
+using Zenject;
 
 namespace BeatSurgeon.Chat
 {
-    public enum ChatBackend
+    internal enum ChatBackend
     {
         None,
-        NativeTwitch,
+        Irc,
         ChatPlex
     }
 
-    public class ChatManager : MonoBehaviour
+    internal sealed class ChatManager : IInitializable, IDisposable
     {
+        private static readonly LogUtil _log = LogUtil.GetLogger("ChatManager");
         private static ChatManager _instance;
-        private static GameObject _persistentGO;
 
-        private bool _isInitialized = false;
-        private Assembly _chatPlexAssembly;
-        private int _retryCount = 0;
-        private const int MAX_RETRIES = 60;
-        private const int MaxChatDispatchPerFrame = 10;
+        private readonly TwitchAuthManager _authManager;
+        private readonly TwitchApiClient _apiClient;
+        private readonly CommandHandler _commandHandler;
+        private readonly ConcurrentQueue<ChatContext> _commandQueue = new ConcurrentQueue<ChatContext>();
+        private readonly SemaphoreSlim _commandQueueSignal;
+        private readonly TimeSpan _commandDispatchInterval;
+        private readonly int _maxQueuedCommands;
 
-        private bool _isGraphicsDeviceStable = true;
+        private CancellationTokenSource _cts;
+        private Task _receiveTask;
+        private Task _commandDispatchTask;
+        private TcpClient _tcpClient;
+        private StreamReader _reader;
+        private StreamWriter _writer;
+        private string _channelName;
+        private int _queuedCommands;
 
-        private object _chatService;
-        private MethodInfo _broadcastMessageMethod;
+        internal event Action<ChatContext> OnChatMessageReceived;
+        internal event Action<string, int> OnSubscriptionReceived;
+        internal event Action<string> OnFollowReceived;
+        internal event Action<string, int> OnRaidReceived;
 
-        private ChatBackend _activeBackend = ChatBackend.None;
-        
-        // new class, see below
-        private TwitchEventSubClient _eventSubClient;
+        internal ChatBackend ActiveBackend { get; private set; } = ChatBackend.None;
+        internal bool ChatEnabled { get; set; } = true;
 
-        public ChatBackend ActiveBackend => _activeBackend;
+        internal static ChatManager GetInstance() =>
+            _instance ?? (_instance = new ChatManager(
+                TwitchAuthManager.Instance,
+                TwitchApiClient.Instance,
+                CommandHandler.Instance));
 
-        public event Action<ChatContext> OnChatMessageReceived;
-        public event Action<string, int> OnSubscriptionReceived;
-        public event Action<string> OnFollowReceived;
-        public event Action<string, int> OnRaidReceived;
-
-        //private readonly object _queueLock = new object();
-        //private readonly Queue<ChatContext> _pendingMessages = new Queue<ChatContext>();
-
-        public bool ChatEnabled { get; set; } = true;
-
-        private struct RawChatMessage { public object Service; public object Message; }
-
-        private readonly System.Collections.Concurrent.ConcurrentQueue<RawChatMessage> _rawQueue = new System.Collections.Concurrent.ConcurrentQueue<RawChatMessage>();
-
-        private readonly System.Collections.Concurrent.ConcurrentQueue<ChatContext> _parsedQueue = new System.Collections.Concurrent.ConcurrentQueue<ChatContext>();
-
-        private System.Threading.CancellationTokenSource _cts;
-        private Task _parserWorker;
-
-
-
-
-        private void UpdateGraphicsDeviceState()
+        [Inject]
+        public ChatManager(TwitchAuthManager authManager, TwitchApiClient apiClient, CommandHandler commandHandler)
         {
-            bool deviceNowStable = SystemInfo.graphicsDeviceType != GraphicsDeviceType.Null;
+            _instance = this;
+            _authManager = authManager;
+            _apiClient = apiClient;
+            _commandHandler = commandHandler;
 
-            if (deviceNowStable != _isGraphicsDeviceStable)
-            {
-                _isGraphicsDeviceStable = deviceNowStable;
-                Plugin.Log.Warn($"ChatManager: Graphics device became {(deviceNowStable ? "stable" : "UNSTABLE")}");
-            }
-        }
-
-
-
-        public static ChatManager GetInstance()
-        {
-            if (_instance == null)
-            {
-                _persistentGO = new GameObject("BeatSurgeon_ChatManager_GO");
-                DontDestroyOnLoad(_persistentGO);
-                _instance = _persistentGO.AddComponent<ChatManager>();
-                Plugin.Log.Info("ChatManager: Created new instance");
-            }
-            return _instance;
+            int maxPerSecond = Math.Max(1, PluginConfig.Instance?.MaxCommandsPerSecond ?? 3);
+            _commandDispatchInterval = TimeSpan.FromSeconds(1d / maxPerSecond);
+            _maxQueuedCommands = Math.Max(32, maxPerSecond * 30);
+            _commandQueueSignal = new SemaphoreSlim(0);
         }
 
         public void Initialize()
         {
-           
-
-            if (_isInitialized)
+            _log.Lifecycle("Initialize - subscribing to auth events");
+            _authManager.OnAuthReady += StartIrcAsync;
+            _authManager.OnTokensUpdated += OnTokensUpdatedHandler;
+            if (_authManager.IsAuthenticated)
             {
-                Plugin.Log.Warn("ChatManager: Already initialized!");
+                StartIrcAsync();
+            }
+        }
+
+        private void OnTokensUpdatedHandler()
+        {
+            _log.Auth("OnTokensUpdated - restarting IRC to use fresh token");
+            // Cancel the current receive loop so it reconnects with the new token
+            try
+            {
+                _cts?.Cancel();
+                StartIrcAsync();
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "OnTokensUpdatedHandler.Cancel");
+            }
+        }
+
+        public void Dispose()
+        {
+            _log.Lifecycle("Dispose - stopping IRC client");
+            _authManager.OnAuthReady -= StartIrcAsync;
+            _authManager.OnTokensUpdated -= OnTokensUpdatedHandler;
+
+            try
+            {
+                _cts?.Cancel();
+                _commandQueueSignal.Release();
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "Dispose.Cancel");
+            }
+
+            try
+            {
+                _tcpClient?.Close();
+                _reader?.Dispose();
+                _writer?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "Dispose.Cleanup");
+            }
+
+            _log.Info("IRC client stopped");
+        }
+
+        internal void Shutdown() => Dispose();
+
+        private void StartIrcAsync()
+        {
+            if (_cts != null && !_cts.IsCancellationRequested)
+            {
                 return;
             }
 
-            var cfg = Plugin.Settings ?? new PluginConfig();
-            StartCoroutine(InitializeBackendsCoroutine(cfg));
+            _cts = new CancellationTokenSource();
+            _receiveTask = Task.Run(() => ConnectLoopAsync(_cts.Token), _cts.Token);
+            _commandDispatchTask = Task.Run(() => CommandDispatchLoopAsync(_cts.Token), _cts.Token);
         }
 
-        private IEnumerator InitializeBackendsCoroutine(PluginConfig cfg)
+        private async Task ConnectLoopAsync(CancellationToken ct)
         {
-
-            var auth = TwitchAuthManager.Instance;
-            // Wait up to ~10 seconds for refresh + identity
-            int tries = 0;
-            while (tries++ < 100)
-            {
-                bool ready = auth.IsAuthenticated
-                    && !string.IsNullOrEmpty(auth.BroadcasterId)
-                    && !string.IsNullOrEmpty(auth.BotUserId);
-
-                System.Threading.Tasks.Task<bool> ensureTask = null;
-
-                if (!ready)
-                {
-                    try
-                    {
-                        ensureTask = auth.EnsureReadyAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        Plugin.Log.Warn("ChatManager: EnsureReadyAsync start failed: " + ex.Message);
-                    }
-                }
-
-                if (ensureTask != null)
-                {
-                    while (!ensureTask.IsCompleted)
-                        yield return null;
-
-                    // If it faulted, treat as not-ready and retry
-                    if (ensureTask.Status == System.Threading.Tasks.TaskStatus.RanToCompletion)
-                        ready = ensureTask.Result;
-                    else
-                        ready = false;
-                }
-
-                if (ready)
-                    break;
-
-                yield return new WaitForSeconds(0.1f);
-            }
-
-            string userAccessToken = auth.GetAccessToken();
-            string clientId = auth.ClientId;
-            string broadcasterId = auth.BroadcasterId;
-            string botUserId = auth.BotUserId;
-
-            // Try EventSub WebSocket first (direct to Twitch, no backend server)
-            if (!string.IsNullOrEmpty(userAccessToken)
-                && !string.IsNullOrEmpty(clientId)
-                && !string.IsNullOrEmpty(broadcasterId)
-                && !string.IsNullOrEmpty(botUserId))
-            {
-                Plugin.Log.Info("ChatManager: Initializing Twitch EventSub WebSocket...");
-
-                _eventSubClient = new TwitchEventSubClient(
-                    userAccessToken,
-                    clientId,
-                    broadcasterId,
-                    botUserId
-                );
-
-                // NOTE: your TwitchEventSubClient events must match these signatures (see next section)
-                _eventSubClient.OnChatMessage += HandleNativeChatMessage;
-                // Channel point redemptions are handled by ChannelPointCommandExecutor to ensure
-                // proper locking, refunds and fulfillment. Do NOT subscribe here to avoid duplicate handling.
-                
-                _eventSubClient.OnFollow += user => OnFollowReceived?.Invoke(user);
-                _eventSubClient.OnSubscription += (user, tier) => OnSubscriptionReceived?.Invoke(user, tier);
-                _eventSubClient.OnRaid += (raider, viewers) => OnRaidReceived?.Invoke(raider, viewers);
-
-                yield return StartCoroutine(_eventSubClient.ConnectCoroutine());
-
-                if (_eventSubClient.IsConnected)
-                {
-                    _activeBackend = ChatBackend.NativeTwitch;
-                    _isInitialized = true;
-                    cfg.BackendStatus = "EventSub WebSocket";
-                    yield break;
-                }
-
-                Plugin.Log.Warn("ChatManager: EventSub WebSocket failed, falling back to ChatPlex");
-            }
-
-
-            // 2) Fallback to ChatPlex
-            if (Plugin.Settings.AllowChatPlexFallback)
-            {
-                Plugin.Log.Info("ChatManager: Falling back to ChatPlex backend...");
-                
-                // yield return StartCoroutine(WaitForChatPlexAndInitialize());
-                yield return WaitForChatPlexAndInitialize();
-
-                if (_isInitialized)
-                {
-                    _activeBackend = ChatBackend.ChatPlex;
-                    Plugin.Settings.BackendStatus = "ChatPlex";
-                    Plugin.Log.Info("ChatManager: ChatPlex backend initialized");
-                    yield break;
-                }
-            }
-
-            Plugin.Log.Error("ChatManager: No chat backend available.");
-        }
-
-
-        private void HandleChannelPointRedeemed(TwitchEventSubClient.ChannelPointRedemption redemption)
-        {
-            try
-            {
-                if (redemption == null) return;
-
-                // Map rewardId -> command and invoke existing command handler.
-                // Use a fake chat command string to reuse existing code paths. [file:212]
-                string cmd = BeatSurgeon.Twitch.ChannelPointRouter.TryBuildCommandFromReward(redemption);
-                if (string.IsNullOrEmpty(cmd))
-                    return;
-
-                var ctx = new ChatContext
-                {
-                    SenderName = redemption.UserName ?? "Unknown",
-                    MessageText = cmd,
-                    IsBroadcaster = false,
-                    IsModerator = false,
-                    IsSubscriber = false,
-                    IsVip = false,
-                    Bits = 0,
-                    Source = ChatSource.NativeTwitch,
-                    IsChannelPoint = true
-                };
-
-                // Directly invoke command processing.
-                CommandHandler.Instance.ProcessCommand(cmd, ctx);
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Warn("ChatManager: CP redemption handling failed: " + ex.Message);
-            }
-        }
-
-
-
-        private void HandleNativeChatMessage(ChatContext ctx)
-        {
-            if (!ChatEnabled) return;
-            _parsedQueue.Enqueue(ctx);
-        }
-
-        private IEnumerator WaitForChatPlexAndInitialize()
-        {
-            Plugin.Log.Info("ChatManager: Waiting for ChatPlexSDK to fully initialize...");
-
-            while (_retryCount < MAX_RETRIES)
-            {
-                _retryCount++;
-
-                bool isReady = IsChatPlexReady();
-
-                if (isReady)
-                {
-                    LogUtils.Debug(() => $"ChatManager: ChatPlexSDK IS READY! (attempt {_retryCount}/{MAX_RETRIES})");
-                    yield return new WaitForSeconds(0.5f);
-                    InitializeWhenReady();
-                    yield break;
-                }
-
-                yield return new WaitForSeconds(1f);
-            }
-
-            Plugin.Log.Error($"ChatManager: TIMEOUT after {MAX_RETRIES} seconds!");
-        }
-
-        private bool IsChatPlexReady()
-        {
-            try
-            {
-                var chatPlexPlugin = PluginManager.GetPluginFromId("ChatPlexSDK_BS");
-                if (chatPlexPlugin == null)
-                    return false;
-
-                if (_chatPlexAssembly == null)
-                {
-                    _chatPlexAssembly = Assembly.Load("ChatPlexSDK_BS");
-                }
-
-                if (_chatPlexAssembly == null)
-                    return false;
-
-                var serviceType = _chatPlexAssembly.GetTypes()
-                    .FirstOrDefault(t => t.FullName == "CP_SDK.Chat.Service");
-
-                if (serviceType == null)
-                    return false;
-
-                var methods = serviceType.GetMethods(BindingFlags.Public | BindingFlags.Static);
-                return methods.Any(m => m.Name == "add_Discrete_OnTextMessageReceived");
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Debug($"ChatManager: Check failed: {ex.Message}");
-                return false;
-            }
-        }
-
-        
-
-        private void InitializeWhenReady()
-        {
-            if (_isInitialized)
-                return;
-            
-            try
-            {
-                Plugin.Log.Info("ChatManager: NOW INITIALIZING WITH CHATPLEX!");
-
-                var serviceType = _chatPlexAssembly.GetTypes()
-                    .FirstOrDefault(t => t.FullName == "CP_SDK.Chat.Service");
-
-                if (serviceType == null)
-                {
-                    Plugin.Log.Error("ChatManager: Service type not found!");
-                    return;
-                }
-
-                // Get Multiplexer for receiving AND sending messages
-                var multiplexerProp = serviceType.GetProperty("Multiplexer", BindingFlags.Public | BindingFlags.Static);
-                if (multiplexerProp != null)
-                {
-                    _chatService = multiplexerProp.GetValue(null);
-                    LogUtils.Debug(() => "ChatManager: Got Multiplexer service reference");
-                }
-
-
-                var methods = serviceType.GetMethods(BindingFlags.Public | BindingFlags.Static);
-                
-
-                // Find BroadcastMessage method on Service
-                var broadcastMethod = methods.FirstOrDefault(m => m.Name == "BroadcastMessage");
-                if (broadcastMethod != null)
-                {
-                    LogUtils.Debug(() => "ChatManager: Found BroadcastMessage method on Service");
-                    _broadcastMessageMethod = broadcastMethod;
-                }
-
-                // Subscribe to add_Discrete_OnTextMessageReceived 
-                var addTextMessageMethod = methods.FirstOrDefault(m => m.Name == "add_Discrete_OnTextMessageReceived");
-                if (addTextMessageMethod != null)
-                {
-                    try
-                    {
-                        var parameters = addTextMessageMethod.GetParameters();
-                        if (parameters.Length > 0)
-                        {
-                            var delegateType = parameters[0].ParameterType;
-                            var handlerMethod = GetType().GetMethod("HandleChatMessage", BindingFlags.NonPublic | BindingFlags.Instance);
-                            var handler = Delegate.CreateDelegate(delegateType, this, handlerMethod, false);
-
-                            if (handler != null)
-                            {
-                                addTextMessageMethod.Invoke(null, new object[] { handler });
-                                LogUtils.Debug(() => "ChatManager: Successfully subscribed to OnTextMessageReceived");
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Plugin.Log.Error($"ChatManager: Failed to subscribe to messages: {ex.Message}");
-                    }
-                }
-
-                // Subscribe to OnLoadingStateChanged
-                var addLoadingStateMethod = methods.FirstOrDefault(m => m.Name == "add_OnLoadingStateChanged");
-                if (addLoadingStateMethod != null)
-                {
-                    try
-                    {
-                        Action<bool> handler = (isLoading) => HandleLoadingStateChanged(isLoading);
-                        addLoadingStateMethod.Invoke(null, new object[] { handler });
-                        LogUtils.Debug(() => "ChatManager: Successfully subscribed to OnLoadingStateChanged");
-                    }
-                    catch (Exception ex)
-                    {
-                        Plugin.Log.Error($"ChatManager: Failed to subscribe to loading state: {ex.Message}");
-                    }
-                }
-
-                _isInitialized = true;
-                StartParserWorker();
-                Plugin.Log.Info("ChatManager: FULLY INITIALIZED AND READY!");
-
-                if (_broadcastMessageMethod != null)
-                {
-                    Plugin.Log.Info("ChatManager: Message sending is ENABLED via ChatPlexSDK");
-                }
-                else
-                {
-                    Plugin.Log.Warn("ChatManager: Message sending NOT available");
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Error($"ChatManager: Critical error: {ex.Message}");
-                Plugin.Log.Error($"  Stack: {ex.StackTrace}");
-            }
-        }
-
-        private void HookNativeEvents(TwitchEventSubClient client)
-        {
-            client.OnChatMessage += ctx =>
-            {
-                LogUtils.Debug(() => $"NATIVE CHAT: {ctx.SenderName}: {ctx.MessageText}");
-                _parsedQueue.Enqueue(ctx);
-
-            };
-
-            client.OnFollow += user =>
-            {
-                LogUtils.Debug(() => $"Follow: {user}");
-                OnFollowReceived?.Invoke(user);
-            };
-
-            client.OnSubscription += (user, tier) =>
-            {
-                LogUtils.Debug(() => $"Sub: {user} Tier={tier}");
-                OnSubscriptionReceived?.Invoke(user, tier);
-            };
-
-            client.OnRaid += (raider, viewers) =>
-            {
-                LogUtils.Debug(() => $"Raid: {raider} ({viewers} viewers)");
-                OnRaidReceived?.Invoke(raider, viewers);
-            };
-        }
-
-
-
-
-        private void DispatchChatMessage(ChatContext ctx)
-        {
-            if (ctx == null || string.IsNullOrEmpty(ctx.MessageText))
-                return;
-
-            // Notify overlay / any other listeners
-            OnChatMessageReceived?.Invoke(ctx);
-
-            // Existing command logic
-            if (ctx.MessageText.StartsWith("!") && !ctx.MessageText.StartsWith("!!"))
-                CommandHandler.Instance.ProcessCommand(ctx.MessageText, ctx);
-        }
-
-
-
-
-        /// <summary>
-        /// Send a message to Twitch chat using ChatPlexSDK
-        /// </summary>
-        public void SendChatMessage(string message)
-        {
-            try
-            {
-                if (!_isInitialized)
-                {
-                    Plugin.Log.Warn("ChatManager: Cannot send message - not initialized");
-                    return;
-                }
-
-                // Prefer native Twitch if it's the active backend
-                if (_activeBackend == ChatBackend.NativeTwitch && _eventSubClient != null && _eventSubClient.IsConnected)
-                {
-                    _ = System.Threading.Tasks.Task.Run(async () =>
-                    {
-                        bool ok = await _eventSubClient.SendChatMessageAsync(message);
-                        LogUtils.Debug(() => "ChatManager: Sent via Helix chat API ok=" + ok);
-                    });
-                    return;
-                }
-
-
-                // Fallback → ChatPlex BroadcastMessage
-                if (_broadcastMessageMethod == null)
-                {
-                    Plugin.Log.Warn("ChatManager: Cannot send message - BroadcastMessage method not available");
-                    return;
-                }
-
-                _broadcastMessageMethod.Invoke(null, new object[] { message });
-                LogUtils.Debug(() => $"ChatManager: Sent to ChatPlex: {message}");
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Error($"ChatManager: Error sending message: {ex.Message}");
-            }
-        }
-
-        private void HandleChatMessage(object service, object message)
-        {
-            if (!ChatEnabled) return;
-            if (message == null) return;
-
-            _rawQueue.Enqueue(new RawChatMessage { Service = service, Message = message });
-        }
-
-        private ChatContext BuildChatContextFromChatPlex(object service, object message)
-        {
-            try
-            {
-                if (message == null) return null;
-
-                var sender = GetPropertyValue(message, "Sender") ??
-                             GetPropertyValue(message, "User") ??
-                             GetPropertyValue(message, "Author");
-
-                string senderName = "Unknown";
-                if (sender != null)
-                {
-                    var senderNameObj = GetPropertyValue(sender, "DisplayName") ??
-                                        GetPropertyValue(sender, "UserName") ??
-                                        GetPropertyValue(sender, "Name");
-                    senderName = senderNameObj?.ToString() ?? "Unknown";
-                }
-
-                var messageTextObj = GetPropertyValue(message, "Message") ??
-                                     GetPropertyValue(message, "Text") ??
-                                     GetPropertyValue(message, "Content");
-                string messageText = messageTextObj?.ToString() ?? "";
-
-                bool GetBool(object obj, params string[] names)
-                {
-                    if (obj == null) return false;
-                    foreach (var n in names)
-                    {
-                        var v = GetPropertyValue(obj, n);
-                        if (v is bool b) return b;
-                    }
-                    return false;
-                }
-
-                int GetInt(object obj, params string[] names)
-                {
-                    if (obj == null) return 0;
-                    foreach (var n in names)
-                    {
-                        var v = GetPropertyValue(obj, n);
-                        if (v is int i) return i;
-                        if (v is long l) return (int)l;
-                    }
-                    return 0;
-                }
-
-                var ctx = new ChatContext
-                {
-                    SenderName = senderName,
-                    MessageText = messageText,
-                    RawService = service,
-                    RawMessage = message,
-                    IsModerator = GetBool(sender, "IsModerator", "Moderator", "IsMod"),
-                    IsVip = GetBool(sender, "IsVip", "VIP"),
-                    IsSubscriber = GetBool(sender, "IsSubscriber", "Subscriber", "IsSub"),
-                    IsBroadcaster = GetBool(sender, "IsBroadcaster", "Broadcaster"),
-                    Bits = GetInt(message, "Bits", "BitsAmount", "CheerAmount"),
-                    Source = ChatSource.ChatPlex
-                };
-
-                if (string.IsNullOrWhiteSpace(ctx.MessageText))
-                    return null;
-
-                LogUtils.Debug(() => $"CHAT MESSAGE RECEIVED: {ctx.SenderName} (Mod={ctx.IsModerator}, VIP={ctx.IsVip}, Sub={ctx.IsSubscriber}, Bits={ctx.Bits})");
-                return ctx;
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Error($"ChatManager: Error parsing ChatPlex message: {ex.Message}");
-                return null;
-            }
-        }
-
-
-        private void HandleLoadingStateChanged(bool isLoading)
-        {
-            try
-            {
-                string state = isLoading ? "LOADING" : "READY";
-                Plugin.Log.Debug($"ChatManager: ChatPlex loading state changed: {state}");
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Error($"ChatManager: Error in HandleLoadingStateChanged: {ex.Message}");
-            }
-        }
-
-        private object GetPropertyValue(object obj, string propertyName)
-        {
-            try
-            {
-                if (obj == null)
-                    return null;
-
-                var prop = obj.GetType().GetProperty(propertyName,
-                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-                return prop?.GetValue(obj);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-
-        private void StartParserWorker()
-        {
-            _cts = new System.Threading.CancellationTokenSource();
-            _parserWorker = Task.Run(() => ParserLoop(_cts.Token));
-        }
-
-        private void ParserLoop(System.Threading.CancellationToken token)
-        {
-            while (!token.IsCancellationRequested)
-            {
-                if (!_rawQueue.TryDequeue(out var raw))
-                {
-                    System.Threading.Thread.Sleep(1);
-                    continue;
-                }
-
-                // reflection parsing here (NO Unity APIs)
-                var ctx = BuildChatContextFromChatPlex(raw.Service, raw.Message);
-                if (ctx != null) _parsedQueue.Enqueue(ctx);
-            }
-        }
-
-
-
-
-        private void Update()
-        {
-            UpdateGraphicsDeviceState();
-
-            int processed = 0;
-            while (processed++ < MaxChatDispatchPerFrame && _parsedQueue.TryDequeue(out var ctx))
-            {
-                if (!_isGraphicsDeviceStable)
-                {
-                    _parsedQueue.Enqueue(ctx);
-                    break;
-                }
-                DispatchChatMessage(ctx);
-            }
-        }
-
-
-
-
-
-        public void Shutdown()
-        {
-            LogUtils.Debug(() => "ChatManager: Shutting down...");
-            StopAllCoroutines();
-
-            Task parserWorker = _parserWorker;
-            try { _cts?.Cancel(); } catch { }
-            if (parserWorker != null)
+            while (!ct.IsCancellationRequested)
             {
                 try
                 {
-                    if (!parserWorker.Wait(500))
-                        Plugin.Log.Warn("ChatManager: Parser worker did not stop within 500ms.");
+                    if (_authManager.IsReauthRequired)
+                    {
+                        _log.TwitchState("IRC.Paused", "reason=ReauthRequired");
+                        await Task.Delay(Timeout.Infinite, ct).ConfigureAwait(false);
+                    }
+
+                    await ConnectAsync(ct).ConfigureAwait(false);
+                    await ReceiveLoopAsync(ct).ConfigureAwait(false);
                 }
-                catch (AggregateException aex)
+                catch (OperationCanceledException)
                 {
-                    if (!(aex.GetBaseException() is OperationCanceledException))
-                        Plugin.Log.Warn("ChatManager: Parser worker wait failed: " + aex.GetBaseException().Message);
+                    break;
                 }
                 catch (Exception ex)
                 {
-                    Plugin.Log.Warn("ChatManager: Parser worker wait failed: " + ex.Message);
+                    _log.Exception(ex, "IRC connect/receive loop");
+                }
+
+                if (!ct.IsCancellationRequested)
+                {
+                    _log.TwitchState("IRC.Disconnected", "reason=ReconnectDelay");
+                    await Task.Delay(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
                 }
             }
-            try { _cts?.Dispose(); } catch { }
-            _cts = null;
-            _parserWorker = null;
+        }
+
+        private async Task ConnectAsync(CancellationToken ct)
+        {
+            string token = await _authManager.GetAccessTokenAsync(ct).ConfigureAwait(false);
+            _channelName = string.IsNullOrWhiteSpace(_authManager.BroadcasterLogin)
+                ? PluginConfig.Instance.CachedBroadcasterLogin
+                : _authManager.BroadcasterLogin;
+
+            if (string.IsNullOrWhiteSpace(_channelName))
+            {
+                throw new InvalidOperationException("Cannot connect IRC: broadcaster login is unknown.");
+            }
+
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                throw new InvalidOperationException("Cannot connect IRC: OAuth token is empty. Check TwitchAuthManager authentication status.");
+            }
+
+            _log.TwitchState("IRC.Connecting", "channel=" + _channelName);
+
+            _tcpClient?.Close();
+            _tcpClient = new TcpClient();
+            await _tcpClient.ConnectAsync("irc.chat.twitch.tv", 6667).ConfigureAwait(false);
+
+            NetworkStream stream = _tcpClient.GetStream();
+            _reader = new StreamReader(stream);
+            _writer = new StreamWriter(stream) { NewLine = "\r\n", AutoFlush = true };
+
+            await _writer.WriteLineAsync("PASS oauth:" + token).ConfigureAwait(false);
+            await _writer.WriteLineAsync("NICK " + _channelName).ConfigureAwait(false);
+            await _writer.WriteLineAsync("CAP REQ :twitch.tv/tags twitch.tv/commands").ConfigureAwait(false);
+            await _writer.WriteLineAsync("JOIN #" + _channelName).ConfigureAwait(false);
+
+            ActiveBackend = ChatBackend.Irc;
+            _log.TwitchState("IRC.Connected", "channel=" + _channelName);
+        }
+
+        private async Task ReceiveLoopAsync(CancellationToken ct)
+        {
+            bool authenticationComplete = false;
+
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    if (_tcpClient == null || !_tcpClient.Connected)
+                    {
+                        _log.Debug("IRC connection lost - breaking receive loop");
+                        break;
+                    }
+
+                    if (_reader == null)
+                    {
+                        _log.Debug("IRC stream reader is null - breaking receive loop");
+                        break;
+                    }
+
+                    // ReadLineAsync doesn't support cancellation, so we need to wrap it with a timeout
+                    var readTask = _reader.ReadLineAsync();
+                    var delayTask = Task.Delay(TimeSpan.FromSeconds(90), ct);
+                    var completedTask = await Task.WhenAny(readTask, delayTask).ConfigureAwait(false);
+
+                    if (completedTask == delayTask)
+                    {
+                        _log.Warn("IRC read timeout (90s) - connection is unresponsive");
+                        break;
+                    }
+
+                    string rawLine = await readTask.ConfigureAwait(false);
+                    if (rawLine == null)
+                    {
+                        _log.Debug("IRC stream ended (ReadLineAsync returned null)");
+                        break;
+                    }
+
+                    // CRITICAL: Check for IRC authentication failure responses BEFORE parsing as PRIVMSG
+                    // Twitch IRC may send these early in the connection sequence
+                    if (rawLine.Contains(":Login unsuccessful") || rawLine.Contains("Login unsuccessful"))
+                    {
+                        _authManager.MarkReauthRequired("IRC login unsuccessful");
+                        _log.Exception(new InvalidOperationException(
+                            "Twitch IRC authentication failed. The OAuth token may be invalid, expired, or lack required chat scopes (chat:read, chat:edit). Response: " + rawLine),
+                            "IRC auth failure");
+                        throw new InvalidOperationException("IRC authentication rejected by Twitch: " + rawLine);
+                    }
+
+                    if (rawLine.StartsWith("PING ", StringComparison.Ordinal))
+                    {
+                        try
+                        {
+                            if (_writer != null)
+                            {
+                                await _writer.WriteLineAsync(rawLine.Replace("PING", "PONG")).ConfigureAwait(false);
+                                _log.Debug("Sent PONG response");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.Exception(ex, "Failed to send PONG response");
+                            throw;
+                        }
+                        continue;
+                    }
+
+                    // Track successful authentication once we can handle PRIVMSG
+                    if (!authenticationComplete && rawLine.Contains(":tmi.twitch.tv") && rawLine.Contains("366"))
+                    {
+                        // 366 is RPL_ENDOFNAMES, indicates successful channel join = authenticated
+                        authenticationComplete = true;
+                        _log.Info("IRC.AuthenticationSucceeded");
+                    }
+
+                    if (!TryParsePrivMsg(rawLine, out ChatContext ctx))
+                    {
+                        continue;
+                    }
+
+                    _log.Info("IRC.MessageReceived user=" + ctx.Username + " cmd=" + ctx.Command + " msg=" + ctx.MessageText);
+                    OnChatMessageReceived?.Invoke(ctx);
+                    await DispatchMessageAsync(ctx, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    _log.Debug("IRC receive loop cancelled");
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _log.Exception(ex, "IRC receive loop error");
+                    break;
+                }
+            }
+        }
+
+        private Task DispatchMessageAsync(ChatContext ctx, CancellationToken ct)
+        {
+            if (!ChatEnabled || ctx == null)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (!ChatContext.TryExtractFirstCommandToken(ctx.MessageText, out _))
+            {
+                return Task.CompletedTask;
+            }
+
+            int queued = Interlocked.Increment(ref _queuedCommands);
+            if (queued > _maxQueuedCommands)
+            {
+                Interlocked.Decrement(ref _queuedCommands);
+                _log.Warn("CommandQueueFull - rejecting command from user=" + ctx.Username + " queueSize=" + queued);
+                return Task.CompletedTask;
+            }
+
+            _commandQueue.Enqueue(ctx);
+            try
+            {
+                _commandQueueSignal.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+                Interlocked.Decrement(ref _queuedCommands);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        private async Task CommandDispatchLoopAsync(CancellationToken ct)
+        {
+            DateTime nextAllowedAt = DateTime.UtcNow;
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    await _commandQueueSignal.WaitAsync(ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                while (_commandQueue.TryDequeue(out ChatContext queuedCtx))
+                {
+                    Interlocked.Decrement(ref _queuedCommands);
+
+                    if (!ChatEnabled || queuedCtx == null)
+                    {
+                        continue;
+                    }
+
+                    TimeSpan wait = nextAllowedAt - DateTime.UtcNow;
+                    if (wait > TimeSpan.Zero)
+                    {
+                        try
+                        {
+                            await Task.Delay(wait, ct).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return;
+                        }
+                    }
+
+                    try
+                    {
+                        await _commandHandler.HandleMessageAsync(queuedCtx, TriggerSource.Chat, ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Exception(ex, "CommandDispatchLoopAsync");
+                    }
+
+                    nextAllowedAt = DateTime.UtcNow + _commandDispatchInterval;
+                }
+            }
+        }
+
+        private static bool TryParsePrivMsg(string raw, out ChatContext ctx)
+        {
+            ctx = null;
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return false;
+            }
+
+            string tags = string.Empty;
+            string working = raw;
+
+            if (working.StartsWith("@", StringComparison.Ordinal))
+            {
+                int firstSpace = working.IndexOf(' ');
+                if (firstSpace <= 0) return false;
+                tags = working.Substring(1, firstSpace - 1);
+                working = working.Substring(firstSpace + 1);
+            }
+
+            int privMsgIndex = working.IndexOf(" PRIVMSG ", StringComparison.Ordinal);
+            if (privMsgIndex < 0) return false;
+
+            int nickStart = working.StartsWith(":") ? 1 : 0;
+            int nickEnd = working.IndexOf('!');
+            if (nickEnd <= nickStart) return false;
+
+            string username = working.Substring(nickStart, nickEnd - nickStart);
+            int msgSplit = working.IndexOf(" :", StringComparison.Ordinal);
+            if (msgSplit < 0) return false;
+            string message = working.Substring(msgSplit + 2);
+            if (string.IsNullOrWhiteSpace(message) || !ChatContext.TryExtractFirstCommandToken(message, out _)) return false;
+
+            bool isMod = tags.Contains("mod=1");
+            bool isSub = tags.Contains("subscriber=1");
+            bool isVip = tags.Contains("vip=1");
+            bool isBroadcaster = tags.Contains("badges=broadcaster/");
+
+            ctx = new ChatContext
+            {
+                SenderName = username,
+                MessageText = message,
+                IsModerator = isMod,
+                IsSubscriber = isSub,
+                IsVip = isVip,
+                IsBroadcaster = isBroadcaster,
+                Source = ChatSource.NativeTwitch
+            };
+
+            return true;
+        }
+
+        internal void SendChatMessage(string message)
+        {
+            _ = SendChatMessageAsync(message, CancellationToken.None);
+        }
+
+        private async Task SendChatMessageAsync(string message, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
 
             try
             {
-                _eventSubClient?.Shutdown();
+                // Try to send via IRC if connection is available
+                if (_writer != null && _tcpClient != null && _tcpClient.Connected)
+                {
+                    try
+                    {
+                        await _writer.WriteLineAsync("PRIVMSG #" + _channelName + " :" + message).ConfigureAwait(false);
+                        _log.Debug("Chat message sent via IRC");
+                        return;
+                    }
+                    catch (Exception ircEx)
+                    {
+                        _log.Warn("IRC send failed, falling back to API: " + ircEx.Message);
+                        // Continue to API fallback
+                    }
+                }
+
+                // Fallback to API if IRC failed or not available
+                string broadcasterId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+                string senderId = _authManager.BotUserId ?? broadcasterId;
+                await _apiClient.SendChatMessageAsync(broadcasterId, senderId, message, ct).ConfigureAwait(false);
+                _log.Debug("Chat message sent via API");
             }
             catch (Exception ex)
             {
-                Plugin.Log.Warn("ChatManager: Error shutting down EventSub client: " + ex.Message);
+                _log.Exception(ex, "SendChatMessageAsync failed for both IRC and API");
             }
-
-            _eventSubClient = null;
-            _activeBackend = ChatBackend.None;
-
-            _isInitialized = false;
-            _chatService = null;
-            _broadcastMessageMethod = null;
         }
-
     }
 }

@@ -9,6 +9,8 @@ using System.Linq;
 using System.Reflection;
 using TMPro;
 using UnityEngine;
+using BeatSurgeon.Utils;
+using BeatSurgeon.Twitch;
 
 namespace BeatSurgeon.HarmonyPatches
 {
@@ -17,6 +19,7 @@ namespace BeatSurgeon.HarmonyPatches
     [HarmonyPriority(Priority.Last)]
     internal static class BombNotePatch
     {
+        private static readonly LogUtil _log = LogUtil.GetLogger("BombNotePatch");
         private static BombNoteController _bombPrefab;
 
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
@@ -38,9 +41,11 @@ namespace BeatSurgeon.HarmonyPatches
 
         private static void Postfix(ColorNoteVisuals __instance, NoteControllerBase noteController)
         {
-            // Only create bombs while the bomb window is active
-            if (!BombManager.IsBombWindowActive)
-                return;
+            try
+            {
+                // Only create bombs while the bomb window is active
+                if (!BombManager.IsBombWindowActive)
+                    return;
 
             var noteData = noteController?.noteData;
             if (noteData == null || noteData.colorType == ColorType.None)
@@ -87,17 +92,20 @@ namespace BeatSurgeon.HarmonyPatches
             }
 
 
-            // Give BombManager everything it needs to clear without Find()
-            BombManager.Instance.RegisterBombVisual(
-                gameNote,
-                visualInst,
-                cubeMr,
-                circleMr,
-                cubeWasEnabled,
-                circleWasEnabled
-            );
-
-
+                // Give BombManager everything it needs to clear without Find()
+                BombManager.Instance.RegisterBombVisual(
+                    gameNote,
+                    visualInst,
+                    cubeMr,
+                    circleMr,
+                    cubeWasEnabled,
+                    circleWasEnabled
+                );
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "Postfix");
+            }
         }
 
         private static void CacheBombPrefabIfNeeded()
@@ -311,6 +319,7 @@ namespace BeatSurgeon.HarmonyPatches
     [HarmonyPriority(Priority.High)]
     internal static class BombCutPatch
     {
+        private static readonly LogUtil _log = LogUtil.GetLogger("BombCutPatch");
         private static NoteCutCoreEffectsSpawner _effectsSpawner;
         private static CurvedTextMeshPro _flyingTextPrefab;
 
@@ -326,27 +335,36 @@ namespace BeatSurgeon.HarmonyPatches
             Vector3 cutDirVec,
             bool allowBadCut)
         {
-            var noteData = __instance.noteData;
-            if (noteData == null) return;
+            try
+            {
+                var noteData = __instance.noteData;
+                if (noteData == null) return;
 
-            if (!BombManager.Instance.TryConsumeBomb(noteData, out var bomber)) return;
+                if (!BombManager.Instance.TryConsumeBomb(noteData, out var bomber)) return;
 
-            LogUtils.Info($"BombCutPatch: Bomb cut by {bomber}");
+                LogUtils.Info($"BombCutPatch: Bomb cut by {bomber}");
 
-            EnsureRefs();
+                EnsureRefs();
 
-            Color fireworkColor = Plugin.Settings?.BombGradientStart ?? Color.red;
+                Color fireworkColor = EntitlementsState.HasVisualsAccess
+                    ? (Plugin.Settings?.BombGradientStart ?? Color.red)
+                    : Color.red;
 
-            FireworksExplosionPool.Instance.Spawn(
-                cutPoint,
-                fireworkColor,
-                burstCount: 250,
-                life: 2.0f
-            );
+                FireworksExplosionPool.Instance.Spawn(
+                    cutPoint,
+                    fireworkColor,
+                    burstCount: 250,
+                    life: 2.0f
+                );
 
-            SpawnFlyingUsername(bomber, cutPoint);
+                SpawnFlyingUsername(bomber, cutPoint);
 
-            BombManager.Instance.ClearBombVisuals();
+                BombManager.Instance.ClearBombVisuals();
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "Postfix");
+            }
         }
 
         private static void EnsureRefs()
@@ -423,8 +441,12 @@ namespace BeatSurgeon.HarmonyPatches
 
             ApplyBloomToTextMaterial(curvedText);
 
-            float height = Plugin.Settings?.BombTextHeight ?? 1.0f;
-            float width = Plugin.Settings?.BombTextWidth ?? 1.0f;
+            float height = EntitlementsState.HasVisualsAccess
+                ? (Plugin.Settings?.BombTextHeight ?? 1.0f)
+                : 1.0f;
+            float width = EntitlementsState.HasVisualsAccess
+                ? (Plugin.Settings?.BombTextWidth ?? 1.0f)
+                : 1.0f;
             height = Mathf.Clamp(height, 0.5f, 5f);
             width = Mathf.Clamp(width, 0.5f, 5f);
             textGo.transform.localScale = new Vector3(width, height, height);
@@ -482,15 +504,21 @@ namespace BeatSurgeon.HarmonyPatches
             float duration = 2.0f;
             float elapsed = 0f;
 
-            float spawnDistance = Plugin.Settings?.BombSpawnDistance ?? 10.0f;
+            float spawnDistance = EntitlementsState.HasVisualsAccess
+                ? (Plugin.Settings?.BombSpawnDistance ?? 10.0f)
+                : 10.0f;
             spawnDistance = Mathf.Clamp(spawnDistance, 2f, 20f);
 
             Vector3 forward = Camera.main != null ? Camera.main.transform.forward : Vector3.forward;
             Vector3 targetPos = startPos + forward * spawnDistance + Vector3.up * 2f;
 
             TMP_Text tmp = textGo.GetComponent<TMP_Text>();
-            Color startColor = Plugin.Settings?.BombGradientStart ?? Color.yellow;
-            Color endColor = Plugin.Settings?.BombGradientEnd ?? Color.red;
+            Color startColor = EntitlementsState.HasVisualsAccess
+                ? (Plugin.Settings?.BombGradientStart ?? Color.yellow)
+                : Color.yellow;
+            Color endColor = EntitlementsState.HasVisualsAccess
+                ? (Plugin.Settings?.BombGradientEnd ?? Color.red)
+                : Color.red;
 
             while (elapsed < duration)
             {

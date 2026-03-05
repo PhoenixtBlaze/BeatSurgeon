@@ -1,81 +1,106 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using BeatSurgeon.Utils;
 using UnityEngine;
+using Unity.Profiling;
 
 namespace BeatSurgeon.HarmonyPatches
 {
-    ///
-    /// Dynamically scales AudioTimeSyncController's _timeScale and AudioSource.pitch.
-    ///
     [HarmonyPatch(typeof(AudioTimeSyncController))]
     internal static class FasterSongPatch
     {
-        // 1.0f = normal speed, >1.0f faster, <1.0f slower
-        public static float Multiplier { get; set; } = 1.0f;
+        private static readonly LogUtil _log = LogUtil.GetLogger("FasterSongPatch");
+        private static readonly ProfilerMarker UpdateProfiler = new ProfilerMarker("BeatSurgeon.FasterSongPatch.Update");
 
-        // Stores the original timeScale per controller instance
+        internal static float Multiplier { get; set; } = 1.0f;
+
         private class ScaleData
         {
-            public bool Initialized;
-            public float BaseScale;
+            internal bool Initialized;
+            internal float BaseScale;
+            internal bool WasScaled;
         }
 
-        // FIXED: Use WeakReference wrapper for explicit cleanup control
-        private static readonly ConditionalWeakTable<AudioTimeSyncController, ScaleData> _scaleData
-            = new ConditionalWeakTable<AudioTimeSyncController, ScaleData>();
+        private static readonly ConditionalWeakTable<AudioTimeSyncController, ScaleData> ScaleDataByController =
+            new ConditionalWeakTable<AudioTimeSyncController, ScaleData>();
 
-        // Private field refs inside AudioTimeSyncController
         private static readonly AccessTools.FieldRef<AudioTimeSyncController, float> TimeScaleRef =
             AccessTools.FieldRefAccess<AudioTimeSyncController, float>("_timeScale");
 
         private static readonly AccessTools.FieldRef<AudioTimeSyncController, AudioSource> AudioSourceRef =
             AccessTools.FieldRefAccess<AudioTimeSyncController, AudioSource>("_audioSource");
 
-        ///
-        /// Prefix on Update: ensure _timeScale and pitch are set to baseScale * Multiplier.
-        ///
         [HarmonyPrefix]
         [HarmonyPatch("Update")]
         private static void Prefix_Update(AudioTimeSyncController __instance)
         {
-            // Skip if instance is null or being destroyed
-            if (__instance == null || !__instance.isActiveAndEnabled)
-                return;
-
-            // Get or create per-instance data
-            var data = _scaleData.GetOrCreateValue(__instance);
-
-            // Capture original scale once (from property which exposes _timeScale)
-            if (!data.Initialized)
+            try
             {
-                data.BaseScale = __instance.timeScale;
-                data.Initialized = true;
+                if (__instance == null || !__instance.isActiveAndEnabled)
+                {
+                    return;
+                }
+
+                using (UpdateProfiler.Auto())
+                {
+                    float multiplier = Multiplier;
+
+                    if (Mathf.Approximately(multiplier, 1.0f) || multiplier <= 0.0f)
+                    {
+                        if (!ScaleDataByController.TryGetValue(__instance, out ScaleData existingData) || !existingData.WasScaled)
+                        {
+                            return;
+                        }
+
+                        float restoreScale = existingData.Initialized ? existingData.BaseScale : 1.0f;
+                        if (!Mathf.Approximately(TimeScaleRef(__instance), restoreScale))
+                        {
+                            TimeScaleRef(__instance) = restoreScale;
+                        }
+
+                        AudioSource restoreSource = AudioSourceRef(__instance);
+                        if (restoreSource != null && !Mathf.Approximately(restoreSource.pitch, restoreScale))
+                        {
+                            restoreSource.pitch = restoreScale;
+                        }
+
+                        existingData.WasScaled = false;
+                        return;
+                    }
+
+                    ScaleData data = ScaleDataByController.GetOrCreateValue(__instance);
+                    if (!data.Initialized)
+                    {
+                        data.BaseScale = __instance.timeScale;
+                        data.Initialized = true;
+                    }
+
+                    float effectiveScale = data.BaseScale * multiplier;
+                    if (!Mathf.Approximately(TimeScaleRef(__instance), effectiveScale))
+                    {
+                        TimeScaleRef(__instance) = effectiveScale;
+                    }
+
+                    AudioSource source = AudioSourceRef(__instance);
+                    if (source != null && !Mathf.Approximately(source.pitch, effectiveScale))
+                    {
+                        source.pitch = effectiveScale;
+                    }
+
+                    data.WasScaled = true;
+                }
             }
-
-            // Effective scale: base * Multiplier, but fall back to base if Multiplier ~ 1
-            float effectiveScale = data.BaseScale;
-            if (!Mathf.Approximately(Multiplier, 1.0f) && Multiplier > 0.0f)
-                effectiveScale = data.BaseScale * Multiplier;
-
-            // Write back into the private field so all internal math uses it
-            TimeScaleRef(__instance) = effectiveScale;
-
-            // Keep audio pitch in sync with timeScale, just like Start() does
-            var src = AudioSourceRef(__instance);
-            if (src != null)
-                src.pitch = effectiveScale;
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "Prefix_Update");
+            }
         }
 
-        ///
-        /// CLEANUP: Called when song ends or level exits to clear cached data
-        ///
-        public static void ClearCache()
+        internal static void ClearCache()
         {
-            // ConditionalWeakTable doesn't have a Clear() method, so we just reset multiplier
-            // Weak references will be collected naturally when AudioTimeSyncController is destroyed
             Multiplier = 1.0f;
-            LogUtils.Debug(() => "FasterSongPatch: Cache cleared and multiplier reset.");
+            _log.Debug("Cache cleared and multiplier reset");
         }
     }
 }

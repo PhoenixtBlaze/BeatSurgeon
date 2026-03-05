@@ -43,11 +43,10 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         public bool TriggerFlashbang(float intensityMultiplier, float holdSeconds, float fadeSeconds)
         {
-            // Require being in a level (same pattern as other managers)
-            var controllers = Resources.FindObjectsOfTypeAll<BeatmapObjectSpawnController>();
-            if (controllers == null || controllers.Length == 0)
+            GameplayManager gameplayManager = GameplayManager.GetInstance();
+            if (gameplayManager == null || !gameplayManager.IsInMap)
             {
-                Plugin.Log.Warn("FlashbangManager: Not in a map (no BeatmapObjectSpawnController).");
+                Plugin.Log.Warn("FlashbangManager: Not in a map.");
                 return false;
             }
 

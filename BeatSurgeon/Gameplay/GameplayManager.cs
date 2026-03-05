@@ -1,4 +1,4 @@
-﻿using IPA.Utilities;
+using IPA.Utilities;
 using BeatSurgeon.Chat;
 using BeatSurgeon.HarmonyPatches;
 using BeatSurgeon.Integrations;
@@ -12,9 +12,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
+using Unity.Profiling;
 using Zenject;
+using BeatSurgeon.Utils;
 
 
 namespace BeatSurgeon.Gameplay
@@ -28,10 +31,28 @@ namespace BeatSurgeon.Gameplay
     /// </summary>
     public class GameplayManager : MonoBehaviour
     {
+        private static readonly LogUtil _log = LogUtil.GetLogger("GameplayManager");
+
         [Inject] private EnvironmentsListModel _environmentsListModel;
 
         private static GameplayManager _instance;
         private static GameObject _persistentGO;
+        private static readonly ProfilerMarker UpdateProfiler = new ProfilerMarker("BeatSurgeon.GameplayManager.Update");
+        private static readonly ProfilerMarker SceneChangeProfiler = new ProfilerMarker("BeatSurgeon.GameplayManager.SceneChange");
+
+        private bool _isInMap;
+        private bool _sceneEventsHooked;
+
+        public bool IsInMap
+        {
+            get => _isInMap;
+            private set
+            {
+                if (_isInMap == value) return;
+                _isInMap = value;
+                _log.Info("IsInMap changed -> " + value);
+            }
+        }
 
         // Dependencies
         private MenuTransitionsHelper _menuTransitionsHelper;
@@ -148,10 +169,74 @@ namespace BeatSurgeon.Gameplay
             return _requestQueue.TryPeek(out req);
         }
 
-        private void UpdateSceneState()
+        private void Awake()
         {
-            _isMultiplayerScene = SceneManager.GetActiveScene().name.Contains("Multiplayer");
-            // Or check: Resources.FindObjectsOfTypeAll<MultiplayerLocalActivePlayerFacade>().Length > 0;
+            if (_instance == null)
+            {
+                _instance = this;
+            }
+
+            RegisterSceneCallbacks();
+            UpdateSceneState(SceneManager.GetActiveScene(), false);
+        }
+
+        private void OnDestroy()
+        {
+            UnregisterSceneCallbacks();
+            if (_instance == this)
+            {
+                _instance = null;
+            }
+        }
+
+        private void RegisterSceneCallbacks()
+        {
+            if (_sceneEventsHooked)
+            {
+                return;
+            }
+
+            SceneManager.activeSceneChanged += OnActiveSceneChanged;
+            _sceneEventsHooked = true;
+        }
+
+        private void UnregisterSceneCallbacks()
+        {
+            if (!_sceneEventsHooked)
+            {
+                return;
+            }
+
+            SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+            _sceneEventsHooked = false;
+        }
+
+        private void OnActiveSceneChanged(Scene previous, Scene next)
+        {
+            using (SceneChangeProfiler.Auto())
+            {
+                bool wasInMap = IsInMap;
+                UpdateSceneState(next, true);
+
+                if (wasInMap && !IsInMap)
+                {
+                    GhostVisualController.Audio = null;
+                    DisappearingArrowsVisualController.Audio = null;
+                    FasterSongPatch.ClearCache();
+                }
+            }
+        }
+
+        private void UpdateSceneState(Scene scene, bool logTransition)
+        {
+            string sceneName = scene.name ?? string.Empty;
+            _isMultiplayerScene = sceneName.IndexOf("Multiplayer", StringComparison.OrdinalIgnoreCase) >= 0;
+            IsInMap = string.Equals(sceneName, "GameCore", StringComparison.OrdinalIgnoreCase);
+
+            if (logTransition)
+            {
+                _log.Debug("Scene changed -> " + sceneName + " IsInMap=" + IsInMap + " IsMultiplayer=" + _isMultiplayerScene);
+            }
         }
 
         /// <summary>
@@ -640,7 +725,7 @@ namespace BeatSurgeon.Gameplay
 
             if (!_isPlaying)
             {
-                rejectReason = "Endless mode is not running.";
+                rejectReason = "";
                 return false;
             }
 
@@ -661,7 +746,7 @@ namespace BeatSurgeon.Gameplay
             int sizeLimit = cfg?.QueueSizeLimit ?? 20;
             if (sizeLimit > 0 && _requestQueue.Count >= sizeLimit)
             {
-                rejectReason = "Request queue is full.";
+                rejectReason = "";
                 return false;
             }
 
@@ -669,7 +754,7 @@ namespace BeatSurgeon.Gameplay
             if (requeueLimit > 0 &&
                 _recentRequestOrPlayHistory.Contains(bsrCode, StringComparer.OrdinalIgnoreCase))
             {
-                rejectReason = "That song was requested/played too recently.";
+                rejectReason = "";
                 return false;
             }
 
@@ -725,6 +810,148 @@ namespace BeatSurgeon.Gameplay
         /// Check if currently playing
         /// </summary>
         public bool IsPlaying() => _isPlaying;
+
+        internal Task ApplyRainbowNotesAsync(ChatContext ctx, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            bool started = RainbowManager.Instance.StartRainbow(CommandRuntimeSettings.RainbowEffectSeconds);
+            _log.Effect("RainbowNotes", started, "requestedBy=" + (ctx?.Username ?? "Unknown"));
+            if (!started) throw new InvalidOperationException("RainbowNotes could not be started (not in map).");
+            return Task.CompletedTask;
+        }
+
+        internal Task ApplyGhostNotesAsync(ChatContext ctx, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (DisappearingArrowsManager.DisappearingActive)
+            {
+                throw new InvalidOperationException("Ghost notes cannot run while disappearing arrows are active.");
+            }
+
+            bool started = GhostNotesManager.Instance.StartGhost(CommandRuntimeSettings.GhostEffectSeconds, ctx?.Username);
+            _log.Effect("GhostNotes", started, "requestedBy=" + (ctx?.Username ?? "Unknown"));
+            if (!started) throw new InvalidOperationException("GhostNotes could not be started (not in map).");
+            return Task.CompletedTask;
+        }
+
+        internal Task ApplyDisappearingArrowsAsync(ChatContext ctx, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (GhostNotesManager.GhostActive)
+            {
+                throw new InvalidOperationException("Disappearing arrows cannot run while ghost notes are active.");
+            }
+
+            bool started = DisappearingArrowsManager.Instance.StartDisappearingArrows(CommandRuntimeSettings.DisappearEffectSeconds);
+            _log.Effect("DisappearingArrows", started, "requestedBy=" + (ctx?.Username ?? "Unknown"));
+            if (!started) throw new InvalidOperationException("DisappearingArrows could not be started (not in map).");
+            return Task.CompletedTask;
+        }
+
+        internal Task ApplyBombAsync(ChatContext ctx, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            bool started = BombManager.Instance.ArmBomb(ctx?.Username, CommandRuntimeSettings.RainbowEffectSeconds);
+            _log.Effect("Bomb", started, "requestedBy=" + (ctx?.Username ?? "Unknown"));
+            if (!started) throw new InvalidOperationException("Bomb could not be armed (not in map).");
+            return Task.CompletedTask;
+        }
+
+        internal Task ApplySpeedAsync(string effectKey, ChatContext ctx, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (CommandRuntimeSettings.SpeedExclusiveEnabled &&
+                FasterSongManager.Instance.IsActive &&
+                !string.Equals(FasterSongManager.Instance.ActiveEffectKey, effectKey, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Another speed effect is already active.");
+            }
+
+            bool started;
+            switch (effectKey)
+            {
+                case "faster":
+                    started = FasterSongManager.Instance.StartSpeedEffect(
+                        effectKey,
+                        CommandRuntimeSettings.FasterMultiplier,
+                        CommandRuntimeSettings.SpeedEffectSeconds,
+                        "BeatSurgeon Faster");
+                    break;
+                case "superfast":
+                    started = FasterSongManager.Instance.StartSpeedEffect(
+                        effectKey,
+                        CommandRuntimeSettings.SuperFastMultiplier,
+                        CommandRuntimeSettings.SpeedEffectSeconds,
+                        "BeatSurgeon SuperFast");
+                    break;
+                case "slower":
+                    started = FasterSongManager.Instance.StartSpeedEffect(
+                        effectKey,
+                        CommandRuntimeSettings.SlowerMultiplier,
+                        CommandRuntimeSettings.SpeedEffectSeconds,
+                        "BeatSurgeon Slower");
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(effectKey), effectKey, "Unsupported speed effect key.");
+            }
+
+            _log.Effect("SpeedChange", started, "effectKey=" + effectKey + " requestedBy=" + (ctx?.Username ?? "Unknown"));
+            if (!started) throw new InvalidOperationException("Speed effect could not be started (not in map).");
+            return Task.CompletedTask;
+        }
+
+        internal Task ApplyFlashbangAsync(ChatContext ctx, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            bool started = FlashbangManager.Instance.TriggerFlashbang(
+                CommandRuntimeSettings.FlashbangIntensityMultiplier,
+                CommandRuntimeSettings.FlashbangHoldSeconds,
+                CommandRuntimeSettings.FlashbangFadeSeconds);
+            _log.Effect("Flashbang", started, "requestedBy=" + (ctx?.Username ?? "Unknown"));
+            if (!started) throw new InvalidOperationException("Flashbang could not be triggered (not in map).");
+            return Task.CompletedTask;
+        }
+
+        internal Task ApplyEndlessModeAsync(float durationMinutes, ChatContext ctx, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            StartEndlessMode(durationMinutes);
+            _log.Effect("EndlessMode", true, "durationMinutes=" + durationMinutes + " requestedBy=" + (ctx?.Username ?? "Unknown"));
+            return Task.CompletedTask;
+        }
+
+        internal Task StopEndlessModeAsync(ChatContext ctx, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            StopEndlessMode();
+            _log.Effect("EndlessModeStop", true, "requestedBy=" + (ctx?.Username ?? "Unknown"));
+            return Task.CompletedTask;
+        }
+
+        internal Task<bool> ApplySongRequestAsync(string bsrCode, ChatContext ctx, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            bool ok = TryQueueSongRequest(
+                bsrCode,
+                ctx?.Username,
+                requestedDifficulty: null,
+                startTimeSeconds: null,
+                switchAfterSeconds: null,
+                segmentLengthSeconds: null,
+                rejectReason: out string rejectReason);
+
+            if (!ok)
+            {
+                _log.Effect("SongRequest", false, "bsrCode=" + bsrCode + " reason=" + rejectReason);
+                ChatManager.GetInstance()?.SendChatMessage("!!Request rejected: " + rejectReason);
+            }
+            else
+            {
+                _log.Effect("SongRequest", true, "bsrCode=" + bsrCode + " requestedBy=" + (ctx?.Username ?? "Unknown"));
+            }
+
+            return Task.FromResult(ok);
+        }
 
         /// <summary>
         /// Load all available custom songs from SongCore
@@ -847,14 +1074,23 @@ namespace BeatSurgeon.Gameplay
 
             while (_isPlaying)
             {
-                // Only refresh periodically; refresh is expensive.
+                // Only refresh if there are pending downloads AND enough time has passed
+                // This prevents excessive SongCore operations which can cause frame stutters
                 if (_pendingDownloads.Count > 0 && Time.unscaledTime >= _nextSongCoreRefreshTime)
                 {
                     _nextSongCoreRefreshTime = Time.unscaledTime + 5f;
 
-                    // Refresh SongCore’s loaded song list in-game.
-                    SongCore.Loader.Instance.RefreshSongs(false); // important: makes new installs visible [file:152]
-                    LoadAvailableSongs(); // rebuild your cached list from Loader.CustomLevels [file:147]
+                    // Only refresh SongCore during non-critical gameplay moments (when not in GameCore playing)
+                    // Frame drops during actual song playback are worse than delayed song availability
+                    try
+                    {
+                        SongCore.Loader.Instance.RefreshSongs(false);
+                        LoadAvailableSongs();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        LogUtils.Debug(() => $"GameplayManager: SongCore refresh error: {ex.Message}");
+                    }
                 }
 
                 // Try to resolve any pending downloads into real BeatmapLevels.
@@ -1174,6 +1410,14 @@ namespace BeatSurgeon.Gameplay
             StopEndlessMode();
         }
 
+        private void Update()
+        {
+            using (UpdateProfiler.Auto())
+            {
+                // Scene-driven map detection; intentionally no object discovery in Update.
+            }
+        }
+
         private bool EnsureDependencies()
         {
             if (_menuTransitionsHelper == null)
@@ -1244,3 +1488,4 @@ namespace BeatSurgeon.Gameplay
 
     }
 }
+

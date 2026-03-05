@@ -1,6 +1,8 @@
-﻿namespace BeatSurgeon.Twitch
+using BeatSurgeon.Utils;
+
+namespace BeatSurgeon.Twitch
 {
-    public enum SupporterTier
+    internal enum SupporterTier
     {
         None = 0,
         Tier1 = 1,
@@ -8,8 +10,20 @@
         Tier3 = 3
     }
 
-    public static class SupporterState
+    internal static class SupporterState
     {
-        public static SupporterTier CurrentTier { get; set; } = SupporterTier.None;
+        private static readonly LogUtil _log = LogUtil.GetLogger("SupporterState");
+        private static SupporterTier _currentTier = SupporterTier.None;
+
+        internal static SupporterTier CurrentTier
+        {
+            get => _currentTier;
+            set
+            {
+                if (_currentTier == value) return;
+                _currentTier = value;
+                _log.Info("SupporterState.CurrentTier changed -> " + value);
+            }
+        }
     }
 }

@@ -1,4 +1,4 @@
-﻿using BeatSaberMarkupLanguage;
+using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSaberMarkupLanguage.Components.Settings;
@@ -33,10 +33,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("global_cd_enabled")]
         public bool GlobalCooldownEnabled
         {
-            get => CommandHandler.GlobalCooldownEnabled;
+            get => CommandRuntimeSettings.GlobalCooldownEnabled;
             set
             {
-                CommandHandler.GlobalCooldownEnabled = value;
+                CommandRuntimeSettings.GlobalCooldownEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.GlobalCooldownEnabled = value;
 
@@ -47,11 +47,11 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("global_cd_seconds")]
         public float GlobalCooldownSeconds
         {
-            get => CommandHandler.GlobalCooldownSeconds;
+            get => CommandRuntimeSettings.GlobalCooldownSeconds;
             set
             {
                 float clamped = Mathf.Clamp(value, 0f, 300f);
-                CommandHandler.GlobalCooldownSeconds = clamped;
+                CommandRuntimeSettings.GlobalCooldownSeconds = clamped;
                 if (Plugin.Settings != null)
                     Plugin.Settings.GlobalCooldownSeconds = clamped;
 
@@ -62,10 +62,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("per_command_cd_enabled")]
         public bool PerCommandCooldownsEnabled
         {
-            get => CommandHandler.PerCommandCooldownsEnabled;
+            get => CommandRuntimeSettings.PerCommandCooldownsEnabled;
             set
             {
-                CommandHandler.PerCommandCooldownsEnabled = value;
+                CommandRuntimeSettings.PerCommandCooldownsEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.PerCommandCooldownsEnabled = value;
 
@@ -76,11 +76,11 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("faster_cd_seconds")]
         public float FasterCooldownSeconds
         {
-            get => CommandHandler.FasterCooldownSeconds;
+            get => CommandRuntimeSettings.FasterCooldownSeconds;
             set
             {
                 float clamped = Mathf.Clamp(value, 0f, 300f);
-                CommandHandler.FasterCooldownSeconds = clamped;
+                CommandRuntimeSettings.FasterCooldownSeconds = clamped;
                 if (Plugin.Settings != null)
                     Plugin.Settings.FasterCooldownSeconds = clamped;
 
@@ -92,11 +92,11 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("bomb_cd_seconds")]
         public float BombCooldownSeconds
         {
-            get => CommandHandler.BombCooldownSeconds;
+            get => CommandRuntimeSettings.BombCooldownSeconds;
             set
             {
                 float clamped = Mathf.Clamp(value, 0f, 300f);
-                CommandHandler.BombCooldownSeconds = clamped;
+                CommandRuntimeSettings.BombCooldownSeconds = clamped;
                 if (Plugin.Settings != null)
                     Plugin.Settings.BombCooldownSeconds = clamped;
 
@@ -111,7 +111,7 @@ namespace BeatSurgeon.UI.Controllers
             get
             {
                 // Show with leading '!'
-                string name = CommandHandler.BombCommandName;
+                string name = CommandRuntimeSettings.BombCommandName;
                 if (string.IsNullOrWhiteSpace(name))
                     name = "bomb";
                 return "!" + name;
@@ -132,7 +132,7 @@ namespace BeatSurgeon.UI.Controllers
                     return;
 
                 // Update runtime behavior
-                CommandHandler.BombCommandName = cleaned;
+                CommandRuntimeSettings.BombCommandName = cleaned;
 
                 // Persist to config
                 if (Plugin.Settings != null)
@@ -159,6 +159,8 @@ namespace BeatSurgeon.UI.Controllers
             UpdateGhostVisualsButtonVisibility();
             UpdateDisappearVisualsButtonVisibility();
             UpdateFlashbangVisualsButtonVisibility();
+
+            _ = RefreshVisualsAccessStateAsync();
         }
 
         protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
@@ -246,16 +248,81 @@ namespace BeatSurgeon.UI.Controllers
         {
             get
             {
-                // 1. Must be authenticated with your backend
-                bool backendConnected = TwitchAuthManager.Instance.IsAuthenticated;
-
-                // 2. Must be at least Tier1 supporter to your channel
-                bool isSupporter =
-                    SupporterState.CurrentTier != SupporterTier.None ||
-                    (Plugin.Settings?.CachedSupporterTier ?? 0) > 0;
-
-                return backendConnected && isSupporter;
+                return HasCachedVisualsAccess();
             }
+        }
+
+        private bool HasCachedVisualsAccess()
+        {
+            if (!TwitchAuthManager.Instance.IsAuthenticated)
+            {
+                return false;
+            }
+
+            if (EntitlementsState.HasVisualsAccess)
+            {
+                return true;
+            }
+
+            if (SupporterState.CurrentTier >= SupporterTier.Tier1)
+            {
+                return true;
+            }
+
+            return (Plugin.Settings?.CachedSupporterTier ?? 0) > 0;
+        }
+
+        private async System.Threading.Tasks.Task<bool> EnsureVisualsAccessAsync(string visualName)
+        {
+            if (HasCachedVisualsAccess())
+            {
+                return true;
+            }
+
+            bool allowed = false;
+            try
+            {
+                allowed = await TwitchApiClient.Instance.CheckVisualsPermissionAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn(visualName + " visuals permission check failed: " + ex.Message);
+                allowed = false;
+            }
+
+            if (!allowed)
+            {
+                Plugin.Log.Warn("[SECURITY] Visuals access denied for user " + TwitchAuthManager.Instance.BroadcasterId +
+                                " while opening " + visualName + " visuals.");
+            }
+
+            return allowed;
+        }
+
+        private async System.Threading.Tasks.Task RefreshVisualsAccessStateAsync()
+        {
+            if (!TwitchAuthManager.Instance.IsAuthenticated)
+            {
+                return;
+            }
+
+            try
+            {
+                await TwitchApiClient.Instance.CheckVisualsPermissionAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Debug("RefreshVisualsAccessStateAsync failed: " + ex.Message);
+            }
+
+            await UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+            {
+                UpdateBombVisualsButtonVisibility();
+                UpdateRainbowVisualsButtonVisibility();
+                UpdateGhostVisualsButtonVisibility();
+                UpdateDisappearVisualsButtonVisibility();
+                UpdateFlashbangVisualsButtonVisibility();
+            });
         }
 
 
@@ -267,21 +334,8 @@ namespace BeatSurgeon.UI.Controllers
 
         private async System.Threading.Tasks.Task OnBombEditVisualsClickedAsync()
         {
-            bool allowed = false;
-            try
+            if (!await EnsureVisualsAccessAsync("bomb").ConfigureAwait(false))
             {
-                allowed = await TwitchApiClient.Instance.CheckVisualsPermissionAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Warn("Bomb visuals permission check failed: " + ex.Message);
-                allowed = false;
-            }
-
-            if (!allowed)
-            {
-                Plugin.Log.Warn($"[SECURITY] Visuals access denied for user {TwitchAuthManager.Instance.BroadcasterId}. " +
-                       $"Client tier: {SupporterState.CurrentTier}, Server rejected.");
                 return;
             }
 
@@ -321,9 +375,12 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("bomb_text_height")]
         public float BombTextHeight
         {
-            get => Plugin.Settings?.BombTextHeight ?? 1.0f;
+            get => HasCachedVisualsAccess() ? (Plugin.Settings?.BombTextHeight ?? 1.0f) : 1.0f;
             set
             {
+                if (!HasCachedVisualsAccess())
+                    return;
+
                 float clamped = Mathf.Clamp(value, 0.5f, 5f);
                 if (Plugin.Settings != null)
                     Plugin.Settings.BombTextHeight = clamped;
@@ -334,9 +391,12 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("bomb_text_width")]
         public float BombTextWidth
         {
-            get => Plugin.Settings?.BombTextWidth ?? 1.0f;
+            get => HasCachedVisualsAccess() ? (Plugin.Settings?.BombTextWidth ?? 1.0f) : 1.0f;
             set
             {
+                if (!HasCachedVisualsAccess())
+                    return;
+
                 float clamped = Mathf.Clamp(value, 0.5f, 5f);
                 if (Plugin.Settings != null)
                     Plugin.Settings.BombTextWidth = clamped;
@@ -347,9 +407,12 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("bomb_spawn_distance")]
         public float BombSpawnDistance
         {
-            get => Plugin.Settings?.BombSpawnDistance ?? 10.0f;
+            get => HasCachedVisualsAccess() ? (Plugin.Settings?.BombSpawnDistance ?? 10.0f) : 10.0f;
             set
             {
+                if (!HasCachedVisualsAccess())
+                    return;
+
                 float clamped = Mathf.Clamp(value, 2f, 20f);
                 if (Plugin.Settings != null)
                     Plugin.Settings.BombSpawnDistance = clamped;
@@ -378,6 +441,9 @@ namespace BeatSurgeon.UI.Controllers
             get => FontBundleLoader.GetSelectedBombFontOption();
             set
             {
+                if (!HasCachedVisualsAccess())
+                    return;
+
                 StopBombFontPreview();
 
                 FontBundleLoader.SetSelectedBombFontOption(value);
@@ -422,9 +488,12 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("bomb_gradient_start")]
         public Color BombGradientStart
         {
-            get => Plugin.Settings?.BombGradientStart ?? Color.yellow;
+            get => HasCachedVisualsAccess() ? (Plugin.Settings?.BombGradientStart ?? Color.yellow) : Color.yellow;
             set
             {
+                if (!HasCachedVisualsAccess())
+                    return;
+
                 if (Plugin.Settings != null) Plugin.Settings.BombGradientStart = value;
                 NotifyPropertyChanged(nameof(BombGradientStart));
             }
@@ -433,9 +502,12 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("bomb_gradient_end")]
         public Color BombGradientEnd
         {
-            get => Plugin.Settings?.BombGradientEnd ?? Color.red;
+            get => HasCachedVisualsAccess() ? (Plugin.Settings?.BombGradientEnd ?? Color.red) : Color.red;
             set
             {
+                if (!HasCachedVisualsAccess())
+                    return;
+
                 if (Plugin.Settings != null) Plugin.Settings.BombGradientEnd = value;
                 NotifyPropertyChanged(nameof(BombGradientEnd));
             }
@@ -496,9 +568,12 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("rainbow_gradient_fade_enabled")]
         public bool RainbowGradientFadeEnabled
         {
-            get => Plugin.Settings?.RainbowGradientFadeEnabled ?? true;
+            get => HasCachedVisualsAccess() ? (Plugin.Settings?.RainbowGradientFadeEnabled ?? true) : true;
             set
             {
+                if (!HasCachedVisualsAccess())
+                    return;
+
                 if (Plugin.Settings != null)
                     Plugin.Settings.RainbowGradientFadeEnabled = value;
                 NotifyPropertyChanged(nameof(RainbowGradientFadeEnabled));
@@ -508,9 +583,12 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("rainbow_gradient_cycle_speed")]
         public float RainbowGradientCycleSpeed
         {
-            get => Plugin.Settings?.RainbowCycleSpeed ?? 0.1f;
+            get => HasCachedVisualsAccess() ? (Plugin.Settings?.RainbowCycleSpeed ?? 0.1f) : 0.1f;
             set
             {
+                if (!HasCachedVisualsAccess())
+                    return;
+
                 float clamped = Mathf.Clamp(value, 0.01f, 5f);
                 if (Plugin.Settings != null)
                     Plugin.Settings.RainbowCycleSpeed = clamped;
@@ -523,15 +601,28 @@ namespace BeatSurgeon.UI.Controllers
         [UIAction("OnRainbowEditVisualsClicked")]
         private void OnRainbowEditVisualsClicked()
         {
-            if (_rainbowVisualsModal != null)
+            _ = OnRainbowEditVisualsClickedAsync();
+        }
+
+        private async System.Threading.Tasks.Task OnRainbowEditVisualsClickedAsync()
+        {
+            if (!await EnsureVisualsAccessAsync("rainbow").ConfigureAwait(false))
             {
-                _rainbowVisualsModal.Show(true);
-                StartCoroutine(DelayedStartPreview());
+                return;
             }
-            else
+
+            await UnityMainThreadTaskScheduler.Factory.StartNew(() =>
             {
-                Plugin.Log.Warn("Rainbow visuals modal was null when trying to show it.");
-            }
+                if (_rainbowVisualsModal != null)
+                {
+                    _rainbowVisualsModal.Show(true);
+                    StartCoroutine(DelayedStartPreview());
+                }
+                else
+                {
+                    Plugin.Log.Warn("Rainbow visuals modal was null when trying to show it.");
+                }
+            });
         }
 
         private IEnumerator DelayedStartPreview()
@@ -924,14 +1015,27 @@ namespace BeatSurgeon.UI.Controllers
         [UIAction("OnGhostEditVisualsClicked")]
         private void OnGhostEditVisualsClicked()
         {
-            if (_ghostVisualsModal != null)
+            _ = OnGhostEditVisualsClickedAsync();
+        }
+
+        private async System.Threading.Tasks.Task OnGhostEditVisualsClickedAsync()
+        {
+            if (!await EnsureVisualsAccessAsync("ghost").ConfigureAwait(false))
             {
-                _ghostVisualsModal.Show(true);
+                return;
             }
-            else
+
+            await UnityMainThreadTaskScheduler.Factory.StartNew(() =>
             {
-                Plugin.Log.Warn("Ghost visuals modal was null when trying to show it.");
-            }
+                if (_ghostVisualsModal != null)
+                {
+                    _ghostVisualsModal.Show(true);
+                }
+                else
+                {
+                    Plugin.Log.Warn("Ghost visuals modal was null when trying to show it.");
+                }
+            });
         }
 
         [UIAction("CloseGhostVisuals")]
@@ -952,14 +1056,27 @@ namespace BeatSurgeon.UI.Controllers
         [UIAction("OnDisappearEditVisualsClicked")]
         private void OnDisappearEditVisualsClicked()
         {
-            if (_disappearVisualsModal != null)
+            _ = OnDisappearEditVisualsClickedAsync();
+        }
+
+        private async System.Threading.Tasks.Task OnDisappearEditVisualsClickedAsync()
+        {
+            if (!await EnsureVisualsAccessAsync("disappear").ConfigureAwait(false))
             {
-                _disappearVisualsModal.Show(true);
+                return;
             }
-            else
+
+            await UnityMainThreadTaskScheduler.Factory.StartNew(() =>
             {
-                Plugin.Log.Warn("Disappear visuals modal was null when trying to show it.");
-            }
+                if (_disappearVisualsModal != null)
+                {
+                    _disappearVisualsModal.Show(true);
+                }
+                else
+                {
+                    Plugin.Log.Warn("Disappear visuals modal was null when trying to show it.");
+                }
+            });
         }
 
         [UIAction("CloseDisappearVisuals")]
@@ -980,9 +1097,12 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("flashbang_brightness_multiplier")]
         public int FlashbangBrightnessMultiplier
         {
-            get => Plugin.Settings?.FlashbangBrightnessMultiplier ?? 90;
+            get => HasCachedVisualsAccess() ? (Plugin.Settings?.FlashbangBrightnessMultiplier ?? 90) : 90;
             set
             {
+                if (!HasCachedVisualsAccess())
+                    return;
+
                 int clamped = Mathf.Clamp(value, 1, 200);
                 if (Plugin.Settings != null)
                     Plugin.Settings.FlashbangBrightnessMultiplier = clamped;
@@ -993,14 +1113,27 @@ namespace BeatSurgeon.UI.Controllers
         [UIAction("OnFlashbangEditVisualsClicked")]
         private void OnFlashbangEditVisualsClicked()
         {
-            if (_flashbangVisualsModal != null)
+            _ = OnFlashbangEditVisualsClickedAsync();
+        }
+
+        private async System.Threading.Tasks.Task OnFlashbangEditVisualsClickedAsync()
+        {
+            if (!await EnsureVisualsAccessAsync("flashbang").ConfigureAwait(false))
             {
-                _flashbangVisualsModal.Show(true);
+                return;
             }
-            else
+
+            await UnityMainThreadTaskScheduler.Factory.StartNew(() =>
             {
-                Plugin.Log.Warn("Flashbang visuals modal was null when trying to show it.");
-            }
+                if (_flashbangVisualsModal != null)
+                {
+                    _flashbangVisualsModal.Show(true);
+                }
+                else
+                {
+                    Plugin.Log.Warn("Flashbang visuals modal was null when trying to show it.");
+                }
+            });
         }
 
         [UIAction("CloseFlashbangVisuals")]
@@ -1141,11 +1274,11 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("rainbow_cd_seconds")]
         public float RainbowCooldownSeconds
         {
-            get => CommandHandler.RainbowCooldownSeconds;
+            get => CommandRuntimeSettings.RainbowCooldownSeconds;
             set
             {
                 float clamped = Mathf.Clamp(value, 0f, 300f);
-                CommandHandler.RainbowCooldownSeconds = clamped;
+                CommandRuntimeSettings.RainbowCooldownSeconds = clamped;
                 if (Plugin.Settings != null)
                     Plugin.Settings.RainbowCooldownSeconds = clamped;
 
@@ -1181,11 +1314,11 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("ghost_cd_seconds")]
         public float GhostCooldownSeconds
         {
-            get => CommandHandler.GhostCooldownSeconds;
+            get => CommandRuntimeSettings.GhostCooldownSeconds;
             set
             {
                 float clamped = Mathf.Clamp(value, 0f, 300f);
-                CommandHandler.GhostCooldownSeconds = clamped;
+                CommandRuntimeSettings.GhostCooldownSeconds = clamped;
                 if (Plugin.Settings != null)
                     Plugin.Settings.GhostCooldownSeconds = clamped;
 
@@ -1196,11 +1329,11 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("disappear_cd_seconds")]
         public float DisappearCooldownSeconds
         {
-            get => CommandHandler.DisappearCooldownSeconds;
+            get => CommandRuntimeSettings.DisappearCooldownSeconds;
             set
             {
                 float clamped = Mathf.Clamp(value, 0f, 300f);
-                CommandHandler.DisappearCooldownSeconds = clamped;
+                CommandRuntimeSettings.DisappearCooldownSeconds = clamped;
                 if (Plugin.Settings != null)
                     Plugin.Settings.DisappearCooldownSeconds = clamped;
 
@@ -1213,11 +1346,11 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("superfast_cd_seconds")]
         public float SuperFastCooldownSeconds
         {
-            get => CommandHandler.SuperFastCooldownSeconds;
+            get => CommandRuntimeSettings.SuperFastCooldownSeconds;
             set
             {
                 float clamped = Mathf.Clamp(value, 0f, 300f);
-                CommandHandler.SuperFastCooldownSeconds = clamped;
+                CommandRuntimeSettings.SuperFastCooldownSeconds = clamped;
                 if (Plugin.Settings != null)
                     Plugin.Settings.SuperFastCooldownSeconds = clamped;
 
@@ -1228,11 +1361,11 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("slower_cd_seconds")]
         public float SlowerCooldownSeconds
         {
-            get => CommandHandler.SlowerCooldownSeconds;
+            get => CommandRuntimeSettings.SlowerCooldownSeconds;
             set
             {
                 float clamped = Mathf.Clamp(value, 0f, 300f);
-                CommandHandler.SlowerCooldownSeconds = clamped;
+                CommandRuntimeSettings.SlowerCooldownSeconds = clamped;
                 if (Plugin.Settings != null)
                     Plugin.Settings.SlowerCooldownSeconds = clamped;
 
@@ -1243,10 +1376,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("speed_exclusive_enabled")]
         public bool SpeedExclusiveEnabled
         {
-            get => CommandHandler.SpeedExclusiveEnabled;
+            get => CommandRuntimeSettings.SpeedExclusiveEnabled;
             set
             {
-                CommandHandler.SpeedExclusiveEnabled = value;
+                CommandRuntimeSettings.SpeedExclusiveEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.SpeedExclusiveEnabled = value;
 
@@ -1257,11 +1390,11 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("flashbang_cd_seconds")]
         public int FlashbangCooldownSeconds
         {
-            get => (int)CommandHandler.FlashbangCooldownSeconds;
+            get => (int)CommandRuntimeSettings.FlashbangCooldownSeconds;
             set
             {
                 int clamped = Mathf.Clamp(value, 0, 300);
-                CommandHandler.FlashbangCooldownSeconds = clamped;
+                CommandRuntimeSettings.FlashbangCooldownSeconds = clamped;
                 if (Plugin.Settings != null)
                     Plugin.Settings.FlashbangCooldownSeconds = clamped;
 
@@ -1273,3 +1406,4 @@ namespace BeatSurgeon.UI.Controllers
 
     }
 }
+

@@ -117,10 +117,6 @@
       <HintPath>$(BeatSaberDir)\Libs\CatCore.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
-    <Reference Include="Chaos.NaCl, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>libs\Chaos.NaCl.dll</HintPath>
-    </Reference>
     <Reference Include="ChatPlexSDK_BS, Version=6.4.2.0, Culture=en, processorArchitecture=MSIL">
       <Private>False</Private>
       <HintPath>$(BeatSaberDir)\Plugins\ChatPlexSDK_BS.dll</HintPath>
@@ -171,8 +167,24 @@
       <HintPath>$(BeatSaberDir)\Plugins\SongCore.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
+    <Reference Include="SiraUtil">
+      <Private>False</Private>
+      <HintPath>$(BeatSaberDir)\Plugins\SiraUtil.dll</HintPath>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.IO.Compression">
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.IO.Compression.FileSystem">
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Security">
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="mscorlib" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="System.Data" />
@@ -310,6 +322,16 @@
     <Compile Include="Chat\ChatContext.cs" />
     <Compile Include="Chat\ChatManager.cs" />
     <Compile Include="Chat\CommandHandler.cs" />
+    <Compile Include="Chat\CommandRuntimeSettings.cs" />
+    <Compile Include="Chat\Processors\BombsProcessor.cs" />
+    <Compile Include="Chat\Processors\DisappearingArrowsProcessor.cs" />
+    <Compile Include="Chat\Processors\EndlessModeProcessor.cs" />
+    <Compile Include="Chat\Processors\FlashbangProcessor.cs" />
+    <Compile Include="Chat\Processors\GhostNotesProcessor.cs" />
+    <Compile Include="Chat\Processors\ICommandProcessor.cs" />
+    <Compile Include="Chat\Processors\RainbowNotesProcessor.cs" />
+    <Compile Include="Chat\Processors\SongRequestProcessor.cs" />
+    <Compile Include="Chat\Processors\SpeedChangeProcessor.cs" />
     <Compile Include="Gameplay\BombManager.cs" />
     <Compile Include="Gameplay\BombVisualPool.cs" />
     <Compile Include="Gameplay\CoroutineHost.cs" />
@@ -338,6 +360,8 @@
     <Compile Include="Integrations\BeatSaverClient.cs" />
     <Compile Include="Integrations\EndlessPlaylistService.cs" />
     <Compile Include="Integrations\SongInstaller.cs" />
+    <Compile Include="Installers\BeatSurgeonAppInstaller.cs" />
+    <Compile Include="Installers\BeatSurgeonMenuInstaller.cs" />
     <Compile Include="Multiplayer\Multiplayer.cs" />
     <Compile Include="Multiplayer\MultiplayerRoomSyncClient.cs" />
     <Compile Include="Twitch\ChannelPointCommandExecutor.cs" />
@@ -345,7 +369,9 @@
     <Compile Include="Twitch\EntitlementsState.cs" />
     <Compile Include="Twitch\JwtEd25519.cs" />
     <Compile Include="Twitch\TwitchChannelPointsManager.cs" />
+    <Compile Include="UI\Settings\BeatSurgeonMenuButtonHost.cs" />
     <Compile Include="UI\Settings\SurgeonGameplaySetupHost.cs" />
+    <Compile Include="UI\Settings\SurgeonGameplaySetupTabRegistrar.cs" />
     <Compile Include="Utils\LogUtils.cs" />
     <Compile Include="PluginConfig.cs" />
     <Compile Include="Plugin\Plugin.cs" />
@@ -357,6 +383,7 @@
     <Compile Include="UI\Controllers\BeatSurgeonCooldownViewController.cs" />
     <Compile Include="UI\Controllers\BeatSurgeonViewController.cs" />
     <Compile Include="UI\FlowCoordinator\BeatSurgeonFlowCoordinator.cs" />
+    <Compile Include="Utils\LogUtil.cs" />
     <Compile Include="Utils\SceneHelper.cs" />
   </ItemGroup>
   <ItemGroup>

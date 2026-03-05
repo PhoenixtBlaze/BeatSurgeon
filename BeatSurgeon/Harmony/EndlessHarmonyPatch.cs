@@ -7,6 +7,7 @@ using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using BeatSurgeon.Gameplay;
 using BeatSurgeon;
+using BeatSurgeon.Utils;
 
 namespace BeatSurgeon.HarmonyPatches
 {
@@ -185,6 +186,7 @@ namespace BeatSurgeon.HarmonyPatches
     [HarmonyPatch(typeof(MenuTransitionsHelper), "HandleMainGameSceneDidFinish")]
     internal static class EndlessHarmonyPatch
     {
+        private static readonly LogUtil _log = LogUtil.GetLogger("EndlessHarmonyPatch");
         private const float ChainFadeDurationSeconds = 1.0f;
 
         [HarmonyPrefix]
@@ -194,18 +196,19 @@ namespace BeatSurgeon.HarmonyPatches
             StandardLevelScenesTransitionSetupDataSO standardLevelScenesTransitionSetupData,
             LevelCompletionResults levelCompletionResults)
         {
-            var gm = Gameplay.GameplayManager.GetInstance();
-            if (gm == null || !gm.IsPlaying() || gm.GetRemainingTime() <= 0f) return true;
-
-            if (levelCompletionResults.levelEndAction == LevelCompletionResults.LevelEndAction.Quit ||
-                levelCompletionResults.levelEndAction == LevelCompletionResults.LevelEndAction.Restart ||
-                levelCompletionResults.levelEndStateType == LevelCompletionResults.LevelEndStateType.Failed)
-            {
-                return true;
-            }
-
             try
             {
+                var gm = Gameplay.GameplayManager.GetInstance();
+                if (gm == null || !gm.IsPlaying() || gm.GetRemainingTime() <= 0f) return true;
+                if (levelCompletionResults == null) return true;
+
+                if (levelCompletionResults.levelEndAction == LevelCompletionResults.LevelEndAction.Quit ||
+                    levelCompletionResults.levelEndAction == LevelCompletionResults.LevelEndAction.Restart ||
+                    levelCompletionResults.levelEndStateType == LevelCompletionResults.LevelEndStateType.Failed)
+                {
+                    return true;
+                }
+
                 var finishedCBField = AccessTools.Field(typeof(MenuTransitionsHelper), "_standardLevelFinishedCallback");
                 var finishedCB = finishedCBField.GetValue(__instance);
                 (finishedCB as Delegate)?.DynamicInvoke(standardLevelScenesTransitionSetupData, levelCompletionResults);
@@ -220,7 +223,7 @@ namespace BeatSurgeon.HarmonyPatches
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error($"EndlessHarmonyPatch: Error chaining: {ex}");
+                _log.Exception(ex, "Prefix");
                 return true;
             }
         }

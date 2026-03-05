@@ -1,45 +1,47 @@
-﻿using HarmonyLib;
-using UnityEngine;
+using HarmonyLib;
 using BeatSurgeon.Gameplay;
+using BeatSurgeon.Utils;
 
 namespace BeatSurgeon.HarmonyPatches
 {
     [HarmonyPatch(typeof(ColorNoteVisuals))]
     internal static class GhostNotesPatch
     {
+        private static readonly LogUtil _log = LogUtil.GetLogger("GhostNotesPatch");
+
         [HarmonyPostfix]
         [HarmonyPatch("HandleNoteControllerDidInit")]
         private static void Postfix(ColorNoteVisuals __instance, NoteControllerBase noteController)
         {
-            if (!Gameplay.GhostNotesManager.GhostActive)
-                return;
-
-            var noteData = noteController.noteData;
-            if (noteData == null || noteData.colorType == ColorType.None)
-                return;
-
-            // Let the very first note stay totally normal
-            if (!Gameplay.GhostNotesManager.FirstNoteShown)
+            try
             {
-                Gameplay.GhostNotesManager.FirstNoteShown = true;
-                return;
-            }
+                if (!GhostNotesManager.GhostActive)
+                    return;
 
-            var gameNote = NoteUtils.FindNoteControllerParent(__instance);
-            if (gameNote == null)
+                var noteData = noteController?.noteData;
+                if (noteData == null || noteData.colorType == ColorType.None)
+                    return;
+
+                if (!GhostNotesManager.FirstNoteShown)
+                {
+                    GhostNotesManager.FirstNoteShown = true;
+                    return;
+                }
+
+                var gameNote = NoteUtils.FindNoteControllerParent(__instance);
+                if (gameNote == null)
+                    return;
+
+                var controller = gameNote.gameObject.GetComponent<GhostVisualController>();
+                if (controller == null)
+                    controller = gameNote.gameObject.AddComponent<GhostVisualController>();
+
+                controller.Initialize(gameNote, noteData.time);
+            }
+            catch (System.Exception ex)
             {
-                Plugin.Log.Warn("GhostNotesPatch: No note controller parent found");
-                return;
+                _log.Exception(ex, "Postfix");
             }
-
-            var controller = gameNote.gameObject.GetComponent<GhostVisualController>();
-            if (controller == null)
-            {
-                controller = gameNote.gameObject.AddComponent<GhostVisualController>();
-                LogUtils.Debug(() => $"GhostNotesPatch: Added GhostVisualController to note at t={noteData.time:F3}");
-            }
-
-            controller.Initialize(gameNote, noteData.time);
         }
     }
 }

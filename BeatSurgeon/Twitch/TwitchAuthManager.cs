@@ -1,135 +1,158 @@
-﻿using Newtonsoft.Json.Linq;
 using System;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using BeatSurgeon.Utils;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
-using BeatSurgeon.Twitch;
-
+using Zenject;
 
 namespace BeatSurgeon.Twitch
 {
-    /// <summary>
-    /// Twitch auth + identity resolver for the new architecture:
-    /// - Backend is ONLY used for browser login + one-time token handoff (/login + /token).
-    /// - The mod uses the returned user access token for Helix (supporter check, eventsub subscription creation).
-    /// - EventSub is handled in-game by TwitchEventSubClient (WebSocket).
-    /// </summary>
-    public class TwitchAuthManager
+    internal sealed class TwitchAuthManager : IInitializable, IDisposable
     {
-        // Your backend base URL (no trailing slash)
+        private static readonly LogUtil _log = LogUtil.GetLogger("TwitchAuthManager");
+        private static readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+
         private const string BackendBaseUrl = "https://phoenixblaze0.duckdns.org";
-
-        // Twitch application client ID (used for refresh + Helix headers)
         private const string TwitchClientId = "dyq6orcrvl9cxd8d1usx6rtczt3tfb";
-        public string ClientId => TwitchClientId;
-
-        public const string SupportChannelName = "phoenixblaze0";
 
         private static TwitchAuthManager _instance;
-        public static TwitchAuthManager Instance => _instance ?? (_instance = new TwitchAuthManager());
+        internal static TwitchAuthManager Instance => _instance ?? (_instance = new TwitchAuthManager());
 
-        // Tokens (encrypted at rest in Plugin.Settings)
-        private string _accessToken;
-        private string _refreshToken;
-
-        // Identity
-        public string BroadcasterId { get; private set; }   // logged-in user id
-        public string BroadcasterLogin { get; private set; } // logged-in login
-        public string BotUserId { get; private set; }       // for now: same as broadcaster (can be separated later)
-
-        // Events for the rest of your mod to hook into
-        public event Action OnTokensUpdated;
-        public event Action OnIdentityUpdated;
-
-        // Prevent concurrent refresh / identity calls
         private readonly SemaphoreSlim _tokenLock = new SemaphoreSlim(1, 1);
 
-        // Per-machine encryption for stored tokens
-        private readonly byte[] _entropy =
-            Encoding.UTF8.GetBytes(SystemInfo.deviceUniqueIdentifier.Substring(0, 16));
-
-        // Reuse one HttpClient (important: avoid socket exhaustion)
-        private static readonly HttpClient _http = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(10)
-        };
-
-        /// <summary>
-        /// True if there is a non-empty access token and its cached expiry has not passed.
-        /// </summary>
-        public bool IsAuthenticated =>
-            !string.IsNullOrEmpty(_accessToken) &&
-            DateTime.UtcNow.Ticks < Plugin.Settings.TokenExpiryTicks;
-
-
-        
+        private string _accessToken;
+        private string _refreshToken;
+        private string _cachedChannelUserId;
+        private Timer _refreshTimer;
         private CancellationTokenSource _loginCts;
         private volatile bool _loginInProgress;
+        private volatile bool _authReadyRaised;
 
-        private bool HasRefreshToken => !string.IsNullOrEmpty(_refreshToken);
+        public event Action OnTokensUpdated;
+        public event Action OnIdentityUpdated;
+        public event Action OnAuthReady;
+        public event Action OnReauthRequired;
 
+        internal string ClientId => TwitchClientId;
+        internal string BroadcasterId { get; private set; }
+        internal string BroadcasterLogin { get; private set; }
+        internal string BotUserId { get; private set; }
 
-        /// <summary>
-        /// Used by other components (Helix/EventSub) to get the current access token.
-        /// Prefer calling GetValidAccessTokenAsync() if you're about to do network work.
-        /// </summary>
-        public string GetAccessToken() => _accessToken;
+        internal bool IsAuthenticated =>
+            !string.IsNullOrWhiteSpace(_accessToken) &&
+            ReadTokenExpiryUtc() > DateTime.UtcNow.AddMinutes(1);
 
-        /// <summary>
-        /// Load tokens from config. If valid, refresh (if needed) and resolve identity.
-        /// Call once from Plugin.Init / OnEnable.
-        /// </summary>
+        internal bool IsReauthRequired => PluginConfig.Instance?.TwitchReauthRequired == true;
+
+        [Inject]
+        public TwitchAuthManager()
+        {
+            _instance = this;
+        }
+
         public void Initialize()
         {
+            _log.Lifecycle("Initialize");
+
             LoadTokens();
             RestoreIdentityFromCache();
 
-            if (!HasRefreshToken && !IsAuthenticated)
+            if (PluginConfig.Instance.HasValidToken)
             {
-                Plugin.Settings.BackendStatus = "Not connected";
+                _log.Auth("ValidTokenFound - scheduling proactive refresh");
+                ScheduleProactiveRefresh();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await EnsureIdentityAsync(CancellationToken.None).ConfigureAwait(false);
+                        RaiseAuthReadyIfPossible();
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Exception(ex, "Initialize identity bootstrap");
+                    }
+                });
+            }
+            else
+            {
+                _log.Auth("NoValidToken - OAuth flow will be triggered on first Twitch operation");
+            }
+        }
+
+        public void Dispose()
+        {
+            _log.Lifecycle("Dispose - stopping token refresh timer");
+            try
+            {
+                _refreshTimer?.Dispose();
+                _loginCts?.Cancel();
+                _loginCts?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "Dispose");
+            }
+        }
+
+        internal async Task<string> GetAccessTokenAsync(CancellationToken ct = default(CancellationToken))
+        {
+            if (!PluginConfig.Instance.HasValidToken || string.IsNullOrWhiteSpace(_accessToken))
+            {
+                _log.Auth("GetAccessToken - no valid token, refreshing");
+                await RefreshTokenAsync(ct).ConfigureAwait(false);
+            }
+
+            return _accessToken ?? string.Empty;
+        }
+
+        internal string GetAccessToken() => _accessToken ?? string.Empty;
+
+        internal async Task<string> GetChannelUserIdAsync(CancellationToken ct = default(CancellationToken))
+        {
+            if (!string.IsNullOrWhiteSpace(_cachedChannelUserId))
+            {
+                return _cachedChannelUserId;
+            }
+
+            _log.Auth("GetChannelUserId - fetching from Twitch API");
+            await EnsureIdentityAsync(ct).ConfigureAwait(false);
+            _cachedChannelUserId = BroadcasterId ?? string.Empty;
+            _log.Auth("GetChannelUserId", "userId=" + _cachedChannelUserId);
+            return _cachedChannelUserId;
+        }
+
+        internal async Task<bool> EnsureReadyAsync(CancellationToken ct = default(CancellationToken))
+        {
+            await GetAccessTokenAsync(ct).ConfigureAwait(false);
+            await EnsureIdentityAsync(ct).ConfigureAwait(false);
+            RaiseAuthReadyIfPossible();
+
+            return !string.IsNullOrWhiteSpace(_accessToken)
+                && !string.IsNullOrWhiteSpace(BroadcasterId)
+                && !string.IsNullOrWhiteSpace(BotUserId);
+        }
+
+        internal async Task EnsureValidTokenAsync(CancellationToken ct = default(CancellationToken))
+        {
+            if (PluginConfig.Instance.HasValidToken && !string.IsNullOrWhiteSpace(_accessToken))
+            {
                 return;
             }
 
-            Plugin.Log.Info("TwitchAuth: Found cached tokens. Auto-connecting...");
-            Plugin.Settings.BackendStatus = "Connected";
-
-            // Fire and forget: refresh/identity/supporter info in background
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await EnsureValidTokenAsync();
-                    await EnsureIdentityAsync();
-
-
-                    // Optional: refresh supporter tier cache after identity is known
-                    await TwitchApiClient.Instance.FetchBroadcasterAndEntitlementsAsync();
-                    RestoreIdentityFromCache();
-
-                    OnTokensUpdated?.Invoke();
-                    OnIdentityUpdated?.Invoke();
-                }
-                catch (Exception ex)
-                {
-                    Plugin.Log.Error("TwitchAuth: Initialize background task failed: " + ex.Message);
-                }
-            });
+            await RefreshTokenAsync(ct).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// Starts browser-based login via backend /login, then polls /token until it returns tokens.
-        /// After token retrieval: resolves user identity via Helix /users.
-        /// </summary>
-        public async Task InitiateLogin()
+        internal async Task InitiateLogin()
         {
             if (_loginInProgress)
             {
-                Plugin.Settings.BackendStatus = "Login already in progress";
+                PluginConfig.Instance.BackendStatus = "Login already in progress";
                 return;
             }
 
@@ -140,28 +163,28 @@ namespace BeatSurgeon.Twitch
             try
             {
                 string state = Guid.NewGuid().ToString("N");
-                Plugin.Settings.BackendStatus = "Opening browser...";
-                string loginUrl = $"{BackendBaseUrl}/login?state={Uri.EscapeDataString(state)}";
+                PluginConfig.Instance.BackendStatus = "Opening browser...";
+                string loginUrl = BackendBaseUrl + "/login?state=" + Uri.EscapeDataString(state);
                 Application.OpenURL(loginUrl);
 
-                Plugin.Settings.BackendStatus = "Waiting for authorization...";
-                await PollForBackendToken(state, _loginCts.Token);
+                PluginConfig.Instance.BackendStatus = "Waiting for authorization...";
+                await PollForBackendTokenAsync(state, _loginCts.Token).ConfigureAwait(false);
+                await EnsureIdentityAsync(_loginCts.Token).ConfigureAwait(false);
+                ScheduleProactiveRefresh();
+                RaiseAuthReadyIfPossible();
 
-                await EnsureIdentityAsync(_loginCts.Token);
-                await TwitchApiClient.Instance.FetchBroadcasterAndEntitlementsAsync();
-
-                Plugin.Settings.BackendStatus = "Connected";
-                OnTokensUpdated?.Invoke();
-                OnIdentityUpdated?.Invoke();
+                PluginConfig.Instance.BackendStatus = "Connected";
+                _log.Auth("LoginSucceeded");
             }
             catch (OperationCanceledException)
             {
-                Plugin.Settings.BackendStatus = "Login cancelled";
+                PluginConfig.Instance.BackendStatus = "Login cancelled";
+                _log.Auth("LoginCancelled");
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error("TwitchAuth: InitiateLogin failed: " + ex.Message);
-                Plugin.Settings.BackendStatus = "Login failed";
+                PluginConfig.Instance.BackendStatus = "Login failed";
+                _log.Exception(ex, "InitiateLogin");
             }
             finally
             {
@@ -169,16 +192,43 @@ namespace BeatSurgeon.Twitch
             }
         }
 
-
-        /// <summary>
-        /// Poll backend /token?state=... until it returns JSON with access_token/refresh_token.
-        /// Backend should also return expires_in when possible (your new server.js does).
-        /// </summary>
-        private async Task PollForBackendToken(string state, CancellationToken ct)
+        internal void CancelLogin()
         {
-            if (string.IsNullOrEmpty(state))
-                return;
+            try
+            {
+                _loginCts?.Cancel();
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "CancelLogin");
+            }
+        }
 
+        internal void Logout()
+        {
+            _accessToken = string.Empty;
+            _refreshToken = string.Empty;
+            _cachedChannelUserId = string.Empty;
+            BroadcasterId = string.Empty;
+            BroadcasterLogin = string.Empty;
+            BotUserId = string.Empty;
+            _authReadyRaised = false;
+
+            PersistTokenState();
+            PluginConfig.Instance.ChannelUserId = string.Empty;
+            PluginConfig.Instance.CachedBroadcasterId = string.Empty;
+            PluginConfig.Instance.CachedBroadcasterLogin = string.Empty;
+            PluginConfig.Instance.CachedBotUserId = string.Empty;
+            PluginConfig.Instance.CachedBotUserLogin = string.Empty;
+            PluginConfig.Instance.BackendStatus = "Not connected";
+            ClearTwitchReauthRequired();
+
+            OnTokensUpdated?.Invoke();
+            OnIdentityUpdated?.Invoke();
+        }
+
+        private async Task PollForBackendTokenAsync(string state, CancellationToken ct)
+        {
             int attempts = 0;
             const int maxAttempts = 90;
 
@@ -186,117 +236,161 @@ namespace BeatSurgeon.Twitch
             {
                 ct.ThrowIfCancellationRequested();
 
-                string url = $"{BackendBaseUrl}/token?state={Uri.EscapeDataString(state)}";
-                HttpResponseMessage resp;
+                string url = BackendBaseUrl + "/token?state=" + Uri.EscapeDataString(state);
+                HttpResponseMessage response;
 
                 try
                 {
-                    resp = await _http.GetAsync(url, ct);
+                    response = await _http.GetAsync(url, ct).ConfigureAwait(false);
                 }
                 catch (TaskCanceledException) when (!ct.IsCancellationRequested)
                 {
-                    // HTTP timeout; treat as retryable
-                    await Task.Delay(2000, ct);
+                    await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
                     continue;
                 }
 
-                string jsonText = await resp.Content.ReadAsStringAsync();
+                string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-                if (resp.IsSuccessStatusCode)
+                if (response.IsSuccessStatusCode)
                 {
-                    var json = JObject.Parse(jsonText);
-
+                    JObject json = JObject.Parse(body);
                     string access = json["access_token"]?.ToString();
                     string refresh = json["refresh_token"]?.ToString();
-                    int expiresIn = json["expires_in"]?.Value<int>() ?? 0;
+                    int expiresIn = json["expires_in"]?.Value<int>() ?? 3600;
 
-                    if (string.IsNullOrEmpty(access) || string.IsNullOrEmpty(refresh))
+                    if (string.IsNullOrWhiteSpace(access) || string.IsNullOrWhiteSpace(refresh))
                     {
-                        Plugin.Settings.BackendStatus = "Token error";
-                        return;
+                        throw new InvalidOperationException("Backend token response did not contain access/refresh tokens.");
                     }
 
-                    await _tokenLock.WaitAsync(ct);
+                    await _tokenLock.WaitAsync(ct).ConfigureAwait(false);
                     try
                     {
                         _accessToken = access;
                         _refreshToken = refresh;
-
-                        Plugin.Settings.TokenExpiryTicks =
-                            (expiresIn > 0 ? DateTime.UtcNow.AddSeconds(expiresIn) : DateTime.UtcNow.AddHours(1)).Ticks;
-
-                        SaveTokens();
+                        WriteTokenExpiryUtc(DateTime.UtcNow.AddSeconds(expiresIn));
+                        PersistTokenState();
                     }
                     finally
                     {
                         _tokenLock.Release();
                     }
 
+                    ClearTwitchReauthRequired();
+                    OnTokensUpdated?.Invoke();
                     return;
                 }
 
-                if (resp.StatusCode == HttpStatusCode.NotFound)
+                if (response.StatusCode == HttpStatusCode.NotFound)
                 {
-                    // pending
-                    await Task.Delay(2000, ct);
+                    await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
                     continue;
                 }
 
-                Plugin.Log.Error($"TwitchAuth: Backend /token HTTP {(int)resp.StatusCode}: {jsonText}");
-                Plugin.Settings.BackendStatus = "Token error";
+                throw new HttpRequestException("Backend /token failed: " + response.StatusCode + " body=" + body);
+            }
+
+            throw new TimeoutException("Timed out waiting for backend OAuth token handoff.");
+        }
+
+        private async Task EnsureIdentityAsync(CancellationToken ct = default(CancellationToken))
+        {
+            await EnsureValidTokenAsync(ct).ConfigureAwait(false);
+
+            if (!string.IsNullOrWhiteSpace(BroadcasterId) && !string.IsNullOrWhiteSpace(BotUserId))
+            {
                 return;
             }
 
-            Plugin.Settings.BackendStatus = "Login timeout";
-        }
-
-
-        /// <summary>
-        /// Ensures we have a valid token (refresh if within 5 minutes of expiry).
-        /// Safe to call often.
-        /// </summary>
-        public async Task EnsureValidTokenAsync(CancellationToken ct = default(CancellationToken))
-        {
-            await _tokenLock.WaitAsync(ct);
-            try
+            using (var request = new HttpRequestMessage(HttpMethod.Get, "https://api.twitch.tv/helix/users"))
             {
-                ct.ThrowIfCancellationRequested();
+                request.Headers.TryAddWithoutValidation("Client-Id", TwitchClientId);
+                request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _accessToken);
 
-                // Only refresh when within 5 minutes of expiry
-                if (DateTime.UtcNow.AddMinutes(5).Ticks <= Plugin.Settings.TokenExpiryTicks)
-                    return;
-
-                if (string.IsNullOrEmpty(_refreshToken))
-                    return;
-
-                Plugin.Log.Info("TwitchAuth: Refreshing token...");
-
-                string url = $"{BackendBaseUrl}/refresh?refresh_token={Uri.EscapeDataString(_refreshToken)}";
-                HttpResponseMessage response = await _http.GetAsync(url, ct);
-                string responseString = await response.Content.ReadAsStringAsync();
-                LogUtils.Debug(() => "TwitchAuth: Refresh HTTP=" + (int)response.StatusCode);
-
-                if (response.IsSuccessStatusCode)
+                using (HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false))
                 {
-                    ParseAndSaveTokens(responseString);
-                    Plugin.Log.Info("TwitchAuth: Refresh successful");
-                    Plugin.Settings.BackendStatus = "Connected";
-                }
-                else
-                {
-                    Plugin.Log.Error("TwitchAuth: Refresh failed: " + responseString);
-                    MarkReauthRequired(responseString);
-                    Plugin.Settings.BackendStatus = "Not connected (login required)";
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        throw new HttpRequestException("Twitch /users failed: " + response.StatusCode + " body=" + body);
+                    }
+
+                    JObject json = JObject.Parse(body);
+                    JToken user = json["data"]?[0];
+                    if (user == null)
+                    {
+                        throw new InvalidOperationException("Twitch /users returned no user payload.");
+                    }
+
+                    BroadcasterId = user["id"]?.ToString() ?? string.Empty;
+                    BroadcasterLogin = user["login"]?.ToString() ?? string.Empty;
+                    BotUserId = BroadcasterId;
+                    _cachedChannelUserId = BroadcasterId;
+
+                    PluginConfig.Instance.ChannelUserId = BroadcasterId;
+                    PluginConfig.Instance.CachedBroadcasterId = BroadcasterId;
+                    PluginConfig.Instance.CachedBroadcasterLogin = BroadcasterLogin;
+                    PluginConfig.Instance.CachedBotUserId = BotUserId;
+                    PluginConfig.Instance.CachedBotUserLogin = BroadcasterLogin;
+                    OnIdentityUpdated?.Invoke();
                 }
             }
-            catch (OperationCanceledException)
+        }
+
+        private async Task RefreshTokenAsync(CancellationToken ct)
+        {
+            _log.Auth("RefreshStarted");
+
+            if (string.IsNullOrWhiteSpace(_refreshToken))
             {
-                throw;
+                _log.Auth("RefreshSkipped", "No refresh token available");
+                return;
+            }
+
+            await _tokenLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                string url = BackendBaseUrl + "/refresh?refresh_token=" + Uri.EscapeDataString(_refreshToken);
+                using (HttpResponseMessage response = await _http.GetAsync(url, ct).ConfigureAwait(false))
+                {
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _log.Auth("RefreshFailed", "status=" + response.StatusCode);
+                        throw new HttpRequestException("Refresh failed: " + response.StatusCode + " body=" + body);
+                    }
+
+                    JObject json = JObject.Parse(body);
+                    string access = json["access_token"]?.ToString();
+                    string refresh = json["refresh_token"]?.ToString();
+                    int expiresIn = json["expires_in"]?.Value<int>() ?? 3600;
+
+                    if (string.IsNullOrWhiteSpace(access))
+                    {
+                        throw new InvalidOperationException("Refresh response missing access_token.");
+                    }
+
+                    _accessToken = access;
+                    if (!string.IsNullOrWhiteSpace(refresh))
+                    {
+                        _refreshToken = refresh;
+                    }
+
+                    WriteTokenExpiryUtc(DateTime.UtcNow.AddSeconds(expiresIn));
+                    PersistTokenState();
+                }
+
+                _log.Auth("RefreshSucceeded");
+                ClearTwitchReauthRequired();
+                OnTokensUpdated?.Invoke();
+                ScheduleProactiveRefresh();
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error("TwitchAuth: EnsureValidTokenAsync exception: " + ex.Message);
-                Plugin.Settings.BackendStatus = "Refresh error";
+                _log.Exception(ex, "RefreshTokenAsync");
+                _log.Auth("RefreshFailed - Twitch commands will fail until user re-authenticates");
+                SetTwitchReauthRequired("Token refresh failed: " + ex.GetType().Name);
+                throw;
             }
             finally
             {
@@ -304,166 +398,181 @@ namespace BeatSurgeon.Twitch
             }
         }
 
-
-        private void MarkReauthRequired(string reason)
+        private void ScheduleProactiveRefresh()
         {
-            Plugin.Log.Error($"TwitchAuth: Reauth required: {reason}");
+            DateTime expiry = ReadTokenExpiryUtc();
+            TimeSpan refreshAt = expiry - DateTime.UtcNow - TimeSpan.FromMinutes(5);
 
-            _accessToken = null;
-            _refreshToken = null;
-            BroadcasterId = null;
-            BroadcasterLogin = null;
-            BotUserId = null;
-
-            Plugin.Settings.EncryptedAccessToken = string.Empty;
-            Plugin.Settings.EncryptedRefreshToken = string.Empty;
-            Plugin.Settings.TokenExpiryTicks = 0;
-
-            Plugin.Settings.TwitchReauthRequired = true;
-            Plugin.Settings.BackendStatus = "Please reauthorize";
-
-            OnTokensUpdated?.Invoke();
-            OnIdentityUpdated?.Invoke();
-        }
-
-
-        /// <summary>
-        /// Resolve the logged-in user's identity via Helix /users.
-        /// This is what you should use to populate BroadcasterId/BotUserId for EventSub.
-        /// </summary>
-        public async Task EnsureIdentityAsync(CancellationToken ct = default(CancellationToken))
-        {
-            await EnsureValidTokenAsync(ct);
-            ct.ThrowIfCancellationRequested();
-
-            if (string.IsNullOrEmpty(_accessToken))
-                return;
-
-            try
+            if (refreshAt <= TimeSpan.Zero)
             {
-                using (var req = new HttpRequestMessage(HttpMethod.Get, "https://api.twitch.tv/helix/users"))
+                _log.Auth("TokenExpiredOrExpiringSoon - refreshing immediately");
+                _ = Task.Run(async () =>
                 {
-                    req.Headers.TryAddWithoutValidation("Client-Id", ClientId);
-                    req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _accessToken);
-
-                    using (var userRes = await _http.SendAsync(req, ct))
+                    try
                     {
-                        if (!userRes.IsSuccessStatusCode)
-                        {
-                            string err = await userRes.Content.ReadAsStringAsync();
-                            Plugin.Log.Warn($"TwitchAuth: /users failed status={userRes.StatusCode} body={err}");
-                            return;
-                        }
-
-                        var text = await userRes.Content.ReadAsStringAsync();
-                        var json = JObject.Parse(text);
-                        var data = json["data"]?[0];
-                        if (data == null)
-                        {
-                            Plugin.Log.Warn("TwitchAuth: /users returned no data.");
-                            return;
-                        }
-
-                        BroadcasterId = data["id"]?.ToString();
-                        BroadcasterLogin = data["login"]?.ToString();
-
-                        // Minimal setup: use the same account as the "bot" account for EventSub conditions.
-                        BotUserId = BroadcasterId;
-
-                        // Store caches if your PluginConfig supports these fields
-                        Plugin.Settings.CachedBroadcasterId = BroadcasterId;
-                        Plugin.Settings.CachedBroadcasterLogin = BroadcasterLogin;
-
-                        LogUtils.Debug(() => $"TwitchAuth: Identity resolved. id={BroadcasterId}, login={BroadcasterLogin}");
+                        await RefreshTokenAsync(CancellationToken.None).ConfigureAwait(false);
                     }
+                    catch (Exception ex)
+                    {
+                        _log.Exception(ex, "ImmediateRefresh");
+                        SetTwitchReauthRequired("Immediate token refresh failed");
+                    }
+                });
+                return;
+            }
+
+            _log.Auth("SchedulingRefresh", $"refreshIn={refreshAt.TotalMinutes:F1}min expiresAt={expiry:u}");
+            _refreshTimer?.Dispose();
+            _refreshTimer = new Timer(async _ =>
+            {
+                _log.Auth("ProactiveRefreshTimerFired");
+                try
+                {
+                    await RefreshTokenAsync(CancellationToken.None).ConfigureAwait(false);
                 }
-            }
-            catch (OperationCanceledException)
+                catch (Exception ex)
+                {
+                    _log.Exception(ex, "ProactiveRefreshTimer");
+                    SetTwitchReauthRequired("Proactive token refresh failed");
+                }
+            }, null, refreshAt, Timeout.InfiniteTimeSpan);
+        }
+
+        private void RaiseAuthReadyIfPossible()
+        {
+            if (_authReadyRaised) return;
+            if (!IsAuthenticated || string.IsNullOrWhiteSpace(BroadcasterId)) return;
+
+            _authReadyRaised = true;
+            _log.Auth("AuthReady", "broadcasterId=" + BroadcasterId);
+            OnAuthReady?.Invoke();
+        }
+
+        private void SetTwitchReauthRequired(string reason)
+        {
+            _log.Auth("SetTwitchReauthRequired", reason);
+            PluginConfig cfg = PluginConfig.Instance;
+            if (cfg != null)
             {
-                throw;
+                cfg.TwitchReauthRequired = true;
             }
-            catch (Exception ex)
+            _authReadyRaised = false;
+            OnReauthRequired?.Invoke();
+        }
+
+        internal void ClearTwitchReauthRequired()
+        {
+            _log.Auth("ClearTwitchReauthRequired");
+            PluginConfig cfg = PluginConfig.Instance;
+            if (cfg != null)
             {
-                Plugin.Log.Error("TwitchAuth: EnsureIdentityAsync exception: " + ex.Message);
+                cfg.TwitchReauthRequired = false;
             }
         }
 
-        public void CancelLogin()
+        internal void MarkReauthRequired(string reason)
         {
-            try
+            if (IsReauthRequired)
             {
-                _loginCts?.Cancel();
+                return;
             }
-            catch { /* ignored */ }
 
-            _loginInProgress = false;
-            Plugin.Settings.BackendStatus = "Login cancelled";
-        }
-
-
-        /// <summary>
-        /// For manual wiring (e.g., if want a separate bot user id later).
-        /// </summary>
-        public void SetIds(string broadcasterId, string botUserId)
-        {
-            BroadcasterId = broadcasterId;
-            BotUserId = botUserId;
-        }
-
-        public void Logout()
-        {
-            _accessToken = null;
-            _refreshToken = null;
-
-            BroadcasterId = null;
-            BroadcasterLogin = null;
-            BotUserId = null;
-
-            Plugin.Settings.EncryptedAccessToken = string.Empty;
-            Plugin.Settings.EncryptedRefreshToken = string.Empty;
-            Plugin.Settings.TokenExpiryTicks = 0;
-
-            Plugin.Settings.BackendStatus = "Not connected";
-
-            OnTokensUpdated?.Invoke();
-            OnIdentityUpdated?.Invoke();
-        }
-
-        private void ParseAndSaveTokens(string jsonResponse)
-        {
-            var json = JObject.Parse(jsonResponse);
-
-            _accessToken = json["access_token"]?.ToString();
-            _refreshToken = json["refresh_token"]?.ToString();
-
-            int expiresIn = json["expires_in"]?.Value<int?>() ?? 3600;
-            Plugin.Settings.TokenExpiryTicks = DateTime.UtcNow.AddSeconds(expiresIn).Ticks;
-
-            SaveTokens();
-        }
-
-        private void SaveTokens()
-        {
-            Plugin.Settings.EncryptedAccessToken = EncryptString(_accessToken);
-            Plugin.Settings.EncryptedRefreshToken = EncryptString(_refreshToken);
+            SetTwitchReauthRequired(reason);
         }
 
         private void LoadTokens()
         {
-            _accessToken = DecryptString(Plugin.Settings.EncryptedAccessToken);
-            _refreshToken = DecryptString(Plugin.Settings.EncryptedRefreshToken);
+            PluginConfig cfg = PluginConfig.Instance;
+            if (cfg == null)
+            {
+                return;
+            }
+
+            _accessToken = cfg.AccessToken ?? string.Empty;
+            _refreshToken = cfg.RefreshToken ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(_accessToken) && !string.IsNullOrWhiteSpace(cfg.EncryptedAccessToken))
+            {
+                _accessToken = DecryptString(cfg.EncryptedAccessToken);
+            }
+
+            if (string.IsNullOrWhiteSpace(_refreshToken) && !string.IsNullOrWhiteSpace(cfg.EncryptedRefreshToken))
+            {
+                _refreshToken = DecryptString(cfg.EncryptedRefreshToken);
+            }
+
+            if (cfg.TokenExpiry == DateTime.MinValue && cfg.TokenExpiryTicks > 0)
+            {
+                cfg.TokenExpiry = new DateTime(cfg.TokenExpiryTicks, DateTimeKind.Utc);
+            }
+        }
+
+        private void PersistTokenState()
+        {
+            PluginConfig cfg = PluginConfig.Instance;
+            if (cfg == null)
+            {
+                return;
+            }
+
+            cfg.AccessToken = _accessToken ?? string.Empty;
+            cfg.RefreshToken = _refreshToken ?? string.Empty;
+
+            // Maintain backwards compatibility with prior encrypted config fields.
+            cfg.EncryptedAccessToken = EncryptString(cfg.AccessToken);
+            cfg.EncryptedRefreshToken = EncryptString(cfg.RefreshToken);
+            cfg.TokenExpiryTicks = cfg.TokenExpiry.ToUniversalTime().Ticks;
+        }
+
+        private void RestoreIdentityFromCache()
+        {
+            PluginConfig cfg = PluginConfig.Instance;
+            if (cfg == null)
+            {
+                return;
+            }
+
+            BroadcasterId = string.IsNullOrWhiteSpace(cfg.ChannelUserId) ? cfg.CachedBroadcasterId : cfg.ChannelUserId;
+            BroadcasterLogin = cfg.CachedBroadcasterLogin ?? string.Empty;
+            BotUserId = string.IsNullOrWhiteSpace(cfg.CachedBotUserId) ? BroadcasterId : cfg.CachedBotUserId;
+            _cachedChannelUserId = BroadcasterId ?? string.Empty;
+        }
+
+        private DateTime ReadTokenExpiryUtc()
+        {
+            DateTime expiry = PluginConfig.Instance.TokenExpiry;
+            if (expiry == DateTime.MinValue && PluginConfig.Instance.TokenExpiryTicks > 0)
+            {
+                expiry = new DateTime(PluginConfig.Instance.TokenExpiryTicks, DateTimeKind.Utc);
+                PluginConfig.Instance.TokenExpiry = expiry;
+            }
+
+            if (expiry.Kind == DateTimeKind.Unspecified)
+            {
+                expiry = DateTime.SpecifyKind(expiry, DateTimeKind.Utc);
+            }
+
+            return expiry.ToUniversalTime();
+        }
+
+        private void WriteTokenExpiryUtc(DateTime expiry)
+        {
+            PluginConfig.Instance.TokenExpiry = expiry.ToUniversalTime();
+            PluginConfig.Instance.TokenExpiryTicks = PluginConfig.Instance.TokenExpiry.Ticks;
         }
 
         private string EncryptString(string plainText)
         {
             if (string.IsNullOrEmpty(plainText))
+            {
                 return string.Empty;
+            }
 
             try
             {
-                byte[] plainBytes = Encoding.UTF8.GetBytes(plainText);
-                byte[] cipherBytes = ProtectedData.Protect(plainBytes, _entropy, DataProtectionScope.CurrentUser);
-                return Convert.ToBase64String(cipherBytes);
+                byte[] plain = Encoding.UTF8.GetBytes(plainText);
+                byte[] cipher = ProtectedData.Protect(plain, null, DataProtectionScope.CurrentUser);
+                return Convert.ToBase64String(cipher);
             }
             catch
             {
@@ -474,57 +583,20 @@ namespace BeatSurgeon.Twitch
         private string DecryptString(string cipherText)
         {
             if (string.IsNullOrEmpty(cipherText))
+            {
                 return string.Empty;
+            }
 
             try
             {
-                byte[] cipherBytes = Convert.FromBase64String(cipherText);
-                byte[] plainBytes = ProtectedData.Unprotect(cipherBytes, _entropy, DataProtectionScope.CurrentUser);
-                return Encoding.UTF8.GetString(plainBytes);
+                byte[] cipher = Convert.FromBase64String(cipherText);
+                byte[] plain = ProtectedData.Unprotect(cipher, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(plain);
             }
             catch
             {
                 return string.Empty;
             }
-        }
-
-        private void RestoreIdentityFromCache()
-        {
-            BroadcasterId = Plugin.Settings.CachedBroadcasterId;
-
-            // For now: bot == broadcaster unless you later add a separate bot login flow
-            BotUserId = !string.IsNullOrEmpty(Plugin.Settings.CachedBotUserId)
-                ? Plugin.Settings.CachedBotUserId
-                : BroadcasterId;
-        }
-
-        public async Task<bool> EnsureReadyAsync(CancellationToken ct = default(CancellationToken))
-        {
-            await EnsureValidTokenAsync(ct);
-            ct.ThrowIfCancellationRequested();
-            await EnsureIdentityAsync(ct);
-            ct.ThrowIfCancellationRequested();
-
-            try
-            {
-                // Populate BroadcasterId, BroadcasterName, SupportChannelId
-                // and refresh supporter entitlements + subscription tier.
-                await TwitchApiClient.Instance.FetchBroadcasterAndEntitlementsAsync();
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Warn($"TwitchAuthManager: FetchBroadcasterAndSupportInfo failed: {ex.Message}");
-            }
-
-            return !string.IsNullOrEmpty(_accessToken)
-                && !string.IsNullOrEmpty(BroadcasterId)
-                && !string.IsNullOrEmpty(BotUserId);
-
-
         }
     }
 }

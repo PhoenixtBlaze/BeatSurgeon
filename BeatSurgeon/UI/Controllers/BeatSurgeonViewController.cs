@@ -1,4 +1,4 @@
-﻿using BeatSaberMarkupLanguage;
+using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSurgeon.Chat;
@@ -145,10 +145,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("rainbowenabled")]
         public bool RainbowEnabled
         {
-            get => CommandHandler.RainbowEnabled;
+            get => CommandRuntimeSettings.RainbowEnabled;
             set
             {
-                CommandHandler.RainbowEnabled = value;
+                CommandRuntimeSettings.RainbowEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.RainbowEnabled = value;
                 NotifyPropertyChanged(nameof(RainbowEnabled));
@@ -170,10 +170,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("da_enabled")]
         public bool DisappearingEnabled
         {
-            get => CommandHandler.DisappearEnabled;
+            get => CommandRuntimeSettings.DisappearEnabled;
             set
             {
-                CommandHandler.DisappearEnabled = value;
+                CommandRuntimeSettings.DisappearEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.DisappearEnabled = value;
                 NotifyPropertyChanged(nameof(DisappearingEnabled));
@@ -198,10 +198,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("ghost_enabled")]
         public bool GhostEnabled
         {
-            get => CommandHandler.GhostEnabled;
+            get => CommandRuntimeSettings.GhostEnabled;
             set
             {
-                CommandHandler.GhostEnabled = value;
+                CommandRuntimeSettings.GhostEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.GhostEnabled = value;
                 NotifyPropertyChanged(nameof(GhostEnabled));
@@ -224,10 +224,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("bomb_enabled")]
         public bool BombEnabled
         {
-            get => CommandHandler.BombEnabled;
+            get => CommandRuntimeSettings.BombEnabled;
             set
             {
-                CommandHandler.BombEnabled = value;
+                CommandRuntimeSettings.BombEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.BombEnabled = value;
                 NotifyPropertyChanged(nameof(BombEnabled));
@@ -248,10 +248,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("faster_enabled")]
         public bool FasterEnabled
         {
-            get => CommandHandler.FasterEnabled;
+            get => CommandRuntimeSettings.FasterEnabled;
             set
             {
-                CommandHandler.FasterEnabled = value;
+                CommandRuntimeSettings.FasterEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.FasterEnabled = value;
                 NotifyPropertyChanged(nameof(FasterEnabled));
@@ -274,10 +274,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("superfast_enabled")]
         public bool SuperFastEnabled
         {
-            get => CommandHandler.SuperFastEnabled;
+            get => CommandRuntimeSettings.SuperFastEnabled;
             set
             {
-                CommandHandler.SuperFastEnabled = value;
+                CommandRuntimeSettings.SuperFastEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.SuperFastEnabled = value;
                 NotifyPropertyChanged(nameof(SuperFastEnabled));
@@ -299,10 +299,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("slower_enabled")]
         public bool SlowerEnabled
         {
-            get => CommandHandler.SlowerEnabled;
+            get => CommandRuntimeSettings.SlowerEnabled;
             set
             {
-                CommandHandler.SlowerEnabled = value;
+                CommandRuntimeSettings.SlowerEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.SlowerEnabled = value;
                 NotifyPropertyChanged(nameof(SlowerEnabled));
@@ -324,10 +324,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("flashbang_enabled")]
         public bool FlashbangEnabled
         {
-            get => CommandHandler.FlashbangEnabled;
+            get => CommandRuntimeSettings.FlashbangEnabled;
             set
             {
-                CommandHandler.FlashbangEnabled = value;
+                CommandRuntimeSettings.FlashbangEnabled = value;
                 if (Plugin.Settings != null)
                     Plugin.Settings.FlashbangEnabled = value;
                 NotifyPropertyChanged(nameof(FlashbangEnabled));
@@ -365,8 +365,12 @@ namespace BeatSurgeon.UI.Controllers
 
             UpdateSupportUI();
 
+            // Subscribe to auth events for reauth notification display
             if (firstActivation)
             {
+                TwitchAuthManager.Instance.OnReauthRequired += RefreshTwitchStatusText;
+                TwitchAuthManager.Instance.OnTokensUpdated += RefreshTwitchStatusText;
+
                 if (rainbowButton != null)
                 {
                     // Clear built-in label – icon-only button
@@ -509,7 +513,12 @@ namespace BeatSurgeon.UI.Controllers
         protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
         {
             if (removedFromHierarchy && ReferenceEquals(ActiveInstance, this))
+            {
                 ActiveInstance = null;
+                // Unsubscribe from auth events
+                TwitchAuthManager.Instance.OnReauthRequired -= RefreshTwitchStatusText;
+                TwitchAuthManager.Instance.OnTokensUpdated -= RefreshTwitchStatusText;
+            }
 
             base.DidDeactivate(removedFromHierarchy, screenSystemDisabling);
         }
@@ -1023,4 +1032,5 @@ namespace BeatSurgeon.UI.Controllers
     }
 
 }
+
 

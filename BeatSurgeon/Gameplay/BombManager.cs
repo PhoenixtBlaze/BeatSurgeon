@@ -1,6 +1,7 @@
 ﻿using BeatSurgeon.Chat;
 using System.Collections.Generic;
 using UnityEngine;
+using Unity.Profiling;
 
 namespace BeatSurgeon.Gameplay
 {
@@ -8,9 +9,11 @@ namespace BeatSurgeon.Gameplay
     {
         private static BombManager _instance;
         private static GameObject _go;
+        private static readonly ProfilerMarker UpdateProfiler = new ProfilerMarker("BeatSurgeon.BombManager.Update");
 
         private NoteData _activeBombNote;
         private float _activeBombSetTime;
+        private GameplayManager _gameplayManager;
 
         // Tweak these two values to control how often it reappears
         public const float BombMissTimeoutSeconds = 3.0f; // if not cut after this, treat as missed
@@ -74,7 +77,7 @@ namespace BeatSurgeon.Gameplay
 
         public bool ArmBomb(string bomberName, float durationSeconds)
         {
-            var inMap = UnityEngine.Object.FindObjectOfType<BeatmapObjectSpawnController>() != null;
+            var inMap = IsInMap();
             if (!inMap)
             {
                 LogUtils.Debug(() => $"BombManager: Not in a map.");
@@ -203,7 +206,12 @@ namespace BeatSurgeon.Gameplay
 
         private bool IsInMap()
         {
-            return UnityEngine.Object.FindObjectOfType<BeatmapObjectSpawnController>() != null;
+            if (_gameplayManager == null)
+            {
+                _gameplayManager = GameplayManager.GetInstance();
+            }
+
+            return _gameplayManager != null && _gameplayManager.IsInMap;
         }
 
         private void ClearTransientGameplayState()
@@ -222,26 +230,29 @@ namespace BeatSurgeon.Gameplay
 
         private void Update()
         {
-            // If gameplay ended / not in a map anymore: clear ONLY per-map state.
-            if (!IsInMap())
+            using (UpdateProfiler.Auto())
             {
-                if (_bombNotes.Count > 0 || _activeBombNote != null || _activeBombVisuals.Count > 0)
-                    ClearTransientGameplayState();
-
-                return;
-            }
-
-            // If there is an active bomb note and it's not cut soon, treat as missed and rearm
-            if (!BombConsumed && _activeBombNote != null && _bombNotes.Count > 0)
-            {
-                if (Time.time - _activeBombSetTime >= BombMissTimeoutSeconds)
+                // If gameplay ended / not in a map anymore: clear ONLY per-map state.
+                if (!IsInMap())
                 {
-                    LogUtils.Debug(() => "BombManager: Bomb not cut in time; clearing and rearming");
-                    _bombNotes.Clear();
-                    _activeBombNote = null;
-                    ClearBombVisuals();
-                    BombArmed = true;
-                    _nextRearmTime = Time.time + BombRearmDelaySeconds;
+                    if (_bombNotes.Count > 0 || _activeBombNote != null || _activeBombVisuals.Count > 0)
+                        ClearTransientGameplayState();
+
+                    return;
+                }
+
+                // If there is an active bomb note and it's not cut soon, treat as missed and rearm
+                if (!BombConsumed && _activeBombNote != null && _bombNotes.Count > 0)
+                {
+                    if (Time.time - _activeBombSetTime >= BombMissTimeoutSeconds)
+                    {
+                        LogUtils.Debug(() => "BombManager: Bomb not cut in time; clearing and rearming");
+                        _bombNotes.Clear();
+                        _activeBombNote = null;
+                        ClearBombVisuals();
+                        BombArmed = true;
+                        _nextRearmTime = Time.time + BombRearmDelaySeconds;
+                    }
                 }
             }
         }
