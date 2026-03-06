@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -48,6 +49,10 @@ namespace BeatSurgeon
         private const float HostHeartbeatSeconds = 5f;
         private static Coroutine _heartbeatCoroutine;
         private static bool _resendRequested;
+        // Per-room host secret. Received from server on first host claim, cleared on room leave/change.
+        // Protected by _secretLock; never persisted to disk (intentionally rotates each session).
+        private static string _hostSecret = null;
+        private static readonly object _secretLock = new object();
 
 
         public static void Init()
@@ -90,6 +95,7 @@ namespace BeatSurgeon
                 roomCode = string.Empty;
                 isHost = false;
                 controlToSend = false;
+                lock (_secretLock) { _hostSecret = null; } // leaving room invalidates host secret
             }
 
             UpdateState(roomCode, isHost, _activeCommand, controlToSend);
@@ -135,6 +141,14 @@ namespace BeatSurgeon
             {
                 if (!forceSend && IsSameAsLast(payload))
                     return;
+
+                // Room changed: the old host secret belongs to the previous room — discard it.
+                if (!string.IsNullOrEmpty(payload.RoomCode) &&
+                    _lastSentState != null &&
+                    !string.Equals(_lastSentState.RoomCode, payload.RoomCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    lock (_secretLock) { _hostSecret = null; }
+                }
 
                 _lastSentState = payload;
 
@@ -211,6 +225,13 @@ namespace BeatSurgeon
                 if (!string.IsNullOrWhiteSpace(cid))
                     request.SetRequestHeader("X-MP-Client-Id", cid);
 
+                // Send host secret if we have one — even when transitioning off-host so the
+                // server can yield the lease immediately on a BSPlus host transfer.
+                string mpSecret;
+                lock (_secretLock) { mpSecret = _hostSecret; }
+                if (!string.IsNullOrEmpty(mpSecret))
+                    request.SetRequestHeader("X-MP-Host-Secret", mpSecret);
+
 
                 Plugin.Log.Debug($"[MultiplayerStateClient] POST {EndpointUrl} body={json}");
 
@@ -226,8 +247,25 @@ namespace BeatSurgeon
                 }
                 else
                 {
-                    Plugin.Log.Debug(
-                        $"[MultiplayerStateClient] POST OK: {request.responseCode} resp={request.downloadHandler.text}");
+                    string respText = request.downloadHandler.text;
+                    Plugin.Log.Debug($"[MultiplayerStateClient] POST OK: {request.responseCode} resp={respText}");
+                    try
+                    {
+                        JObject resp = JObject.Parse(respText);
+                        string newSecret = resp["host_secret"]?.ToString();
+                        bool serverSaysHost = resp["host"]?.Value<bool>() == true;
+                        lock (_secretLock)
+                        {
+                            if (serverSaysHost && !string.IsNullOrEmpty(newSecret))
+                                _hostSecret = newSecret;  // Fresh host claim — store new secret
+                            else if (!serverSaysHost)
+                                _hostSecret = null;       // Yielded or rejected — clear secret
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Log.Warn($"[MultiplayerStateClient] Failed to parse host-state response: {ex.Message}");
+                    }
                 }
             }
 

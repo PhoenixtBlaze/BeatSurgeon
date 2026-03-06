@@ -342,6 +342,7 @@
     <Compile Include="Gameplay\FlashbangManager.cs" />
     <Compile Include="Gameplay\FontBundleLoader.cs" />
     <Compile Include="Gameplay\GameplayManager.cs" />
+    <Compile Include="Gameplay\RankedMapDetectionService.cs" />
     <Compile Include="Gameplay\GhostNotesManager.cs" />
     <Compile Include="Gameplay\GhostVisualController.cs" />
     <Compile Include="Gameplay\InLevelQueueProcessor.cs" />
@@ -356,6 +357,8 @@
     <Compile Include="Harmony\EndlessHarmonyPatch.cs" />
     <Compile Include="Harmony\FasterSongPatch.cs" />
     <Compile Include="Harmony\GhostNotesPatch.cs" />
+    <Compile Include="Harmony\GameplayCoreInstallerPatch.cs" />
+    <Compile Include="Harmony\LevelSelectionPatch.cs" />
     <Compile Include="Harmony\RainbowNotePatch.cs" />
     <Compile Include="Integrations\BeatSaverClient.cs" />
     <Compile Include="Integrations\EndlessPlaylistService.cs" />

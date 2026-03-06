@@ -321,6 +321,19 @@ namespace BeatSurgeon.UI.Controllers
         private Image slowerButtonImage;
 
 
+        [UIValue("rankedAutoDisable")]
+        public bool RankedAutoDisable
+        {
+            get => Plugin.Settings?.DisableOnRanked ?? true;
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.DisableOnRanked = value;
+                NotifyPropertyChanged(nameof(RankedAutoDisable));
+                LogUtils.Debug(() => $"BeatSurgeon: Auto-disable on ranked = {value}");
+            }
+        }
+
         [UIValue("flashbang_enabled")]
         public bool FlashbangEnabled
         {

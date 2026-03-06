@@ -45,6 +45,7 @@ namespace BeatSurgeon.Twitch
         private readonly TwitchApiClient _apiClient;
 
         private readonly Dictionary<string, string> _rewardSubscriptions = new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _pendingRewardIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly SemaphoreSlim _subscriptionLock = new SemaphoreSlim(1, 1);
         private readonly object _stateLock = new object();
 
@@ -178,7 +179,9 @@ namespace BeatSurgeon.Twitch
 
                 if (string.IsNullOrWhiteSpace(CurrentSessionId))
                 {
-                    throw new InvalidOperationException("Cannot create EventSub reward subscription before session_welcome.");
+                    _log.EventSub(rewardId, "NoSessionYet - queued for subscription after session_welcome");
+                    _pendingRewardIds.Add(rewardId);
+                    return;
                 }
 
                 _log.EventSub(rewardId, "Subscribing", "channelUserId=" + channelUserId);
@@ -195,10 +198,17 @@ namespace BeatSurgeon.Twitch
                 _rewardSubscriptions[rewardId] = subscriptionId;
                 _log.EventSub(rewardId, "SubscribedOK", "subscriptionId=" + subscriptionId);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested || (_cts != null && _cts.IsCancellationRequested))
+            {
+                // Genuine shutdown/user cancellation - propagate without re-queuing.
+                throw;
+            }
             catch (Exception ex)
             {
-                _log.Exception(ex, "SubscribeToRewardAsync rewardId=" + rewardId);
-                throw;
+                // Transient failure (TCP disruption, stale session, etc.).
+                // Re-queue so the next session_welcome automatically retries the subscribe.
+                _log.Warn("SubscribeToRewardAsync rewardId=" + rewardId + " failed transiently (" + ex.GetType().Name + ") - re-queuing for next session_welcome");
+                _pendingRewardIds.Add(rewardId);
             }
             finally
             {
@@ -252,9 +262,8 @@ namespace BeatSurgeon.Twitch
         {
             using (var ws = new ClientWebSocket())
             {
-                string token = await _authManager.GetAccessTokenAsync(ct).ConfigureAwait(false);
-                ws.Options.SetRequestHeader("Authorization", "Bearer " + token);
-
+                // Twitch EventSub WebSocket does not authenticate at the WS-connect level.
+                // Auth happens only when creating subscriptions via REST. No header needed here.
                 _log.TwitchState("WebSocket.Connecting", "wss://eventsub.wss.twitch.tv/ws");
                 await ws.ConnectAsync(new Uri("wss://eventsub.wss.twitch.tv/ws"), ct).ConfigureAwait(false);
 
@@ -330,8 +339,12 @@ namespace BeatSurgeon.Twitch
                     break;
 
                 case "session_reconnect":
-                    _log.TwitchState("SessionReconnectRequested");
-                    break;
+                    // Twitch is asking us to reconnect. Close immediately so RunWithReconnectAsync
+                    // picks up and reconnects to the standard endpoint without waiting 30s for
+                    // Twitch to force-close the old socket.
+                    string reconnectUrl = json["payload"]?["session"]?["reconnect_url"]?.ToString();
+                    _log.TwitchState("SessionReconnectRequested", "reconnect_url=" + reconnectUrl + " - closing to trigger fast reconnect");
+                    return;
 
                 case "notification":
                     await HandleNotificationAsync(json, ct).ConfigureAwait(false);
@@ -385,14 +398,65 @@ namespace BeatSurgeon.Twitch
         private async Task ResubscribeAllAsync(CancellationToken ct)
         {
             var localSnapshot = new Dictionary<string, string>(_rewardSubscriptions, StringComparer.Ordinal);
-            _log.Info("Resubscribing " + localSnapshot.Count + " known rewards after reconnect");
+            var pending = new HashSet<string>(_pendingRewardIds, StringComparer.Ordinal);
+
+            _log.Info("Resubscribing " + localSnapshot.Count + " known rewards + " + pending.Count + " pending after session_welcome");
             _rewardSubscriptions.Clear();
+            _pendingRewardIds.Clear();
+
             string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+
+            // Re-subscribe rewards that were previously active.
             foreach (var kvp in localSnapshot)
             {
                 await SubscribeToRewardAsync(kvp.Key, channelUserId, ct).ConfigureAwait(false);
             }
+
+            // Subscribe rewards that were queued because no session existed yet.
+            foreach (string rewardId in pending)
+            {
+                if (!_rewardSubscriptions.ContainsKey(rewardId))
+                {
+                    await SubscribeToRewardAsync(rewardId, channelUserId, ct).ConfigureAwait(false);
+                }
+            }
+
+            // Bootstrap from PluginConfig when neither cache nor queue has entries.
+            // This handles fresh startup where the WS connects before the UI tab is ever opened.
+            // Without this, Twitch closes the connection with 4003 (connection unused) every ~10s.
+            if (localSnapshot.Count == 0 && pending.Count == 0)
+            {
+                await BootstrapConfigRewardSubscriptionsAsync(channelUserId, ct).ConfigureAwait(false);
+            }
+
             _log.Info("Resubscription complete");
+        }
+
+        private async Task BootstrapConfigRewardSubscriptionsAsync(string channelUserId, CancellationToken ct)
+        {
+            PluginConfig cfg = PluginConfig.Instance;
+            if (cfg == null) return;
+
+            var ids = new List<string>(8);
+            if (cfg.CpRainbowEnabled && !string.IsNullOrWhiteSpace(cfg.CpRainbowRewardId)) ids.Add(cfg.CpRainbowRewardId);
+            if (cfg.CpDisappearEnabled && !string.IsNullOrWhiteSpace(cfg.CpDisappearRewardId)) ids.Add(cfg.CpDisappearRewardId);
+            if (cfg.CpGhostEnabled && !string.IsNullOrWhiteSpace(cfg.CpGhostRewardId)) ids.Add(cfg.CpGhostRewardId);
+            if (cfg.CpBombEnabled && !string.IsNullOrWhiteSpace(cfg.CpBombRewardId)) ids.Add(cfg.CpBombRewardId);
+            if (cfg.CpFasterEnabled && !string.IsNullOrWhiteSpace(cfg.CpFasterRewardId)) ids.Add(cfg.CpFasterRewardId);
+            if (cfg.CpSuperFastEnabled && !string.IsNullOrWhiteSpace(cfg.CpSuperFastRewardId)) ids.Add(cfg.CpSuperFastRewardId);
+            if (cfg.CpSlowerEnabled && !string.IsNullOrWhiteSpace(cfg.CpSlowerRewardId)) ids.Add(cfg.CpSlowerRewardId);
+            if (cfg.CpFlashbangEnabled && !string.IsNullOrWhiteSpace(cfg.CpFlashbangRewardId)) ids.Add(cfg.CpFlashbangRewardId);
+
+            if (ids.Count == 0) return;
+
+            _log.Info("Bootstrapping " + ids.Count + " EventSub subscriptions from PluginConfig");
+            foreach (string rewardId in ids)
+            {
+                if (!_rewardSubscriptions.ContainsKey(rewardId))
+                {
+                    await SubscribeToRewardAsync(rewardId, channelUserId, ct).ConfigureAwait(false);
+                }
+            }
         }
     }
 }

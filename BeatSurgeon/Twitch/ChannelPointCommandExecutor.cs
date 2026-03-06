@@ -160,6 +160,13 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
+            if (RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking)
+            {
+                _log.ChannelPoint(rewardId, "RejectedRankedMap", "user=" + userLogin);
+                await TryRefundAsync(rewardId, redemptionId, userLogin, null, "RankedMap", ct).ConfigureAwait(false);
+                return;
+            }
+
             if (!_router.TryGetCommand(rewardId, out string command))
             {
                 _log.Warn("No command mapped for rewardId=" + rewardId + " - reward exists in EventSub but not in router");

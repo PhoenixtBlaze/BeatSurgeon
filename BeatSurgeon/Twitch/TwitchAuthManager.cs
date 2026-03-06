@@ -70,8 +70,12 @@ namespace BeatSurgeon.Twitch
                 {
                     try
                     {
-                        await EnsureIdentityAsync(CancellationToken.None).ConfigureAwait(false);
-                        RaiseAuthReadyIfPossible();
+                        await ValidateTokenAsync(CancellationToken.None).ConfigureAwait(false);
+                        if (!IsReauthRequired)
+                        {
+                            await EnsureIdentityAsync(CancellationToken.None).ConfigureAwait(false);
+                            RaiseAuthReadyIfPossible();
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -350,8 +354,13 @@ namespace BeatSurgeon.Twitch
             await _tokenLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                string url = BackendBaseUrl + "/refresh?refresh_token=" + Uri.EscapeDataString(_refreshToken);
-                using (HttpResponseMessage response = await _http.GetAsync(url, ct).ConfigureAwait(false))
+                string url = BackendBaseUrl + "/refresh";
+                string jsonBody = Newtonsoft.Json.JsonConvert.SerializeObject(new { refresh_token = _refreshToken });
+                using (var refreshRequest = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new System.Net.Http.StringContent(jsonBody, System.Text.Encoding.UTF8, "application/json"),
+                })
+                using (HttpResponseMessage response = await _http.SendAsync(refreshRequest, ct).ConfigureAwait(false))
                 {
                     string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
@@ -478,6 +487,82 @@ namespace BeatSurgeon.Twitch
             }
 
             SetTwitchReauthRequired(reason);
+        }
+
+        /// <summary>
+        /// Forces a token refresh regardless of local expiry state.
+        /// Called by TwitchApiClient when Helix returns a 401 Unauthorized.
+        /// </summary>
+        internal async Task ForceRefreshTokenAsync(CancellationToken ct = default(CancellationToken))
+        {
+            try
+            {
+                await RefreshTokenAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "ForceRefreshTokenAsync");
+                MarkReauthRequired("Forced refresh failed: " + ex.GetType().Name);
+            }
+        }
+
+        /// <summary>
+        /// Validates the stored access token against Twitch's /oauth2/validate endpoint on startup.
+        /// Catches tokens that are locally valid (expiry not exceeded) but server-side revoked.
+        /// On 401, attempts a proactive refresh; if that fails, marks reauth required.
+        /// </summary>
+        private async Task ValidateTokenAsync(CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(_accessToken)) return;
+
+            try
+            {
+                using (var request = new HttpRequestMessage(HttpMethod.Get, "https://id.twitch.tv/oauth2/validate"))
+                {
+                    // Token validation uses "OAuth" not "Bearer" per Twitch docs.
+                    request.Headers.TryAddWithoutValidation("Authorization", "OAuth " + _accessToken);
+
+                    using (HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false))
+                    {
+                        if (response.StatusCode == HttpStatusCode.Unauthorized)
+                        {
+                            _log.Auth("StartupTokenValidation", "Token rejected by Twitch (401) - forcing refresh");
+                            try
+                            {
+                                await RefreshTokenAsync(ct).ConfigureAwait(false);
+                            }
+                            catch (Exception refreshEx)
+                            {
+                                _log.Exception(refreshEx, "ValidateTokenAsync token refresh on 401");
+                                SetTwitchReauthRequired("Startup token validation failed - please re-authenticate");
+                            }
+                            return;
+                        }
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            JObject json = JObject.Parse(body);
+                            string login = json["login"]?.ToString() ?? "(unknown)";
+                            int scopeCount = (json["scopes"] as JArray)?.Count ?? 0;
+                            _log.Auth("StartupTokenValidation", "OK login=" + login + " scopes=" + scopeCount);
+                        }
+                        else
+                        {
+                            _log.Warn("StartupTokenValidation - unexpected status=" + (int)response.StatusCode + " (non-fatal, continuing)");
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Network error during validation is non-fatal - we proceed with the cached token.
+                _log.Exception(ex, "ValidateTokenAsync - skipping validation, proceeding with cached token");
+            }
         }
 
         private void LoadTokens()

@@ -223,6 +223,7 @@ namespace BeatSurgeon.Gameplay
                     GhostVisualController.Audio = null;
                     DisappearingArrowsVisualController.Audio = null;
                     FasterSongPatch.ClearCache();
+                    RankedMapDetectionService.Instance.Reset();
                 }
             }
         }
@@ -697,7 +698,7 @@ namespace BeatSurgeon.Gameplay
 
 
         /// <summary>
-        /// Queue a song request from chat (BSR code)
+        /// Queue a song request from chat (BSR code) 
         /// </summary>
         public bool TryQueueSongRequest(
         string bsrCode,

@@ -196,6 +196,10 @@ namespace BeatSurgeon
         [Ignore]
         public int GhostNotesCooldownSeconds { get => (int)GhostCooldownSeconds; set => GhostCooldownSeconds = value; }
 
+        // --- Ranked Map Protection ---
+        public virtual bool DisableOnRanked { get; set; } = true;
+        public virtual bool NotifyOnRankedDisable { get; set; } = true;
+
         public virtual void Changed()
         {
             _log.Debug("PluginConfig changed - BSIPA config store notification");

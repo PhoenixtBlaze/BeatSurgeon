@@ -743,7 +743,10 @@ namespace BeatSurgeon.UI.Settings
             if (reward == null) return;
 
             string id = reward["id"]?.ToString() ?? string.Empty;
-            bool enabled = reward["is_enabled"]?.Value<bool?>() ?? false;
+            // Note: is_enabled is intentionally NOT read here. The local config is the canonical
+            // source of truth for whether the user wants a reward enabled. Reading it from Twitch
+            // would overwrite the user's intent with a potentially stale Twitch state (e.g., rewards
+            // are disabled on quit by DisableAllOwnedRewardsAsync and re-enabled at next startup).
             int cost = Math.Max(1, reward["cost"]?.Value<int?>() ?? 500);
             int cooldown = ParseRewardCooldownSeconds(reward);
 
@@ -754,12 +757,10 @@ namespace BeatSurgeon.UI.Settings
             {
                 case "rainbow":
                     cfg.CpRainbowRewardId = id;
-                    cfg.CpRainbowEnabled = enabled;
                     cfg.CpRainbowCost = cost;
                     cfg.CpRainbowCooldownSeconds = cooldown;
                     cfg.CpRainbowBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpRainbowBackgroundColor);
 
-                    _rainbowCpEnabled = cfg.CpRainbowEnabled;
                     _rainbowCpCost = cfg.CpRainbowCost;
                     _rainbowCpCostText = cfg.CpRainbowCost.ToString();
                     _rainbowCpCooldownSeconds = cfg.CpRainbowCooldownSeconds;
@@ -768,12 +769,10 @@ namespace BeatSurgeon.UI.Settings
 
                 case "disappear":
                     cfg.CpDisappearRewardId = id;
-                    cfg.CpDisappearEnabled = enabled;
                     cfg.CpDisappearCost = cost;
                     cfg.CpDisappearCooldownSeconds = cooldown;
                     cfg.CpDisappearBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpDisappearBackgroundColor);
 
-                    _daCpEnabled = cfg.CpDisappearEnabled;
                     _daCpCost = cfg.CpDisappearCost;
                     _daCpCostText = cfg.CpDisappearCost.ToString();
                     _daCpCooldownSeconds = cfg.CpDisappearCooldownSeconds;
@@ -782,12 +781,10 @@ namespace BeatSurgeon.UI.Settings
 
                 case "ghost":
                     cfg.CpGhostRewardId = id;
-                    cfg.CpGhostEnabled = enabled;
                     cfg.CpGhostCost = cost;
                     cfg.CpGhostCooldownSeconds = cooldown;
                     cfg.CpGhostBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpGhostBackgroundColor);
 
-                    _ghostCpEnabled = cfg.CpGhostEnabled;
                     _ghostCpCost = cfg.CpGhostCost;
                     _ghostCpCostText = cfg.CpGhostCost.ToString();
                     _ghostCpCooldownSeconds = cfg.CpGhostCooldownSeconds;
@@ -796,12 +793,10 @@ namespace BeatSurgeon.UI.Settings
 
                 case "bomb":
                     cfg.CpBombRewardId = id;
-                    cfg.CpBombEnabled = enabled;
                     cfg.CpBombCost = cost;
                     cfg.CpBombCooldownSeconds = cooldown;
                     cfg.CpBombBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpBombBackgroundColor);
 
-                    _bombCpEnabled = cfg.CpBombEnabled;
                     _bombCpCost = cfg.CpBombCost;
                     _bombCpCostText = cfg.CpBombCost.ToString();
                     _bombCpCooldownSeconds = cfg.CpBombCooldownSeconds;
@@ -810,12 +805,10 @@ namespace BeatSurgeon.UI.Settings
 
                 case "faster":
                     cfg.CpFasterRewardId = id;
-                    cfg.CpFasterEnabled = enabled;
                     cfg.CpFasterCost = cost;
                     cfg.CpFasterCooldownSeconds = cooldown;
                     cfg.CpFasterBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpFasterBackgroundColor);
 
-                    _fasterCpEnabled = cfg.CpFasterEnabled;
                     _fasterCpCost = cfg.CpFasterCost;
                     _fasterCpCostText = cfg.CpFasterCost.ToString();
                     _fasterCpCooldownSeconds = cfg.CpFasterCooldownSeconds;
@@ -824,12 +817,10 @@ namespace BeatSurgeon.UI.Settings
 
                 case "superfast":
                     cfg.CpSuperFastRewardId = id;
-                    cfg.CpSuperFastEnabled = enabled;
                     cfg.CpSuperFastCost = cost;
                     cfg.CpSuperFastCooldownSeconds = cooldown;
                     cfg.CpSuperFastBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpSuperFastBackgroundColor);
 
-                    _superFastCpEnabled = cfg.CpSuperFastEnabled;
                     _superFastCpCost = cfg.CpSuperFastCost;
                     _superFastCpCostText = cfg.CpSuperFastCost.ToString();
                     _superFastCpCooldownSeconds = cfg.CpSuperFastCooldownSeconds;
@@ -838,12 +829,10 @@ namespace BeatSurgeon.UI.Settings
 
                 case "slower":
                     cfg.CpSlowerRewardId = id;
-                    cfg.CpSlowerEnabled = enabled;
                     cfg.CpSlowerCost = cost;
                     cfg.CpSlowerCooldownSeconds = cooldown;
                     cfg.CpSlowerBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpSlowerBackgroundColor);
 
-                    _slowerCpEnabled = cfg.CpSlowerEnabled;
                     _slowerCpCost = cfg.CpSlowerCost;
                     _slowerCpCostText = cfg.CpSlowerCost.ToString();
                     _slowerCpCooldownSeconds = cfg.CpSlowerCooldownSeconds;
@@ -852,12 +841,10 @@ namespace BeatSurgeon.UI.Settings
 
                 case "flashbang":
                     cfg.CpFlashbangRewardId = id;
-                    cfg.CpFlashbangEnabled = enabled;
                     cfg.CpFlashbangCost = cost;
                     cfg.CpFlashbangCooldownSeconds = cooldown;
                     cfg.CpFlashbangBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpFlashbangBackgroundColor);
 
-                    _flashbangCpEnabled = cfg.CpFlashbangEnabled;
                     _flashbangCpCost = cfg.CpFlashbangCost;
                     _flashbangCpCostText = cfg.CpFlashbangCost.ToString();
                     _flashbangCpCooldownSeconds = cfg.CpFlashbangCooldownSeconds;
@@ -1101,19 +1088,8 @@ namespace BeatSurgeon.UI.Settings
 
                 setId?.Invoke(id);
 
-                // If we just created/enabled a reward while EventSub is connected, make sure we subscribe to it
-                try
-                {
-                    if (enabled && !string.IsNullOrWhiteSpace(id))
-                    {
-                        // ChannelPointCommandExecutor will delegate to TwitchEventSubClient
-                        await ChannelPointCommandExecutor.Instance.ResubscribeRewardsAsync(new[] { id });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Plugin.Log.Warn($"SurgeonGameplaySetupHost: Resubscribe after SyncRewardAsync failed: {ex.Message}");
-                }
+                // EventSub subscription is managed inside TwitchChannelPointsManager.EnsureRewardAsync;
+                // calling ResubscribeRewardsAsync here would always hit "AlreadySubscribed" - no-op removed.
             }
         }
 

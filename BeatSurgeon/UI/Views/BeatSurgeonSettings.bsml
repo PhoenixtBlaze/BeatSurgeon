@@ -120,7 +120,9 @@
 										   pref-height="13" />
 								</button>
 							</horizontal>
-
+							<horizontal>
+							<toggle-setting text="Autodisable on Ranked maps" value="rankedAutoDisable" apply-on-change="true" hover-hint="When enabled, all commands and channel points are blocked on ranked maps"/>
+								</horizontal>
 							
 						</vertical>
 					</horizontal>

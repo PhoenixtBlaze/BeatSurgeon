@@ -79,13 +79,73 @@ namespace BeatSurgeon.Twitch
             _shutdownCts = new CancellationTokenSource();
             Application.quitting += OnApplicationQuitting;
             _log.Info("Registered Application.quitting handler");
+
+            _authManager.OnAuthReady += HandleAuthReady;
+
+            // If auth is already ready (valid cached token + identity loaded), restore immediately.
+            if (_authManager.IsAuthenticated && !string.IsNullOrWhiteSpace(_authManager.BroadcasterId))
+            {
+                _ = AutoRestoreEnabledRewardsAsync(_shutdownCts.Token);
+            }
         }
 
         public void Dispose()
         {
             _log.Lifecycle("Dispose");
             Application.quitting -= OnApplicationQuitting;
+            _authManager.OnAuthReady -= HandleAuthReady;
             _shutdownCts?.Dispose();
+        }
+
+        private void HandleAuthReady()
+        {
+            _ = AutoRestoreEnabledRewardsAsync(_shutdownCts?.Token ?? CancellationToken.None);
+        }
+
+        private async Task AutoRestoreEnabledRewardsAsync(CancellationToken ct)
+        {
+            PluginConfig cfg = PluginConfig.Instance;
+            if (cfg == null) return;
+
+            var toRestore = new List<string>(8);
+            if (cfg.CpRainbowEnabled && !string.IsNullOrWhiteSpace(cfg.CpRainbowRewardId)) toRestore.Add(cfg.CpRainbowRewardId);
+            if (cfg.CpDisappearEnabled && !string.IsNullOrWhiteSpace(cfg.CpDisappearRewardId)) toRestore.Add(cfg.CpDisappearRewardId);
+            if (cfg.CpGhostEnabled && !string.IsNullOrWhiteSpace(cfg.CpGhostRewardId)) toRestore.Add(cfg.CpGhostRewardId);
+            if (cfg.CpBombEnabled && !string.IsNullOrWhiteSpace(cfg.CpBombRewardId)) toRestore.Add(cfg.CpBombRewardId);
+            if (cfg.CpFasterEnabled && !string.IsNullOrWhiteSpace(cfg.CpFasterRewardId)) toRestore.Add(cfg.CpFasterRewardId);
+            if (cfg.CpSuperFastEnabled && !string.IsNullOrWhiteSpace(cfg.CpSuperFastRewardId)) toRestore.Add(cfg.CpSuperFastRewardId);
+            if (cfg.CpSlowerEnabled && !string.IsNullOrWhiteSpace(cfg.CpSlowerRewardId)) toRestore.Add(cfg.CpSlowerRewardId);
+            if (cfg.CpFlashbangEnabled && !string.IsNullOrWhiteSpace(cfg.CpFlashbangRewardId)) toRestore.Add(cfg.CpFlashbangRewardId);
+
+            if (toRestore.Count == 0) return;
+
+            _log.Info("AutoRestoreEnabledRewards: re-enabling " + toRestore.Count + " configured CP rewards on startup");
+            try
+            {
+                string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+                foreach (string rewardId in toRestore)
+                {
+                    if (ct.IsCancellationRequested) break;
+                    try
+                    {
+                        await _apiClient.SetRewardEnabledAsync(channelUserId, rewardId, true, ct).ConfigureAwait(false);
+                        if (!_rewards.ContainsKey(rewardId))
+                        {
+                            _rewards[rewardId] = new RewardRecord(rewardId, string.Empty, isEnabled: true, isOwned: true);
+                        }
+                        _log.ChannelPoint(rewardId, "AutoRestored", "re-enabled on startup");
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Exception(ex, "AutoRestoreEnabledRewards rewardId=" + rewardId);
+                    }
+                }
+                _log.Info("AutoRestoreEnabledRewards complete");
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "AutoRestoreEnabledRewardsAsync");
+            }
         }
 
         private void OnApplicationQuitting()

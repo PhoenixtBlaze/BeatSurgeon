@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeatSurgeon.Chat.Processors;
+using BeatSurgeon.Gameplay;
 using BeatSurgeon.Utils;
 using Zenject;
 
@@ -21,7 +22,8 @@ namespace BeatSurgeon.Chat
         OnCooldown,
         ProcessorRejected,
         ExecutionFailed,
-        Cancelled
+        Cancelled,
+        RankedMap
     }
 
     internal sealed class CommandExecutionResult
@@ -260,6 +262,12 @@ namespace BeatSurgeon.Chat
             {
                 _log.Command(ctx.Username, normalized, false, "CommandDisabled");
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.CommandDisabled);
+            }
+
+            if (RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking)
+            {
+                _log.Command(ctx.Username, normalized, false, "RankedMapBlocked");
+                return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.RankedMap);
             }
 
             if (_lookup == null || !_lookup.TryGetValue(normalized, out ICommandProcessor processor))

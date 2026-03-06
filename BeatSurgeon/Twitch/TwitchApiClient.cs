@@ -62,6 +62,32 @@ namespace BeatSurgeon.Twitch
             await AuthorizeRequestAsync(request, ct).ConfigureAwait(false);
             HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false);
             _log.Debug($"HTTP {request.Method} {request.RequestUri} => {(int)response.StatusCode}");
+
+            if ((int)response.StatusCode == 429)
+            {
+                // Twitch rate-limited us. Honor the Retry-After before returning so the caller
+                // doesn't immediately hammer the API again on the next attempt.
+                int retryAfterSecs = 1;
+                if (response.Headers.TryGetValues("Retry-After", out IEnumerable<string> raVals))
+                {
+                    foreach (string v in raVals)
+                    {
+                        if (int.TryParse(v, out int parsed))
+                            retryAfterSecs = Math.Min(parsed, 30);
+                        break;
+                    }
+                }
+                _log.Warn("HTTP 429 TooManyRequests on " + request.RequestUri + " - throttling " + retryAfterSecs + "s (Retry-After)");
+                await Task.Delay(TimeSpan.FromSeconds(retryAfterSecs), ct).ConfigureAwait(false);
+            }
+            else if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                // 401: our access token was rejected server-side. Proactively refresh it so
+                // the next API call succeeds without requiring manual user re-auth.
+                _log.Warn("HTTP 401 Unauthorized on " + request.RequestUri + " - refreshing token for subsequent calls");
+                await _authManager.ForceRefreshTokenAsync(ct).ConfigureAwait(false);
+            }
+
             return response;
         }
 
@@ -94,6 +120,19 @@ namespace BeatSurgeon.Twitch
                 {
                     string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                     _log.Debug("CreateEventSubSubscription response=" + response.StatusCode);
+
+                    if (response.StatusCode == HttpStatusCode.Conflict)
+                    {
+                        // 409: a subscription for this reward + session already exists.
+                        // Parse the existing subscription ID from the response and return it.
+                        string existingId = JObject.Parse(json)["data"]?[0]?["id"]?.ToString();
+                        if (!string.IsNullOrWhiteSpace(existingId))
+                        {
+                            _log.Info("EventSub subscription already exists (409) - reusing id=" + existingId);
+                            return existingId;
+                        }
+                        // 409 body may not contain data for cross-session duplicates; fall through to error.
+                    }
 
                     if (!response.IsSuccessStatusCode)
                     {

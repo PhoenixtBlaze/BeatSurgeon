@@ -58,6 +58,10 @@ namespace BeatSurgeon.Installers
                 .AsSingle()
                 .NonLazy();
 
+            Container.BindInterfacesAndSelfTo<RankedMapDetectionService>()
+                .AsSingle()
+                .NonLazy();
+
             Container.Bind<ICommandProcessor>().To<RainbowNotesProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<GhostNotesProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<DisappearingArrowsProcessor>().AsSingle();

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,6 +35,7 @@ namespace BeatSurgeon.Chat
         private Task _receiveTask;
         private Task _commandDispatchTask;
         private TcpClient _tcpClient;
+        private SslStream _sslStream;
         private StreamReader _reader;
         private StreamWriter _writer;
         private string _channelName;
@@ -112,6 +114,7 @@ namespace BeatSurgeon.Chat
             try
             {
                 _tcpClient?.Close();
+                _sslStream?.Dispose();
                 _reader?.Dispose();
                 _writer?.Dispose();
             }
@@ -189,12 +192,15 @@ namespace BeatSurgeon.Chat
             _log.TwitchState("IRC.Connecting", "channel=" + _channelName);
 
             _tcpClient?.Close();
+            _sslStream?.Dispose();
             _tcpClient = new TcpClient();
-            await _tcpClient.ConnectAsync("irc.chat.twitch.tv", 6667).ConfigureAwait(false);
+            await _tcpClient.ConnectAsync("irc.chat.twitch.tv", 6697).ConfigureAwait(false);
 
-            NetworkStream stream = _tcpClient.GetStream();
-            _reader = new StreamReader(stream);
-            _writer = new StreamWriter(stream) { NewLine = "\r\n", AutoFlush = true };
+            NetworkStream netStream = _tcpClient.GetStream();
+            _sslStream = new SslStream(netStream, leaveInnerStreamOpen: false);
+            await _sslStream.AuthenticateAsClientAsync("irc.chat.twitch.tv").ConfigureAwait(false);
+            _reader = new StreamReader(_sslStream);
+            _writer = new StreamWriter(_sslStream) { NewLine = "\r\n", AutoFlush = true };
 
             await _writer.WriteLineAsync("PASS oauth:" + token).ConfigureAwait(false);
             await _writer.WriteLineAsync("NICK " + _channelName).ConfigureAwait(false);
@@ -225,15 +231,38 @@ namespace BeatSurgeon.Chat
                         break;
                     }
 
-                    // ReadLineAsync doesn't support cancellation, so we need to wrap it with a timeout
+                    // ReadLineAsync doesn't support cancellation; wrap with a 60s idle timeout.
+                    // If no data arrives, we send a proactive PING to verify the connection is alive.
                     var readTask = _reader.ReadLineAsync();
-                    var delayTask = Task.Delay(TimeSpan.FromSeconds(90), ct);
-                    var completedTask = await Task.WhenAny(readTask, delayTask).ConfigureAwait(false);
+                    var idleTask = Task.Delay(TimeSpan.FromSeconds(60), ct);
+                    var completedTask = await Task.WhenAny(readTask, idleTask).ConfigureAwait(false);
 
-                    if (completedTask == delayTask)
+                    if (completedTask == idleTask)
                     {
-                        _log.Warn("IRC read timeout (90s) - connection is unresponsive");
-                        break;
+                        // No data for 60s - send a proactive PING to check if the server is alive.
+                        try
+                        {
+                            if (_writer != null)
+                            {
+                                await _writer.WriteLineAsync("PING :tmi.twitch.tv").ConfigureAwait(false);
+                                _log.Debug("Sent proactive PING - waiting 30s for server response");
+                            }
+                        }
+                        catch (Exception pingEx)
+                        {
+                            _log.Exception(pingEx, "Failed to send proactive PING");
+                            break;
+                        }
+
+                        // The PONG (or next IRC message) will arrive on the existing readTask.
+                        // Give the server up to 30s to respond before treating it as dead.
+                        await Task.WhenAny(readTask, Task.Delay(TimeSpan.FromSeconds(30), ct)).ConfigureAwait(false);
+                        if (!readTask.IsCompleted)
+                        {
+                            _log.Warn("IRC PONG not received within 30s after PING - reconnecting");
+                            break;
+                        }
+                        // Server responded - fall through to process the line normally.
                     }
 
                     string rawLine = await readTask.ConfigureAwait(false);
