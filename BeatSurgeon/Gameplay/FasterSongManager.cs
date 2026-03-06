@@ -39,12 +39,29 @@ namespace BeatSurgeon.Gameplay
 
         private AudioTimeSyncController _audio;
         private bool _active = false;
+        private bool _wasActiveThisRun = false; // True if any speed effect fired during this map run
         private Coroutine _routine;
         private string _activeEffectKey;
         private string _currentSubmissionKey; // Track which key we used
 
         public bool IsActive => _active;
         public string ActiveEffectKey => _activeEffectKey;
+
+        /// <summary>
+        /// True if a speed effect was applied at any point during the current (or most recent) map run.
+        /// Reset to false at map start by OnGameSceneLoaded.
+        /// </summary>
+        internal static bool WasActiveThisRun =>
+            _instance != null && _instance._wasActiveThisRun;
+
+        /// <summary>
+        /// Removes all speed-effect prolonged-disable keys from BSUtils.
+        /// Safe to call even if no keys were added (Remove is a no-op for missing items).
+        /// </summary>
+        internal static void RemoveSpeedSubmissionKeys()
+        {
+            _instance?.CleanupAllSpeedKeys();
+        }
 
         private void OnEnable()
         {
@@ -71,6 +88,7 @@ namespace BeatSurgeon.Gameplay
 
             FasterSongPatch.Multiplier = 1.0f;
             _active = false;
+            _wasActiveThisRun = false;
             _activeEffectKey = null;
             _currentSubmissionKey = null;
 
@@ -101,6 +119,7 @@ namespace BeatSurgeon.Gameplay
             {
                 FasterSongPatch.Multiplier = multiplier;
                 _active = true;
+                _wasActiveThisRun = true; // Remember that an effect fired during this run
                 _activeEffectKey = effectKey;
 
                 // Store which key we're using for this effect
