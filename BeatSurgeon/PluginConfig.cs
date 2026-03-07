@@ -46,7 +46,9 @@ namespace BeatSurgeon
         public virtual float RainbowCycleSpeed { get; set; } = 0.1f;
         public virtual bool RainbowGradientFadeEnabled { get; set; } = true;
         public virtual bool DisappearEnabled { get; set; } = true;
+        public virtual float DisappearFadeDuration { get; set; } = 0.3f;
         public virtual bool GhostEnabled { get; set; } = true;
+        public virtual float GhostFadeDuration { get; set; } = 2.0f;
         public virtual bool BombEnabled { get; set; } = true;
         public virtual float BombTextHeight { get; set; } = 1.0f;
         public virtual float BombTextWidth { get; set; } = 1.0f;

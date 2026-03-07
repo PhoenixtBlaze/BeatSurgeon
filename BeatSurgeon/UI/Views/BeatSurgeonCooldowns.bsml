@@ -115,7 +115,7 @@
 			</horizontal> 
 
 			<!-- Ghost -->
-			<horizontal spacing="2" pad="0">
+			<horizontal spacing="2" pad="0" pref-width="100">
 				<text text="Ghost Notes" align="Left" font-size="4" pref-width="15" />
 				<increment-setting
                     text=""
@@ -123,6 +123,7 @@
                     min="0"
                     max="300"
                     increment="5"
+					pref-width="45"
                     integer-only="true"
                     apply-on-change="true" />
 				
@@ -135,7 +136,7 @@
 			</horizontal>
 
 			<!-- Disappear -->
-			<horizontal spacing="2" pad="0">
+			<horizontal spacing="2" pad="0" pref-width="100">
 				<text text="Disappearing Arrows" align="Left" font-size="4" pref-width="15" />
 				<increment-setting
                     text=""
@@ -143,8 +144,16 @@
                     min="0"
                     max="300"
                     increment="5"
+					pref-width="45"
                     integer-only="true"
                     apply-on-change="true" />
+
+				<button id="disappear-edit-button"
+					text="Edit Visuals"
+					on-click="OnDisappearEditVisualsClicked"
+					pref-width="18"
+					pref-height="8"
+					hover-hint="Edit disappearing arrows visuals" />
 			</horizontal>
 
 			<!-- Faster -->
@@ -376,11 +385,24 @@
 		<horizontal pad-bottom="50">
 			<text text="Ghost Notes Visuals" align="Center" font-size="5" />
 		</horizontal>
-		<settings-scroll-view pad-left="45" pad-top="5">
+		<settings-scroll-view pad-top="5">
 			<vertical vertical-fit="PreferredSize" horizontal-fit="PreferredSize" spacing="2" pad="2" pref-width="60">
 
-				<!-- Placeholder -->
-				<text text="Settings coming soon..." align="Center" font-size="4" />
+				<horizontal spacing="1" pad="0">
+					<text text="Nothing to see here yet" align="Center" font-size="3" pref-width="25" />
+					<!--
+					<text text="Fade Duration (ms)" align="Left" font-size="3" pref-width="25" />
+					
+					<increment-setting
+						text=""
+						value="ghost_fade_duration"
+						min="0.1"
+						max="5"
+						increment="0.1"
+						apply-on-change="true"
+						hover-hint="How long ghost notes take to appear/fade" />
+						-->
+				</horizontal>
 
 			</vertical>
 		</settings-scroll-view>
@@ -399,15 +421,21 @@
 		<horizontal pad-bottom="50">
 			<text text="Disappearing Arrows Visuals" align="Center" font-size="5" />
 		</horizontal>
-		<settings-scroll-view pad-left="45" pad-top="5">
+		<settings-scroll-view pad-top="5">
 			<vertical vertical-fit="PreferredSize" horizontal-fit="PreferredSize" spacing="2" pad="2" pref-width="60">
-
-				<!-- Placeholder -->
-				<text text="Settings coming soon..." align="Center" font-size="4" />
-
+				<horizontal spacing="1" pad="0">
+					<text text="Fade Duration (ms)" align="Center" font-size="3" pref-width="25" />
+					<increment-setting
+						text=""
+						value="disappear_fade_duration"
+						min="0.1"
+						max="5"
+						increment="0.1"
+						apply-on-change="true"
+						hover-hint="How long before arrows disappear from notes" />
+				</horizontal>
 			</vertical>
 		</settings-scroll-view>
-
 		<horizontal child-force-expand-width="false" pad-top="50" pad-right="85">
 			<button text="Close" pref-width="20" on-click="CloseDisappearVisuals" />
 		</horizontal>

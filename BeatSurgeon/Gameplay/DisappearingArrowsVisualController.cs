@@ -9,8 +9,8 @@ namespace BeatSurgeon.Gameplay
         private static readonly ProfilerMarker UpdateProfiler = new ProfilerMarker("BeatSurgeon.DisappearingArrowsVisualController.Update");
         private static float _nextAudioSearchAt;
 
-        // How long before the hit arrows/dots should disappear
-        public float hideLeadTime = 0.6f;
+        // How long before the hit time the arrows/dots should disappear (driven by Plugin.Settings)
+        private float hideLeadTime = 0.6f;
 
         private readonly List<MeshRenderer> _arrowRenderers = new List<MeshRenderer>();
         private readonly List<MeshRenderer> _circleRenderers = new List<MeshRenderer>();
@@ -18,12 +18,17 @@ namespace BeatSurgeon.Gameplay
         private float _noteHitTime;
         private bool _initialized;
         private bool _overlaysHidden;
+        // Prevents OnDisable from restoring arrow visibility when we intentionally
+        // kept arrows hidden for a note that hasn't been hit yet after the effect ended.
+        private bool _suppressOnDisableRestore;
 
         public static AudioTimeSyncController Audio { get; set; }
 
         public void Initialize(NoteControllerBase gameNote, float noteHitTime)
         {
             _noteHitTime = noteHitTime;
+            hideLeadTime = Plugin.Settings?.DisappearFadeDuration ?? 0.3f;
+            _suppressOnDisableRestore = false;
             CacheRenderers(gameNote);
             _initialized = true;
             enabled = true;
@@ -69,6 +74,20 @@ namespace BeatSurgeon.Gameplay
                 // If the effect window ended, restore overlays and stop running
                 if (!DisappearingArrowsManager.DisappearingActive)
                 {
+                    // If this note's arrows are already hidden and it hasn't been hit yet,
+                    // keep the arrows hidden rather than flashing them back on briefly.
+                    // The note will be recycled naturally when it is hit or missed.
+                    if (_overlaysHidden && Audio != null)
+                    {
+                        float timeUntilHit = _noteHitTime - Audio.songTime;
+                        if (timeUntilHit > 0f)
+                        {
+                            _suppressOnDisableRestore = true;
+                            enabled = false;
+                            return;
+                        }
+                    }
+
                     SetOverlaysVisible(true);
                     enabled = false;
                     return;
@@ -103,7 +122,14 @@ namespace BeatSurgeon.Gameplay
 
         private void OnDisable()
         {
-            // Safety when pooled objects are disabled: restore overlays
+            // Safety when pooled objects are disabled: restore overlays.
+            // Skip if we deliberately kept arrows hidden for an in-flight note
+            // so they don't flash back on right before the note is hit.
+            if (_suppressOnDisableRestore)
+            {
+                _suppressOnDisableRestore = false;
+                return;
+            }
             SetOverlaysVisible(true);
         }
     }

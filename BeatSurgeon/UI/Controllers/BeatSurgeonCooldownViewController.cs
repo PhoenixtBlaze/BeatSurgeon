@@ -1012,6 +1012,22 @@ namespace BeatSurgeon.UI.Controllers
         [UIComponent("ghost-visuals-modal")]
         private ModalView _ghostVisualsModal;
 
+        [UIValue("ghost_fade_duration")]
+        public float GhostFadeDuration
+        {
+            get => HasCachedVisualsAccess() ? (Plugin.Settings?.GhostFadeDuration ?? 2.0f) : 2.0f;
+            set
+            {
+                if (!HasCachedVisualsAccess())
+                    return;
+
+                float clamped = Mathf.Clamp(value, 0.1f, 5f);
+                if (Plugin.Settings != null)
+                    Plugin.Settings.GhostFadeDuration = clamped;
+                NotifyPropertyChanged(nameof(GhostFadeDuration));
+            }
+        }
+
         [UIAction("OnGhostEditVisualsClicked")]
         private void OnGhostEditVisualsClicked()
         {
@@ -1052,6 +1068,22 @@ namespace BeatSurgeon.UI.Controllers
 
         [UIComponent("disappear-visuals-modal")]
         private ModalView _disappearVisualsModal;
+
+        [UIValue("disappear_fade_duration")]
+        public float DisappearFadeDuration
+        {
+            get => HasCachedVisualsAccess() ? (Plugin.Settings?.DisappearFadeDuration ?? 0.3f) : 0.3f;
+            set
+            {
+                if (!HasCachedVisualsAccess())
+                    return;
+
+                float clamped = Mathf.Clamp(value, 0.1f, 5f);
+                if (Plugin.Settings != null)
+                    Plugin.Settings.DisappearFadeDuration = clamped;
+                NotifyPropertyChanged(nameof(DisappearFadeDuration));
+            }
+        }
 
         [UIAction("OnDisappearEditVisualsClicked")]
         private void OnDisappearEditVisualsClicked()
