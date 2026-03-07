@@ -1,6 +1,6 @@
 # Beat Surgeon
 
-**Beat Surgeon** is a Beat Saber mod that empowers your Twitch chat to directly interact with your gameplay in real time. It turns your stream into a collaborative (and chaotic) experience by allowing viewers to trigger visual effects like rainbow, flashbang, note bombs and modifiers using simple chat commands or Channel Point Redeems—all while letting you maintain full control over cooldowns and if command is enabled or not.
+**Beat Surgeon** is a Beat Saber mod that empowers your Twitch chat to directly interact with your gameplay in real time. It turns your stream into a collaborative (and chaotic) experience, allowing viewers to trigger visual effects like Rainbow notes, Flashbang, Bombs, Disappearing Arrows, Ghost Notes and Speed modifiers using simple chat commands or Channel Point Redeems. All while letting you maintain full control over cooldowns and if command is enabled or not.
 
 ## What this mod does
 
@@ -8,14 +8,14 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 
 *   **Rainbow Notes & Custom Colors:** Randomize note colors or set specific RGB values on the fly.
 *   **Visual Challenges:** Trigger Ghost Notes, Disappearing Arrows, or a blinding Flashbang effect.
-*   **Bomb Pranks:** Arm the next note as a "bomb" that displays the viewer's name when cut.
+*   **BombS:** Arms the next note as a "bomb" and makes it look like one that displays the viewer's name when cut.
 *   **Speed Modifiers:** Temporarily speed up (`!faster`, `!superfast`) or slow down (`!slower`) the song.
 
 > **⚠️ A Note from the Developer**
 >
 > I am developing and supporting **Beat Surgeon** full-time to bring more fun, interactive features to the Beat Saber community. 
 >
-> Please be aware that I am still learning the intricacies of Beat Saber modding. The current version uses a "brute force" approach to ensure these effects work reliably, but I plan to refine the code and optimize performance in future updates. 
+> Please be aware that I am still learning the intricacies of Beat Saber modding. The current version has been entirely reworked to make these effects work reliably and without causing any performance issues or conflicts with other mods, I plan to refine all that it does and plan for better features in future updates. 
 >
 > As this is my full-time focus, **any support to help me keep going is highly appreciated!** Your feedback and support allow me to continue tuning the mod and adding new features.
 
@@ -27,8 +27,8 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 *   **Rainbow Mode (`!rainbow`)**: Instantly cycles note colors through the RGB spectrum for a vibrant, chaotic look.
 *   **Custom Note Colors (`!notecolor`)**: Allows chat to set specific left and right saber colors using color names (e.g., `red`, `blue`) or hex codes.
 *   **Ghost Notes (`!ghost`)**: Hides the cube mesh, leaving only the arrows visible for a short duration.
-*   **Disappearing Arrows (`!disappear`)**: Hides the directional arrows on notes, forcing players to rely on instinct.
-*   **Bomb Pranks (`!bomb`)**: Transforms the next spawnable note into a bomb. If the player cuts it, the viewer's name is displayed as the "culprit." (Currently the bomb does not repeat if you miss cutting the bomb which will be fixed in future updates.)
+*   **Disappearing Arrows (`!disappear`)**: Hides the directional arrows and dots on notes, forcing players to rely on instinct.
+*   **Bombs (`!bomb`)**: Transforms the next spawnable note into a bomb. If the player cuts it, the viewer's name is displayed.
 *   **Speed Control**: Viewers can temporarily alter song speed:
     *   **`!faster`**: Increases speed by 20%.
     *   **`!superfast`**: Increases speed by 50%.
@@ -52,7 +52,6 @@ You can fully configure **Beat Surgeon** from within Beat Saber using the mod se
 
 ### 1. Settings Panel
 *   **Command Toggles:** Individually enable or disable specific commands (e.g., if you want `!rainbow` enabled but don't want `!flashbangs`).
-*   **Global Disable State:** View the current state of the global kill-switch (Enabled/Disabled).
 
 <img width="1052" height="710" alt="image" src="https://github.com/user-attachments/assets/447ca616-7c2d-4ee1-ba0c-d945ca26c7ff" />
 
@@ -69,13 +68,13 @@ Control how often chat can trigger effects to balance chaos with playability.
 *   **Speed Exclusivity:**
     *   **Toggle:** When enabled, prevents speed modifiers from stacking. Activating `!faster` will automatically cancel an active `!slower` or `!superfast` effect, ensuring the song remains playable.
 
-*   **Custom Bomb Alias:** Change the default `!bomb` command to something unique for your channel (e.g., set it to `!boop` or `!prank`).
+*   **Custom Bomb Alias:** Change the default `!bomb` command to something unique for your channel (e.g., set it to `!boop` or `!plur`).
 
 <img width="1337" height="803" alt="Cooldowns Panel" src="https://github.com/user-attachments/assets/b1d54b4e-3a22-465d-9562-88b24db369f7" />
 
 
 ### 3. Surgeon Tab
-Quick access to command and channel point controls directly from the gameplay setup screen—perfect for adjusting settings on the fly before starting a map.
+Quick access to command and channel point controls directly from the gameplay setup screen. Perfect for adjusting settings on the fly before starting a map or in multiplayer.
 
 This tab contains two sub-tabs:
 
@@ -98,8 +97,8 @@ Enable or disable individual chat commands and effects with visual icon toggles.
 
 
 #### **Twitch Sub-Tab**
-Configure Twitch Channel Point rewards for each effect without leaving the game.
-**For Channel Points to work Commands need to be enabled**
+Configure Twitch Channel Point rewards for each effect without leaving the lobby if in one.
+**Channel Points are completely Individual now and work even without command being enabled as long as your channel point is enabled**
    
 <img width="1023" height="716" alt="image" src="https://github.com/user-attachments/assets/8cd0606c-0aae-4fde-98c3-2f0f37e83250" />   
 
@@ -112,7 +111,8 @@ Configure Twitch Channel Point rewards for each effect without leaving the game.
     *   **Cost:** Set the channel point price for the reward (numeric input).
     *   **Cooldown:** Define per-user cooldown in seconds (0-3600).
     *   **Background Color:** Customize the reward's appearance on Twitch with a color picker.
-      
+
+*   **Channel Points are Refunded *automatically* if the effect did not apply for any reason**.
 ---
 
 ## Supporter Exclusive Features
@@ -134,8 +134,13 @@ If you are a supporter (currently via **Twitch Subscription**), you gain access 
 
 - **Cycle Speed:** Change how fast the Gradient in rainbow changes if enabled. (lower = slower)
 
+#### **Disappearing Arrow Effects**
+- **Fade Timer (Ms):** changes how Fast or slow the arrows fade. Default is 0.30 Ms
+
+  
 #### **Flashbang Effects**
 - **Brightness Multiplier:** Changed how bright your flashbang is. Default is 91 
+
 
   
 ---
@@ -225,7 +230,7 @@ The mod leverages your existing **BeatSaberPlus (ChatPlex)** connection.
 *   **Result:** The mod will automatically listen to your chat for basic commands that start with `!`.
 
 ### 2. Backend Connection (Advanced/Supporter)
-To enable **Supporter Benefits** (checking your Twitch Subscription status), you must authenticate with the Beat Surgeon backend.
+To enable **Supporter Benefits** and to unlock Edit Visuals buttons, you must authenticate with the Beat Surgeon backend.
 
 *   **How to:**
     1. Open the **Beat Surgeon Settings** in-game.
@@ -240,7 +245,7 @@ To enable **Supporter Benefits** (checking your Twitch Subscription status), you
 
 
 
-*   **Why is this needed?** There is a ChatPlex connection that handles *reading chat* if you dont want to use BeatSurgeon Backend, but the Beat Surgeon backend is required to safely verify *subscription status* for unlocking custom fonts and colors.
+*   **Why is this needed?** There is a ChatPlex connection that handles *reading chat* if you dont want to use BeatSurgeon Backend, but the Beat Surgeon backend is required to use Channelpoint features and to safely verify *subscription status* for unlocking supporter features.
 *   Once you are connected to BeatSurgeon's Backend, you should see `Edit Visuals` button in the Cooldown settings menu
 *   If you dont see the `Edit Visuals` button, Please go out of the menu and reselect Beat surgeon in the mods tab to see it.
   
@@ -250,11 +255,10 @@ To enable **Supporter Benefits** (checking your Twitch Subscription status), you
 
 ## Notes / Current Status (Work in Progress)
 
-**Beat Surgeon** is currently in active beta development. While the core features listed above are fully functional, please keep the following in mind:
+**Beat Surgeon** is currently in active development. While the core features listed above are fully functional, please keep the following in mind:
 
-*   **Brute Force Approach:** Some effects (like material swaps for Rainbow notes or Bomb visual overrides) currently use a "brute force" method to ensure they apply correctly over the base game. This may result in minor performance overhead on lower-end systems, though it is generally stable. Optimization is a priority for future updates.
-*   **Disabled Features:** You may see references to "Song Requests" or "Submit Later" in the code or older discussions. These features are currently **disabled/commented out** while they undergo major refactoring and testing. They will be reintroduced in a future update once they meet stability standards.
-*   **Compatibility:** This mod is tested primarily on the Beat Saber v1.40.8. Compatibility with other major gameplay mods (like Noodle Extensions or Chroma) is generally fine, but visual conflicts can occasionally occur when multiple mods try to control note colors simultaneously Please let me know if you find any of them so they can be patched.
+*   **Disabled Features:** You may see references to "Song Requests" or "Endless Mode" in the code, messages or older discussions. These features are currently **disabled/commented out** while they undergo major refactoring and testing. They will be reintroduced in a future update once they meet stability standards.
+*   **Compatibility:** This mod is tested primarily on the Beat Saber v1.40.8. Compatibility with other major gameplay mods (like Noodle Extensions or Chroma) is generally fine, but visual conflicts can occasionally occur when multiple mods try to control notes and their visuals simultaneously. Please let me know if you find any of them so they can be patched.
 
 ---
 
@@ -268,7 +272,7 @@ If you enjoy the chaos this mod brings to your streams and want to support its c
 *   **[Donate via PayPal](https://paypal.me/PhoenixBlaze0)**
 
 **Your support directly helps me:**
-*   Dedicate time to cleaning up the "brute force" code for better performance.
+*   Dedicate time to crefinind features and fixing bugs.
 *   Re-enable and finish complex features like **Endless Mode** and **Dynamic Block/ BeatMap Insertions**.
 *   Keep the mod updated for new Beat Saber versions.
 
@@ -278,7 +282,18 @@ Thank you for helping me keep the lights on and the sabers swinging!
 
 ## Version History
 
-*   **v0.3.0** (Current)
+**v1.0.0** (Current)
+    *   **Major Update:** Reworked almost the entire mod architecture (chat/backend/Twitch systems) for stability and long-term maintainability.
+    *   **Performance Fix:** Full performance pass to reduce/remove frame-drop issues during gameplay.
+    *   **New Feature:** Added modular command-processor pipeline for gameplay effects and moderation handling.
+    *   **New Feature:** Added/updated Twitch EventSub + Channel Point backend flow (per-reward subscriptions, safer resubscribe behavior, better redemption routing).
+    *   **New Feature:** Added ranked-map detection and auto-disable safeguards for score-impacting features.
+    *   **New Feature:** Added dedicated `!notecolor` command processor support.
+    *   **Fix:** Improved score-submission disable text/state handling.
+    *   **Fix:** Multiple Channel Point/EventSub reliability fixes (duplicate handling, quit/shutdown safety, and command routing).
+    *   **Fix:** Fixed Endless mode replies and improved logging/rainbow visual consistency.
+
+*   **v0.3.0**
     *   **Removed Feature:** Local subscription checking methods
     *   **Fixed Feature:** Various improvements for bomb visuals and multithreading.
     *   **Fixed Feature:** Moderator command management as well as Mod/VIP detection.
@@ -324,7 +339,7 @@ This project is proprietary. All rights reserved.
 *   **UI Framework:** Built using **[BeatSaberMarkupLanguage (BSML)](https://github.com/monkeymanboy/BeatSaberMarkupLanguage)**.
 *   **Inspirations:**
     *   **[GameplayModifiersPlus](https://github.com/Kylemc1413/GameplayModifiersPlus)** by Kylemc1413 – The original inspiration for chat-controlled modifiers.
-    *   **[StreamPartyCommands](https://github.com/denpadokei/StreamPartyCommand)** – For ideas on interactive viewer commands.
+    *   **[StreamPartyCommands](https://github.com/denpadokei/StreamPartyCommand)** – For ideas on interactive viewer commands like bombs.
 
 ---
 
