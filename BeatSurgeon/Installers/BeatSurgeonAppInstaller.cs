@@ -63,6 +63,7 @@ namespace BeatSurgeon.Installers
                 .NonLazy();
 
             Container.Bind<ICommandProcessor>().To<RainbowNotesProcessor>().AsSingle();
+            Container.Bind<ICommandProcessor>().To<NoteColorProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<GhostNotesProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<DisappearingArrowsProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<BombsProcessor>().AsSingle();
@@ -72,7 +73,7 @@ namespace BeatSurgeon.Installers
             // Container.Bind<ICommandProcessor>().To<EndlessModeProcessor>().AsSingle();
             // Container.Bind<ICommandProcessor>().To<SongRequestProcessor>().AsSingle();
 
-            _log.Info("Registered 6 ICommandProcessor implementations");
+            _log.Info("Registered 7 ICommandProcessor implementations");
             _log.Lifecycle("InstallBindings complete");
         }
     }

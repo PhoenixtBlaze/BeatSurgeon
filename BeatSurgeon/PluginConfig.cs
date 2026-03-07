@@ -199,6 +199,8 @@ namespace BeatSurgeon
         // --- Ranked Map Protection ---
         public virtual bool DisableOnRanked { get; set; } = true;
         public virtual bool NotifyOnRankedDisable { get; set; } = true;
+        public virtual bool DisableOnRankedSS { get; set; } = true;
+        public virtual bool DisableOnRankedBL { get; set; } = true;
 
         public virtual void Changed()
         {

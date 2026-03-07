@@ -39,6 +39,7 @@ namespace BeatSurgeon.Gameplay
 
         private volatile bool _isChecking;
         private volatile bool _isRanked;
+        private bool _isInGameplay;
         private string _lastCheckedHash;
         private CancellationTokenSource _checkCts;
 
@@ -71,6 +72,7 @@ namespace BeatSurgeon.Gameplay
         internal void OnGameCoreLoaded(BeatmapKey beatmapKey)
         {
             // Always call regardless of config so state is correct if the toggle is flipped mid-session.
+            _isInGameplay = true;
             BeginCheck(beatmapKey);
         }
 
@@ -81,6 +83,7 @@ namespace BeatSurgeon.Gameplay
             _checkCts?.Cancel();
             _isChecking = false;
             _isRanked = false;
+            _isInGameplay = false;
             _lastCheckedHash = null;
         }
 
@@ -159,8 +162,12 @@ namespace BeatSurgeon.Gameplay
             try
             {
                 // Run both checks in parallel to minimise latency.
-                Task<bool> blTask = CheckBeatLeaderAsync(hash, diffNum, modeStr, ct);
-                Task<bool> ssTask = CheckScoreSaberAsync(hash, diffNum, modeStr, ct);
+                Task<bool> blTask = (PluginConfig.Instance?.DisableOnRankedBL == true)
+                    ? CheckBeatLeaderAsync(hash, diffNum, modeStr, ct)
+                    : Task.FromResult(false);
+                Task<bool> ssTask = (PluginConfig.Instance?.DisableOnRankedSS == true)
+                    ? CheckScoreSaberAsync(hash, diffNum, modeStr, ct)
+                    : Task.FromResult(false);
 
                 await Task.WhenAll(blTask, ssTask).ConfigureAwait(false);
 
@@ -231,6 +238,7 @@ namespace BeatSurgeon.Gameplay
         {
             try
             {
+                if (!_instance?._isInGameplay == true) return;
                 if (PluginConfig.Instance?.NotifyOnRankedDisable == true)
                 {
                     ChatManager.GetInstance()?.SendChatMessage(

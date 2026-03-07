@@ -182,7 +182,7 @@ namespace BeatSurgeon.HarmonyPatches
     }
     */
 
-    // PATCH 2: Endless Mode Chaining
+    // PATCH 2: Endless Mode Chaining 
     [HarmonyPatch(typeof(MenuTransitionsHelper), "HandleMainGameSceneDidFinish")]
     internal static class EndlessHarmonyPatch
     {

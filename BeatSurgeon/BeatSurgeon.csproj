@@ -329,6 +329,7 @@
     <Compile Include="Chat\Processors\FlashbangProcessor.cs" />
     <Compile Include="Chat\Processors\GhostNotesProcessor.cs" />
     <Compile Include="Chat\Processors\ICommandProcessor.cs" />
+    <Compile Include="Chat\Processors\NoteColorProcessor.cs" />
     <Compile Include="Chat\Processors\RainbowNotesProcessor.cs" />
     <Compile Include="Chat\Processors\SongRequestProcessor.cs" />
     <Compile Include="Chat\Processors\SpeedChangeProcessor.cs" />

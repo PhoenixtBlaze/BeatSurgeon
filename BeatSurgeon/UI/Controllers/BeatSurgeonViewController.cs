@@ -334,6 +334,30 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
+        [UIValue("SSAutoDisable")]
+        public bool RankedSS
+        {
+            get => Plugin.Settings?.DisableOnRankedSS ?? true;
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.DisableOnRankedSS = value;
+                NotifyPropertyChanged(nameof(RankedSS));
+            }
+        }
+
+        [UIValue("BLAutoDisable")]
+        public bool RankedBL
+        {
+            get => Plugin.Settings?.DisableOnRankedBL ?? true;
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.DisableOnRankedBL = value;
+                NotifyPropertyChanged(nameof(RankedBL));
+            }
+        }
+
         [UIValue("flashbang_enabled")]
         public bool FlashbangEnabled
         {

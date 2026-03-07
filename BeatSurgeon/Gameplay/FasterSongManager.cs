@@ -43,6 +43,8 @@ namespace BeatSurgeon.Gameplay
         private Coroutine _routine;
         private string _activeEffectKey;
         private string _currentSubmissionKey; // Track which key we used
+        private readonly System.Collections.Generic.HashSet<string> _keysUsedThisRun =
+            new System.Collections.Generic.HashSet<string>();
 
         public bool IsActive => _active;
         public string ActiveEffectKey => _activeEffectKey;
@@ -53,6 +55,13 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         internal static bool WasActiveThisRun =>
             _instance != null && _instance._wasActiveThisRun;
+
+        /// <summary>
+        /// The submission keys that were actually used during this run.
+        /// Re-evaluated on the results screen so only this-run keys are shown.
+        /// </summary>
+        internal static System.Collections.Generic.IEnumerable<string> KeysUsedThisRun =>
+            _instance?._keysUsedThisRun ?? System.Linq.Enumerable.Empty<string>();
 
         /// <summary>
         /// Removes all speed-effect prolonged-disable keys from BSUtils.
@@ -91,6 +100,7 @@ namespace BeatSurgeon.Gameplay
             _wasActiveThisRun = false;
             _activeEffectKey = null;
             _currentSubmissionKey = null;
+            _keysUsedThisRun.Clear();
 
             CleanupAllSpeedKeys();
             LogUtils.Debug(() => "FasterSongManager: Map start cleanup done (reset effect + removed submission keys).");
@@ -127,6 +137,7 @@ namespace BeatSurgeon.Gameplay
 
                 // Disable score submission for this run
                 BS_Utils.Gameplay.ScoreSubmission.ProlongedDisableSubmission(submissionReason);
+                _keysUsedThisRun.Add(submissionReason);
                 Plugin.Log?.Info($"FasterSongManager: Score submission DISABLED (prolonged) with key: {submissionReason}");
             }
             else

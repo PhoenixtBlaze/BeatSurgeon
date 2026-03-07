@@ -750,6 +750,15 @@ namespace BeatSurgeon.Gameplay
             return Task.CompletedTask;
         }
 
+        internal Task ApplyNoteColorAsync(ChatContext ctx, UnityEngine.Color left, UnityEngine.Color right, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            bool started = RainbowManager.Instance.StartNoteColor(left, right, CommandRuntimeSettings.RainbowEffectSeconds);
+            _log.Effect("NoteColor", started, "requestedBy=" + (ctx?.Username ?? "Unknown"));
+            if (!started) throw new InvalidOperationException("NoteColor could not be started (not in map).");
+            return Task.CompletedTask;
+        }
+
         internal Task ApplyGhostNotesAsync(ChatContext ctx, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();

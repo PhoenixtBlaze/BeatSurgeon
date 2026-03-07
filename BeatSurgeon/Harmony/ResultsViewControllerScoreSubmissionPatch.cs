@@ -4,15 +4,12 @@ using BeatSurgeon.Gameplay;
 namespace BeatSurgeon.HarmonyPatches
 {
     /// <summary>
-    /// Patches ResultsViewController.SetDataToUI with a prefix that runs BEFORE the
-    /// BSUtils postfix which appends the "Score Submission Disabled by: ..." message.
+    /// Patches ResultsViewController.SetDataToUI to ensure the "Score Submission Disabled by: ..."
+    /// banner from BSUtils reflects exactly the speed effects used during THIS map run only.
     ///
-    /// If no speed effect (faster / superfast / slower) was applied during the current
-    /// map run, we remove the prolonged-disable keys from BSUtils so the message does
-    /// not bleed over to results screens of maps that had no effects applied.
-    ///
-    /// Priority.High ensures our prefix executes before any other plugin's prefix on
-    /// the same method and, more importantly, before the original and BSUtils postfix.
+    /// Strategy: always remove all speed keys first (prevents leakage from prior maps), then
+    /// re-add only the keys that were actually used this run so BSUtils renders them correctly.
+    /// A Postfix scrubs the keys again so they cannot survive to the next map's results screen.
     /// </summary>
     [HarmonyPatch(typeof(ResultsViewController), nameof(ResultsViewController.SetDataToUI), MethodType.Normal)]
     [HarmonyPriority(Priority.High)]
@@ -20,13 +17,18 @@ namespace BeatSurgeon.HarmonyPatches
     {
         private static void Prefix()
         {
-            // If a speed effect was active during this run, leave BSUtils state alone so
-            // the message shows correctly on THIS results screen.
-            if (FasterSongManager.WasActiveThisRun)
-                return;
+            // Step 1: Remove all speed keys to prevent prior-map bleed-over.
+            FasterSongManager.RemoveSpeedSubmissionKeys();
 
-            // No speed effect this run – scrub the speed-effect keys from BSUtils so the
-            // "Score Submission Disabled" banner does not appear for a clean map.
+            // Step 2: Re-add only the keys actually used this run so BSUtils shows the correct lines.
+            foreach (string key in FasterSongManager.KeysUsedThisRun)
+                BS_Utils.Gameplay.ScoreSubmission.ProlongedDisableSubmission(key);
+        }
+
+        private static void Postfix()
+        {
+            // BSUtils has already read and displayed the keys in its postfix.
+            // Scrub them now so they don't leak into the next results screen.
             FasterSongManager.RemoveSpeedSubmissionKeys();
         }
     }

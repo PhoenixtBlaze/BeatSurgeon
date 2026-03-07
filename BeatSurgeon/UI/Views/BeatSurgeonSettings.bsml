@@ -19,7 +19,7 @@
 						<!-- LEFT: main BeatSurgeon controls -->
 						<vertical vertical-fit="PreferredSize" spacing="2" pad="2">
 
-							<!-- Command toggles row: Rainbow + DA + Ghost + Bomb + Faster -->
+							<!-- Command toggles row: Rainbow + DA + Ghost + Bomb + Faster  -->
 							<horizontal spacing="1" pad="0" horizontal-fit="PreferredSize">
 								<!-- Rainbow -->
 								<button id="rainbowbutton"
@@ -120,10 +120,15 @@
 										   pref-height="13" />
 								</button>
 							</horizontal>
+							<vertical pref-width="80">
 							<horizontal>
-							<toggle-setting text="Autodisable on Ranked maps" value="rankedAutoDisable" apply-on-change="true" hover-hint="When enabled, all commands and channel points are blocked on ranked maps"/>
-								</horizontal>
-							
+							<toggle-setting text="Auto-Disable everything on Ranked maps" value="rankedAutoDisable" apply-on-change="true" hover-hint="When enabled, all commands and channel points are Stopped and blocked on ranked maps being played"/>
+							</horizontal>
+							<horizontal active="~rankedAutoDisable">
+								<toggle-setting text="BeatLeader" value="BLAutoDisable" apply-on-change="true" hover-hint="Detect BeatLeader ranked for Auto-Disable"/>
+								<toggle-setting text="Scoresaber" value="SSAutoDisable" apply-on-change="true" hover-hint="Detect ScoreSaber ranked for Auto-Disable"/>
+							</horizontal>
+							</vertical>
 						</vertical>
 					</horizontal>
 				</modifier-container>

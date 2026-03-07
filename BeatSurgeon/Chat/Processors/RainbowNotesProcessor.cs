@@ -15,7 +15,7 @@ namespace BeatSurgeon.Chat.Processors
             _gameplayManager = gameplayManager;
         }
 
-        public string[] HandledCommands => new[] { "!rainbow", "!rainbownotes", "!notecolor", "!notecolour" };
+        public string[] HandledCommands => new[] { "!rainbow", "!rainbownotes" };
 
         public bool CanHandle(ChatContext ctx)
         {
