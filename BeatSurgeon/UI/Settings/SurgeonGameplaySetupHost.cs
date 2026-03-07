@@ -348,6 +348,12 @@ namespace BeatSurgeon.UI.Settings
             var cfg = Plugin.Settings;
             if (cfg == null) return;
 
+            if (!TwitchAuthManager.Instance.IsAuthenticated)
+            {
+                Plugin.Log.Info("SurgeonGameplaySetupHost: Not authenticated with backend - skipping CP reward sync on startup");
+                return;
+            }
+
             Plugin.Log.Info("SurgeonGameplaySetupHost: Syncing all enabled channel point rewards...");
 
             try
@@ -928,6 +934,12 @@ namespace BeatSurgeon.UI.Settings
         {
             try
             {
+                if (!TwitchAuthManager.Instance.IsAuthenticated)
+                {
+                    Plugin.Log.Warn("[SurgeonGameplaySetupHost] ToggleCpAsync: not authenticated with BeatSurgeon backend - CP buttons require authentication");
+                    return;
+                }
+
                 var cfg = Plugin.Settings;
                 if (cfg == null) return;
 

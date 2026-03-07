@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeatSurgeon.Twitch;
 using BeatSurgeon.Utils;
+using CP_SDK.Chat.Interfaces;
 using Zenject;
 
 namespace BeatSurgeon.Chat
@@ -32,6 +33,7 @@ namespace BeatSurgeon.Chat
         private readonly int _maxQueuedCommands;
 
         private CancellationTokenSource _cts;
+        private CancellationTokenSource _dispatchCts;  // Separate from IRC - always running
         private Task _receiveTask;
         private Task _commandDispatchTask;
         private TcpClient _tcpClient;
@@ -40,6 +42,7 @@ namespace BeatSurgeon.Chat
         private StreamWriter _writer;
         private string _channelName;
         private int _queuedCommands;
+        private bool _chatPlexAcquired;
 
         internal event Action<ChatContext> OnChatMessageReceived;
         internal event Action<string, int> OnSubscriptionReceived;
@@ -74,6 +77,16 @@ namespace BeatSurgeon.Chat
             _log.Lifecycle("Initialize - subscribing to auth events");
             _authManager.OnAuthReady += StartIrcAsync;
             _authManager.OnTokensUpdated += OnTokensUpdatedHandler;
+
+            // Start the command dispatch loop immediately so ChatPlex commands are
+            // processed even when the user is not authenticated with BeatSurgeon's backend.
+            _dispatchCts = new CancellationTokenSource();
+            _commandDispatchTask = Task.Run(() => CommandDispatchLoopAsync(_dispatchCts.Token), _dispatchCts.Token);
+
+            // Always try to hook ChatPlex so non-authenticated users can still receive
+            // commands and send replies via BSPlus chat integration.
+            TryAcquireChatPlex();
+
             if (_authManager.IsAuthenticated)
             {
                 StartIrcAsync();
@@ -101,9 +114,24 @@ namespace BeatSurgeon.Chat
             _authManager.OnAuthReady -= StartIrcAsync;
             _authManager.OnTokensUpdated -= OnTokensUpdatedHandler;
 
+            if (_chatPlexAcquired)
+            {
+                try
+                {
+                    CP_SDK.Chat.Service.Discrete_OnTextMessageReceived -= OnChatPlexMessageReceived;
+                    CP_SDK.Chat.Service.Release();
+                }
+                catch (Exception ex)
+                {
+                    _log.Exception(ex, "Dispose.ChatPlexRelease");
+                }
+                _chatPlexAcquired = false;
+            }
+
             try
             {
                 _cts?.Cancel();
+                _dispatchCts?.Cancel();
                 _commandQueueSignal.Release();
             }
             catch (Exception ex)
@@ -137,7 +165,64 @@ namespace BeatSurgeon.Chat
 
             _cts = new CancellationTokenSource();
             _receiveTask = Task.Run(() => ConnectLoopAsync(_cts.Token), _cts.Token);
-            _commandDispatchTask = Task.Run(() => CommandDispatchLoopAsync(_cts.Token), _cts.Token);
+            // Note: _commandDispatchTask is started once in Initialize() and runs independently.
+        }
+
+        private void TryAcquireChatPlex()
+        {
+            if (!(PluginConfig.Instance?.AllowChatPlexFallback ?? true))
+            {
+                _log.Info("ChatPlex fallback disabled in settings - skipping");
+                return;
+            }
+
+            try
+            {
+                CP_SDK.Chat.Service.Acquire();
+                CP_SDK.Chat.Service.Discrete_OnTextMessageReceived += OnChatPlexMessageReceived;
+                _chatPlexAcquired = true;
+
+                // If not yet authenticated with BeatSurgeon backend, set ChatPlex as active backend
+                if (!_authManager.IsAuthenticated)
+                    ActiveBackend = ChatBackend.ChatPlex;
+
+                _log.Info("ChatPlex acquired - will be used when IRC is not connected");
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("Failed to acquire ChatPlex: " + ex.Message);
+            }
+        }
+
+        private void OnChatPlexMessageReceived(IChatService service, IChatMessage message)
+        {
+            // Only process via ChatPlex when IRC is not the active backend
+            if (ActiveBackend == ChatBackend.Irc)
+                return;
+
+            if (!ChatEnabled || message == null || message.IsSystemMessage)
+                return;
+
+            var sender = message.Sender;
+            if (sender == null)
+                return;
+
+            var ctx = new ChatContext
+            {
+                SenderName = sender.UserName,
+                MessageText = message.Message,
+                IsModerator = sender.IsModerator,
+                IsSubscriber = sender.IsSubscriber,
+                IsVip = sender.IsVip,
+                IsBroadcaster = sender.IsBroadcaster,
+                Source = ChatSource.ChatPlex,
+                RawService = service,
+                RawMessage = message
+            };
+
+            _log.Info("ChatPlex.MessageReceived user=" + ctx.Username + " cmd=" + ctx.Command);
+            OnChatMessageReceived?.Invoke(ctx);
+            _ = DispatchMessageAsync(ctx, CancellationToken.None);
         }
 
         private async Task ConnectLoopAsync(CancellationToken ct)
@@ -162,6 +247,14 @@ namespace BeatSurgeon.Chat
                 catch (Exception ex)
                 {
                     _log.Exception(ex, "IRC connect/receive loop");
+                }
+
+                // IRC dropped - fall back to ChatPlex while we wait to reconnect
+                if (ActiveBackend == ChatBackend.Irc)
+                {
+                    ActiveBackend = _chatPlexAcquired ? ChatBackend.ChatPlex : ChatBackend.None;
+                    if (ActiveBackend == ChatBackend.ChatPlex)
+                        _log.Info("IRC disconnected - falling back to ChatPlex for incoming messages");
                 }
 
                 if (!ct.IsCancellationRequested)
@@ -499,15 +592,37 @@ namespace BeatSurgeon.Chat
                     }
                 }
 
-                // Fallback to API if IRC failed or not available
-                string broadcasterId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
-                string senderId = _authManager.BotUserId ?? broadcasterId;
-                await _apiClient.SendChatMessageAsync(broadcasterId, senderId, message, ct).ConfigureAwait(false);
-                _log.Debug("Chat message sent via API");
+                // ChatPlex broadcast fallback (works without BeatSurgeon auth)
+                if (_chatPlexAcquired)
+                {
+                    try
+                    {
+                        CP_SDK.Chat.Service.BroadcastMessage(message);
+                        _log.Debug("Chat message sent via ChatPlex");
+                        return;
+                    }
+                    catch (Exception cpEx)
+                    {
+                        _log.Warn("ChatPlex send failed, trying API: " + cpEx.Message);
+                    }
+                }
+
+                // Final fallback: Twitch API (requires BeatSurgeon authentication)
+                if (_authManager.IsAuthenticated)
+                {
+                    string broadcasterId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+                    string senderId = _authManager.BotUserId ?? broadcasterId;
+                    await _apiClient.SendChatMessageAsync(broadcasterId, senderId, message, ct).ConfigureAwait(false);
+                    _log.Debug("Chat message sent via API");
+                }
+                else
+                {
+                    _log.Warn("SendChatMessageAsync: no IRC, no ChatPlex, and not authenticated - message dropped");
+                }
             }
             catch (Exception ex)
             {
-                _log.Exception(ex, "SendChatMessageAsync failed for both IRC and API");
+                _log.Exception(ex, "SendChatMessageAsync failed");
             }
         }
     }

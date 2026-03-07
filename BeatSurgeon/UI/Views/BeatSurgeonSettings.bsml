@@ -134,11 +134,11 @@
 				</modifier-container>
 			</tab>
 
-			<!-- TAB 2: Other  -->
+			<!-- TAB 2: Other -->
 			<tab tab-name="Twitch" tags="saber-surgeon-tabs">
 				<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
 
-					<!-- Twitch Status Display (Read Only) -->
+					<!-- Twitch Status Display (Read Only)-->
 					<horizontal horizontal-fit="PreferredSize" spacing="2">
 						<text text="Twitch:" font-size="5" color="#AAAAAA" align="MidlineLeft"/>
 						<text text="~TwitchStatusText"
