@@ -39,7 +39,7 @@ namespace BeatSurgeon
             !string.IsNullOrEmpty(AccessToken) &&
             TokenExpiry > System.DateTime.UtcNow.AddMinutes(1);
 
-        // --- Commands / Toggles ---
+        // --- Commands / Toggles --- 
         public virtual string BombCommandName { get; set; } = "bomb";
 
         public virtual bool RainbowEnabled { get; set; } = true;

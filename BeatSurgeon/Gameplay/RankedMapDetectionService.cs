@@ -120,41 +120,43 @@ namespace BeatSurgeon.Gameplay
 
             hash = hash.ToLowerInvariant();
 
+            // Compute difficulty/mode first so the cache key is diff-aware.
+            int diffNum = DifficultyToApiNumber(beatmapKey.difficulty);
+            string modeStr = beatmapKey.beatmapCharacteristic?.serializedName ?? "Standard";
+            string cacheKey = hash + "|" + diffNum + "|" + modeStr;
+
             // Cache hit → use immediately without another network round-trip.
-            if (_cache.TryGetValue(hash, out bool cached))
+            if (_cache.TryGetValue(cacheKey, out bool cached))
             {
-                _log.Debug("Cache hit: hash=" + hash + " ranked=" + cached);
+                _log.Debug("Cache hit: hash=" + hash + " diff=" + diffNum + " mode=" + modeStr + " ranked=" + cached);
                 _isRanked = cached;
                 _isChecking = false;
-                _lastCheckedHash = hash;
+                _lastCheckedHash = cacheKey;
                 if (cached) NotifyIfRanked();
                 return;
             }
 
-            // Same hash already in-flight → don't duplicate the work.
-            if (_lastCheckedHash == hash && _isChecking)
+            // Same hash+diff+mode already in-flight → don't duplicate the work.
+            if (_lastCheckedHash == cacheKey && _isChecking)
             {
-                _log.Debug("Already checking hash=" + hash);
+                _log.Debug("Already checking hash=" + hash + " diff=" + diffNum + " mode=" + modeStr);
                 return;
             }
 
-            // Different hash (player changed map) → cancel the old check and start fresh.
+            // Different map/difficulty → cancel the old check and start fresh.
             _checkCts?.Cancel();
             _checkCts = new CancellationTokenSource();
-            _lastCheckedHash = hash;
+            _lastCheckedHash = cacheKey;
             _isChecking = true;
             _isRanked = false;
-
-            int diffNum = DifficultyToApiNumber(beatmapKey.difficulty);
-            string modeStr = beatmapKey.beatmapCharacteristic?.serializedName ?? "Standard";
 
             _log.Info("Starting ranked check: hash=" + hash + " diff=" + diffNum + " mode=" + modeStr);
 
             // Fire-and-forget; CheckRankedAsync updates state when done.
-            _ = CheckRankedAsync(hash, diffNum, modeStr, _checkCts.Token);
+            _ = CheckRankedAsync(hash, diffNum, modeStr, cacheKey, _checkCts.Token);
         }
 
-        private async Task CheckRankedAsync(string hash, int diffNum, string modeStr, CancellationToken ct)
+        private async Task CheckRankedAsync(string hash, int diffNum, string modeStr, string cacheKey, CancellationToken ct)
         {
             bool blRanked = false;
             bool ssRanked = false;
@@ -185,7 +187,7 @@ namespace BeatSurgeon.Gameplay
             bool ranked = blRanked || ssRanked;
             _log.Info("Ranked check complete: hash=" + hash + " BL=" + blRanked + " SS=" + ssRanked + " → ranked=" + ranked);
 
-            _cache[hash] = ranked;
+            _cache[cacheKey] = ranked;
             _isRanked = ranked;
             _isChecking = false;
 
@@ -196,8 +198,9 @@ namespace BeatSurgeon.Gameplay
         {
             try
             {
-                string url = "https://api.beatleader.xyz/v1/leaderboard/hash/" + hash
-                             + "?difficulty=" + diffNum + "&mode=" + modeStr;
+                // BeatLeader API requires uppercase hash and path-segment parameters (no /v1/ prefix).
+                string url = "https://api.beatleader.com/leaderboard/hash/" + hash.ToUpperInvariant()
+                             + "/" + diffNum + "/" + modeStr;
 
                 HttpResponseMessage response = await _http.GetAsync(url, ct).ConfigureAwait(false);
                 string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
