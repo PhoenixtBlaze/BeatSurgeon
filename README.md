@@ -282,7 +282,7 @@ Thank you for helping me keep the lights on and the sabers swinging!
 
 ## Version History
 
-**v1.0.0** (Current)
+*   **v1.0.0** (Current)
     *   **Major Update:** Reworked almost the entire mod architecture (chat/backend/Twitch systems) for stability and long-term maintainability.
     *   **Performance Fix:** Full performance pass to reduce/remove frame-drop issues during gameplay.
     *   **New Feature:** Added modular command-processor pipeline for gameplay effects and moderation handling.
