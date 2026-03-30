@@ -26,9 +26,10 @@ namespace BeatSurgeon.Gameplay
         };
 
         // Lightweight JSON presence checks (no JSON library dependency).
-        // BeatLeader ranked status == 3
+        // BeatLeader: prefer checking `rankedTime` (non-zero means ranked).
+        // Keep a fallback to older `status` values in case API varies.
         private static readonly Regex _blRankedRegex =
-            new Regex("\"status\"\\s*:\\s*3", RegexOptions.Compiled);
+            new Regex("\"rankedTime\"\\s*:\\s*(?!0)\\d+", RegexOptions.Compiled | RegexOptions.Singleline);
         // ScoreSaber "ranked":true
         private static readonly Regex _ssRankedRegex =
             new Regex("\"ranked\"\\s*:\\s*true", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -198,19 +199,45 @@ namespace BeatSurgeon.Gameplay
         {
             try
             {
-                // BeatLeader API requires uppercase hash and path-segment parameters (no /v1/ prefix).
-                string url = "https://api.beatleader.com/leaderboard/hash/" + hash.ToUpperInvariant()
-                             + "/" + diffNum + "/" + modeStr;
+                // Map numeric diff (used for caching) back to the API difficulty name.
+                string diffName;
+                switch (diffNum)
+                {
+                    case 1: diffName = "Easy"; break;
+                    case 3: diffName = "Normal"; break;
+                    case 5: diffName = "Hard"; break;
+                    case 7: diffName = "Expert"; break;
+                    case 9: diffName = "ExpertPlus"; break;
+                    default: diffName = "Expert"; break;
+                }
+
+                // Query leaderboards filtered by hash, difficulty name and mode.
+                string url = "https://api.beatleader.xyz/leaderboards?hash=" + Uri.EscapeDataString(hash)
+                             + "&difficulty=" + Uri.EscapeDataString(diffName)
+                             + "&mode=" + Uri.EscapeDataString(modeStr ?? "Standard");
 
                 HttpResponseMessage response = await _http.GetAsync(url, ct).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode) return false;
+
                 string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                bool ranked = _blRankedRegex.IsMatch(json);
+
+                // Check for any non-zero rankedTime anywhere in the response.
+                var rankedTimePattern = new Regex("\"rankedTime\"\\s*:\\s*(\\d+)", RegexOptions.Compiled);
+                var m = rankedTimePattern.Match(json);
+                if (m.Success && long.TryParse(m.Groups[1].Value, out long rt) && rt > 0)
+                {
+                    _log.Debug("BeatLeader: hash=" + hash + " ranked=true (rankedTime=" + rt + ")");
+                    return true;
+                }
+
+                // Last-resort fallback: older API exposures used a `status` numeric.
+                var statusFallback = new Regex("\"status\"\\s*:\\s*(3|7)", RegexOptions.Compiled);
+                bool ranked = statusFallback.IsMatch(json);
                 _log.Debug("BeatLeader: hash=" + hash + " ranked=" + ranked);
                 return ranked;
             }
             catch (Exception ex)
             {
-                // Fail-open: network error / 404 / timeout / cancellation → treat as unranked.
                 _log.Warn("BeatLeader check failed for hash=" + hash + ": " + ex.Message);
                 return false;
             }
@@ -245,7 +272,7 @@ namespace BeatSurgeon.Gameplay
                 if (PluginConfig.Instance?.NotifyOnRankedDisable == true)
                 {
                     ChatManager.GetInstance()?.SendChatMessage(
-                        "BeatSurgeon: Ranked map detected — all commands and channel points are disabled.");
+                        "!BeatSurgeon: Ranked map detected — all commands and channel points are disabled.");
                 }
             }
             catch { }
