@@ -2,6 +2,8 @@ using System;
 using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Text.RegularExpressions;
+using Newtonsoft.Json.Linq;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BeatSurgeon.Chat;
@@ -221,20 +223,76 @@ namespace BeatSurgeon.Gameplay
 
                 string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-                // Check for any non-zero rankedTime anywhere in the response.
-                var rankedTimePattern = new Regex("\"rankedTime\"\\s*:\\s*(\\d+)", RegexOptions.Compiled);
-                var m = rankedTimePattern.Match(json);
-                if (m.Success && long.TryParse(m.Groups[1].Value, out long rt) && rt > 0)
+                try
                 {
-                    _log.Debug("BeatLeader: hash=" + hash + " ranked=true (rankedTime=" + rt + ")");
-                    return true;
+                    var root = JToken.Parse(json);
+                    IEnumerable<JToken> entries;
+                    if (root.Type == JTokenType.Object && root["data"] != null)
+                    {
+                        entries = root["data"].Children();
+                    }
+                    else if (root.Type == JTokenType.Array)
+                    {
+                        entries = root.Children();
+                    }
+                    else
+                    {
+                        entries = new JToken[0];
+                    }
+
+                    foreach (var e in entries)
+                    {
+                        // Mode check (if present)
+                        string entryMode = e["modeName"]?.Value<string>() ?? e["mode"]?.Value<string>() ?? e["gameMode"]?.Value<string>();
+                        if (!string.IsNullOrEmpty(entryMode) && !string.Equals(entryMode, modeStr ?? "Standard", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        // Difficulty match check
+                        bool diffMatches = false;
+                        var diffObj = e["difficulty"] ?? e["diff"];
+                        if (diffObj != null)
+                        {
+                            int? val = diffObj["value"]?.Value<int?>();
+                            if (val.HasValue && val.Value == diffNum) diffMatches = true;
+                            string name = diffObj["name"]?.Value<string>() ?? diffObj["difficulty"]?.Value<string>();
+                            if (!diffMatches && !string.IsNullOrEmpty(name) && string.Equals(name, diffName, StringComparison.OrdinalIgnoreCase)) diffMatches = true;
+                        }
+
+                        // Some responses use top-level difficultyName
+                        if (!diffMatches)
+                        {
+                            string topDiff = e["difficultyName"]?.Value<string>() ?? e["difficultyString"]?.Value<string>();
+                            if (!string.IsNullOrEmpty(topDiff) && string.Equals(topDiff, diffName, StringComparison.OrdinalIgnoreCase)) diffMatches = true;
+                        }
+
+                        if (!diffMatches) continue;
+
+                        // rankedTime may be on the entry or inside difficulty
+                        long? rt = e["rankedTime"]?.Value<long?>() ?? diffObj?["rankedTime"]?.Value<long?>();
+                        if (rt.HasValue && rt.Value > 0)
+                        {
+                            _log.Debug("BeatLeader: hash=" + hash + " ranked=true (rankedTime=" + rt + ")");
+                            return true;
+                        }
+
+                        int? status = e["status"]?.Value<int?>() ?? diffObj?["status"]?.Value<int?>();
+                        if (status.HasValue && status.Value == 3)
+                        {
+                            _log.Debug("BeatLeader: hash=" + hash + " ranked=true (status=" + status + ")");
+                            return true;
+                        }
+                    }
+                }
+                catch (Exception parseEx)
+                {
+                    _log.Debug("BeatLeader: JSON parse failed: " + parseEx.Message);
+                    // fall through to conservative fallback below
                 }
 
-                // Last-resort fallback: older API exposures used a `status` numeric.
-                var statusFallback = new Regex("\"status\"\\s*:\\s*(3|7)", RegexOptions.Compiled);
-                bool ranked = statusFallback.IsMatch(json);
-                _log.Debug("BeatLeader: hash=" + hash + " ranked=" + ranked);
-                return ranked;
+                _log.Debug("BeatLeader: hash=" + hash + " ranked=false");
+                return false;
             }
             catch (Exception ex)
             {
