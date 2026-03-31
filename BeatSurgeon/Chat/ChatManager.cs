@@ -93,18 +93,47 @@ namespace BeatSurgeon.Chat
             }
         }
 
-        private void OnTokensUpdatedHandler()
+        private async void OnTokensUpdatedHandler()
         {
             _log.Auth("OnTokensUpdated - restarting IRC to use fresh token");
-            // Cancel the current receive loop so it reconnects with the new token
+
             try
             {
-                _cts?.Cancel();
+                // Request cancellation of the current receive loop if any
+                CancellationTokenSource oldCts = null;
+                Task oldReceiveTask = null;
+                lock (this)
+                {
+                    oldCts = _cts;
+                    oldReceiveTask = _receiveTask;
+                }
+
+                try
+                {
+                    oldCts?.Cancel();
+                }
+                catch (Exception) { }
+
+                // If there was a running receive task, wait for it to finish to avoid
+                // racing disposal of the underlying streams with a new connection attempt.
+                if (oldReceiveTask != null)
+                {
+                    try
+                    {
+                        await oldReceiveTask.ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Exception(ex, "OnTokensUpdatedHandler.awaitReceiveTask");
+                    }
+                }
+
+                // Start a fresh IRC connect loop
                 StartIrcAsync();
             }
             catch (Exception ex)
             {
-                _log.Exception(ex, "OnTokensUpdatedHandler.Cancel");
+                _log.Exception(ex, "OnTokensUpdatedHandler");
             }
         }
 
