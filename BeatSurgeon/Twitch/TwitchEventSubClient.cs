@@ -74,7 +74,14 @@ namespace BeatSurgeon.Twitch
 
             if (PluginConfig.Instance != null && PluginConfig.Instance.HasValidToken)
             {
-                StartReceiveLoop();
+                if (HasConfiguredRewardSubscriptions())
+                {
+                    StartReceiveLoop();
+                }
+                else
+                {
+                    _log.TwitchState("DeferredConnect", "WaitingForRewardSubscriptions");
+                }
             }
             else
             {
@@ -117,6 +124,12 @@ namespace BeatSurgeon.Twitch
 
         private void HandleAuthReady()
         {
+            if (!HasConfiguredRewardSubscriptions())
+            {
+                _log.TwitchState("AuthReady", "NoRewardSubscriptionsConfigured");
+                return;
+            }
+
             _log.TwitchState("AuthReady", "Starting EventSub receive loop");
             StartReceiveLoop();
         }
@@ -179,8 +192,9 @@ namespace BeatSurgeon.Twitch
 
                 if (string.IsNullOrWhiteSpace(CurrentSessionId))
                 {
-                    _log.EventSub(rewardId, "NoSessionYet - queued for subscription after session_welcome");
                     _pendingRewardIds.Add(rewardId);
+                    _log.EventSub(rewardId, "NoSessionYet - queued for subscription after session_welcome");
+                    StartReceiveLoop();
                     return;
                 }
 
@@ -287,12 +301,17 @@ namespace BeatSurgeon.Twitch
                             if (result.MessageType == WebSocketMessageType.Close)
                             {
                                 _log.TwitchState("WebSocket.CloseReceived", "Status=" + result.CloseStatus + " Desc=" + result.CloseStatusDescription);
-                                return;
+                                break;
                             }
 
                             messageBuilder.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
                         }
                         while (!result.EndOfMessage);
+
+                        if (result.MessageType == WebSocketMessageType.Close)
+                        {
+                            break;
+                        }
                     }
                     catch (WebSocketException wsEx)
                     {
@@ -318,7 +337,27 @@ namespace BeatSurgeon.Twitch
                 _isConnected = false;
             }
 
+            CurrentSessionId = null;
+
             _log.TwitchState("WebSocket.Disconnected", "State=Closed");
+        }
+
+        private static bool HasConfiguredRewardSubscriptions()
+        {
+            PluginConfig cfg = PluginConfig.Instance;
+            if (cfg == null)
+            {
+                return false;
+            }
+
+            return (cfg.CpRainbowEnabled && !string.IsNullOrWhiteSpace(cfg.CpRainbowRewardId))
+                || (cfg.CpDisappearEnabled && !string.IsNullOrWhiteSpace(cfg.CpDisappearRewardId))
+                || (cfg.CpGhostEnabled && !string.IsNullOrWhiteSpace(cfg.CpGhostRewardId))
+                || (cfg.CpBombEnabled && !string.IsNullOrWhiteSpace(cfg.CpBombRewardId))
+                || (cfg.CpFasterEnabled && !string.IsNullOrWhiteSpace(cfg.CpFasterRewardId))
+                || (cfg.CpSuperFastEnabled && !string.IsNullOrWhiteSpace(cfg.CpSuperFastRewardId))
+                || (cfg.CpSlowerEnabled && !string.IsNullOrWhiteSpace(cfg.CpSlowerRewardId))
+                || (cfg.CpFlashbangEnabled && !string.IsNullOrWhiteSpace(cfg.CpFlashbangRewardId));
         }
 
         private async Task ProcessMessageAsync(string message, CancellationToken ct)

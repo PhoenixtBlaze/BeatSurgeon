@@ -31,6 +31,7 @@ namespace BeatSurgeon.Chat
         private readonly SemaphoreSlim _commandQueueSignal;
         private readonly TimeSpan _commandDispatchInterval;
         private readonly int _maxQueuedCommands;
+        private readonly object _ircStateLock = new object();
 
         private CancellationTokenSource _cts;
         private CancellationTokenSource _dispatchCts;  // Separate from IRC - always running
@@ -102,7 +103,7 @@ namespace BeatSurgeon.Chat
                 // Request cancellation of the current receive loop if any
                 CancellationTokenSource oldCts = null;
                 Task oldReceiveTask = null;
-                lock (this)
+                lock (_ircStateLock)
                 {
                     oldCts = _cts;
                     oldReceiveTask = _receiveTask;
@@ -187,13 +188,16 @@ namespace BeatSurgeon.Chat
 
         private void StartIrcAsync()
         {
-            if (_cts != null && !_cts.IsCancellationRequested)
+            lock (_ircStateLock)
             {
-                return;
-            }
+                if (_cts != null && !_cts.IsCancellationRequested)
+                {
+                    return;
+                }
 
-            _cts = new CancellationTokenSource();
-            _receiveTask = Task.Run(() => ConnectLoopAsync(_cts.Token), _cts.Token);
+                _cts = new CancellationTokenSource();
+                _receiveTask = Task.Run(() => ConnectLoopAsync(_cts.Token), _cts.Token);
+            }
             // Note: _commandDispatchTask is started once in Initialize() and runs independently.
         }
 
@@ -270,6 +274,14 @@ namespace BeatSurgeon.Chat
                     await ReceiveLoopAsync(ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (ObjectDisposedException) when (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (IOException) when (ct.IsCancellationRequested)
                 {
                     break;
                 }

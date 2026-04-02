@@ -850,11 +850,6 @@ namespace BeatSurgeon.UI.Controllers
             await Task.Delay(1000);
 
             RefreshTwitchStatusText();
-
-            // Restart chat so it can pick up CachedBroadcasterId and use native WS
-            var chatManager = ChatManager.GetInstance();
-            chatManager.Shutdown();
-            chatManager.Initialize();
         }
 
 

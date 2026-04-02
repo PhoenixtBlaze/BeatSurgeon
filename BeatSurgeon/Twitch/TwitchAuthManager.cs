@@ -62,14 +62,48 @@ namespace BeatSurgeon.Twitch
             LoadTokens();
             RestoreIdentityFromCache();
 
-            if (PluginConfig.Instance.HasValidToken)
+            // Run startup auth bootstrap asynchronously so plugin initialization stays fast.
+            // Retry briefly to survive BSIPA config rewrite races after PluginConfig schema changes,
+            // then fall back to refresh-token bootstrap when the access token expired overnight.
+            _ = Task.Run(async () =>
             {
-                _log.Auth("ValidTokenFound - scheduling proactive refresh");
-                ScheduleProactiveRefresh();
-                _ = Task.Run(async () =>
+                try
                 {
-                    try
+                    for (int attempt = 0; attempt < 5; attempt++)
                     {
+                        if (PluginConfig.Instance.HasValidToken)
+                        {
+                            break;
+                        }
+
+                        if (string.IsNullOrWhiteSpace(PluginConfig.Instance?.EncryptedAccessToken))
+                        {
+                            break;
+                        }
+
+                        _log.Auth($"Config not ready yet (attempt {attempt + 1}/5) - retrying in 200 ms...");
+                        await Task.Delay(200).ConfigureAwait(false);
+                        LoadTokens();
+                        RestoreIdentityFromCache();
+                    }
+
+                    if (!PluginConfig.Instance.HasValidToken && !string.IsNullOrWhiteSpace(_refreshToken))
+                    {
+                        _log.Auth("StartupRefresh", "Access token missing or expired - refreshing from saved refresh token");
+                        try
+                        {
+                            await RefreshTokenAsync(CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.Exception(ex, "StartupRefresh");
+                        }
+                    }
+
+                    if (PluginConfig.Instance.HasValidToken)
+                    {
+                        _log.Auth("ValidTokenFound - scheduling proactive refresh");
+                        ScheduleProactiveRefresh();
                         await ValidateTokenAsync(CancellationToken.None).ConfigureAwait(false);
                         if (!IsReauthRequired)
                         {
@@ -77,16 +111,16 @@ namespace BeatSurgeon.Twitch
                             RaiseAuthReadyIfPossible();
                         }
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        _log.Exception(ex, "Initialize identity bootstrap");
+                        _log.Auth("NoValidToken - OAuth flow will be triggered on first Twitch operation");
                     }
-                });
-            }
-            else
-            {
-                _log.Auth("NoValidToken - OAuth flow will be triggered on first Twitch operation");
-            }
+                }
+                catch (Exception ex)
+                {
+                    _log.Exception(ex, "Initialize bootstrap");
+                }
+            });
         }
 
         public void Dispose()
@@ -546,6 +580,7 @@ namespace BeatSurgeon.Twitch
                             string login = json["login"]?.ToString() ?? "(unknown)";
                             int scopeCount = (json["scopes"] as JArray)?.Count ?? 0;
                             _log.Auth("StartupTokenValidation", "OK login=" + login + " scopes=" + scopeCount);
+                            ClearTwitchReauthRequired();
                         }
                         else
                         {
