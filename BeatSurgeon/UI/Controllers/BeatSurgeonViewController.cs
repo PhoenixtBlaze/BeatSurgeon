@@ -120,6 +120,7 @@ namespace BeatSurgeon.UI.Controllers
         public static BeatSurgeonViewController ActiveInstance { get; private set; }
 
 
+
         private string _twitchChannel = string.Empty;
         private string _twitchStatusText = "<color=#FF4444>Not connected</color>";
 
@@ -355,6 +356,20 @@ namespace BeatSurgeon.UI.Controllers
                 if (Plugin.Settings != null)
                     Plugin.Settings.DisableOnRankedBL = value;
                 NotifyPropertyChanged(nameof(RankedBL));
+            }
+        }
+
+        [UIValue("multiplayerEnable")]
+        public bool MultiplayerEnable
+        {
+            get => Plugin.Settings?.MultiplayerEffectsEnabled ?? true;
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.MultiplayerEffectsEnabled = value;
+                NotifyPropertyChanged(nameof(MultiplayerEnable));
+                global::BeatSurgeon.MultiplayerRoomSyncClient.RefreshConnectionState();
+                LogUtils.Debug(() => $"BeatSurgeon: Multiplayer effects enabled = {value}");
             }
         }
 
@@ -758,12 +773,104 @@ namespace BeatSurgeon.UI.Controllers
 
 
 
+        // ── Supporter Tab ──────────────────────────────────────────
 
+        [UIValue("BitEffectEnabled")]
+        public bool BitEffectEnabled
+        {
+            get => PluginConfig.Instance.BitEffectEnabled;
+            set => PluginConfig.Instance.BitEffectEnabled = value;
+        }
 
+        [UIAction("OnBitEffectChanged")]
+        private void OnBitEffectChanged(bool value)
+        {
+            PluginConfig.Instance.BitEffectEnabled = value;
+        }
+
+        [UIValue("SubEffectsEnabled")]
+        public bool SubEffectsEnabled
+        {
+            get => PluginConfig.Instance.SubEffectsEnabled;
+            set => PluginConfig.Instance.SubEffectsEnabled = value;
+        }
+
+        [UIAction("OnSubEffectsChanged")]
+        private void OnSubEffectsChanged(bool value)
+        {
+            PluginConfig.Instance.SubEffectsEnabled = value;
+        }
+
+        [UIValue("FollowEffectsEnabled")]
+        public bool FollowEffectsEnabled
+        {
+            get => PluginConfig.Instance.FollowEffectsEnabled;
+            set => PluginConfig.Instance.FollowEffectsEnabled = value;
+        }
+
+        [UIAction("OnFollowEffectsChanged")]
+        private void OnFollowEffectsChanged(bool value)
+        {
+            PluginConfig.Instance.FollowEffectsEnabled = value;
+        }
 
 
 
         // --- Twitch Integration Section ---
+
+        [UIValue("AllowEveryoneCommands")]
+        public bool AllowEveryoneCommands
+        {
+            get => Plugin.Settings?.AllowEveryoneCommands ?? true;
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.AllowEveryoneCommands = value;
+                NotifyPropertyChanged(nameof(AllowEveryoneCommands));
+            }
+        }
+
+        [UIAction("OnAllowEveryoneChanged")]
+        private void OnAllowEveryoneChanged(bool value)
+        {
+            AllowEveryoneCommands = value;
+        }
+
+        [UIValue("AllowVIPCommands")]
+        public bool AllowVIPCommands
+        {
+            get => Plugin.Settings?.AllowVIPCommands ?? false;
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.AllowVIPCommands = value;
+                NotifyPropertyChanged(nameof(AllowVIPCommands));
+            }
+        }
+
+        [UIAction("OnAllowVIPChanged")]
+        private void OnAllowVIPChanged(bool value)
+        {
+            AllowVIPCommands = value;
+        }
+
+        [UIValue("AllowSubscriberCommands")]
+        public bool AllowSubscriberCommands
+        {
+            get => Plugin.Settings?.AllowSubscriberCommands ?? false;
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.AllowSubscriberCommands = value;
+                NotifyPropertyChanged(nameof(AllowSubscriberCommands));
+            }
+        }
+
+        [UIAction("OnAllowSubscriberChanged")]
+        private void OnAllowSubscriberChanged(bool value)
+        {
+            AllowSubscriberCommands = value;
+        }
 
         [UIValue("TwitchStatusText")]
         public string TwitchStatusText

@@ -27,6 +27,7 @@ namespace BeatSurgeon.Gameplay
         internal static TMP_FontAsset BombUsernameFont { get; private set; }
 
         private static Task _loadTask;
+        private static readonly object _loadTaskLock = new object();
         private static AssetBundle _bundle;
         private static readonly Dictionary<string, TMP_FontAsset> _fontsByName = new Dictionary<string, TMP_FontAsset>(StringComparer.Ordinal);
         private static readonly List<string> _fontOptions = new List<string>();
@@ -35,6 +36,8 @@ namespace BeatSurgeon.Gameplay
         private static Shader _safeTmpShader;
 
         internal static void EnsureFontsDirExists() => Directory.CreateDirectory(FontsDir);
+
+    internal static bool IsBombFontReady => BombUsernameFont != null;
 
         internal static void CopyBundleFromPluginFolderIfMissing()
         {
@@ -58,8 +61,64 @@ namespace BeatSurgeon.Gameplay
 
         internal static Task EnsureLoadedAsync()
         {
-            if (_loadTask == null) _loadTask = LoadAsync();
-            return _loadTask;
+            lock (_loadTaskLock)
+            {
+                if (_loadTask == null || _loadTask.IsCanceled || _loadTask.IsFaulted)
+                {
+                    _loadTask = LoadAsync();
+                }
+
+                return _loadTask;
+            }
+        }
+
+        internal static void StartPreload()
+        {
+            CopyBundleFromPluginFolderIfMissing();
+            Task preloadTask = EnsureLoadedAsync();
+            if (!preloadTask.IsCompleted)
+            {
+                BeatSurgeon.LogUtils.Debug(() => "FontBundleLoader: Startup preload scheduled");
+            }
+        }
+
+        internal static async Task EnsureBombFontReadyAsync()
+        {
+            if (BombUsernameFont != null)
+            {
+                return;
+            }
+
+            Task loadTask = null;
+            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                .StartNew(() =>
+                {
+                    if (BombUsernameFont != null)
+                    {
+                        return;
+                    }
+
+                    CopyBundleFromPluginFolderIfMissing();
+                    loadTask = EnsureLoadedAsync();
+                })
+                .ConfigureAwait(false);
+
+            if (loadTask == null)
+            {
+                return;
+            }
+
+            if (!loadTask.IsCompleted)
+            {
+                BeatSurgeon.Plugin.Log.Info("FontBundleLoader: Waiting for bomb font preload to complete");
+            }
+
+            await loadTask.ConfigureAwait(false);
+
+            if (BombUsernameFont == null)
+            {
+                BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: Bomb font load completed without a usable font asset");
+            }
         }
 
         internal static IReadOnlyList<string> GetBombFontOptions()
@@ -101,76 +160,81 @@ namespace BeatSurgeon.Gameplay
 
         private static async Task LoadAsync()
         {
-            EnsureFontsDirExists();
-            BombUsernameFont = null;
-            _fontsByName.Clear();
-            _fontOptions.Clear();
-            _fontOptions.Add(DefaultSelectionValue);
-
-            // Find a safe shader from the game to fix Single Pass Instanced issues
-            _safeTmpShader = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(s => s.name.Contains("TextMeshPro/Distance Field"));
-            if (_safeTmpShader == null) _safeTmpShader = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(s => s.name.Contains("Distance Field"));
-
-            if (!File.Exists(BundlePath))
+            try
             {
-                BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Missing bundle '{BundlePath}'");
-                return;
-            }
+                EnsureFontsDirExists();
+                BombUsernameFont = null;
+                _fontsByName.Clear();
+                _fontOptions.Clear();
+                _fontOptions.Add(DefaultSelectionValue);
 
-            if (_bundle == null) _bundle = await ABTAssetBundleExtensions.LoadFromFileAsync(BundlePath);
-            if (_bundle == null)
-            {
-                BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Failed to load AssetBundle '{BundlePath}'");
-                return;
-            }
+                // Find a safe shader from the game to fix Single Pass Instanced issues
+                _safeTmpShader = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(s => s.name.Contains("TextMeshPro/Distance Field"));
+                if (_safeTmpShader == null) _safeTmpShader = Resources.FindObjectsOfTypeAll<Shader>().FirstOrDefault(s => s.name.Contains("Distance Field"));
 
-            TMP_FontAsset[] fonts = _bundle.LoadAllAssets<TMP_FontAsset>();
-            if (fonts == null || fonts.Length == 0)
-            {
-                BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: No TMP_FontAsset found in bundle");
-                return;
-            }
-
-            int successCount = 0;
-            foreach (var font in fonts.Where(f => f != null))
-            {
-                if (font.atlasTexture == null)
+                if (!File.Exists(BundlePath))
                 {
-                    BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Font '{font.name}' has no atlasTexture, skipping");
-                    continue;
+                    BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Missing bundle '{BundlePath}'");
+                    return;
                 }
 
-                // *** NEW: Get or create material (works for both old and new versions) ***
-                Material fontMaterial = GetOrCreateFontMaterial(font);
-
-                if (fontMaterial == null)
+                if (_bundle == null) _bundle = await ABTAssetBundleExtensions.LoadFromFileAsync(BundlePath);
+                if (_bundle == null)
                 {
-                    BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Font '{font.name}' - could not get/create material, skipping");
-                    continue;
+                    BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Failed to load AssetBundle '{BundlePath}'");
+                    return;
                 }
 
-                // Ensure texture is assigned
-                if (fontMaterial.mainTexture == null)
-                    fontMaterial.mainTexture = font.atlasTexture;
-
-                // *** CRITICAL: Replace shader with the game's safe shader ***
-                if (_safeTmpShader != null)
-                    fontMaterial.shader = _safeTmpShader;
-                else
-                    BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: Could not find safe TMP shader! Text might render in one eye only.");
-
-                _fontsByName[font.name] = font;
-                if (!string.Equals(font.name, DefaultFontAssetName, StringComparison.OrdinalIgnoreCase))
+                TMP_FontAsset[] fonts = _bundle.LoadAllAssets<TMP_FontAsset>();
+                if (fonts == null || fonts.Length == 0)
                 {
-                    if (!_fontOptions.Contains(font.name)) _fontOptions.Add(font.name);
+                    BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: No TMP_FontAsset found in bundle");
+                    return;
                 }
-                successCount++;
-                BeatSurgeon.Plugin.Log.Debug($"FontBundleLoader: Successfully loaded font '{font.name}'");
+
+                int successCount = 0;
+                foreach (var font in fonts.Where(f => f != null))
+                {
+                    if (font.atlasTexture == null)
+                    {
+                        BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Font '{font.name}' has no atlasTexture, skipping");
+                        continue;
+                    }
+
+                    Material fontMaterial = GetOrCreateFontMaterial(font);
+
+                    if (fontMaterial == null)
+                    {
+                        BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Font '{font.name}' - could not get/create material, skipping");
+                        continue;
+                    }
+
+                    if (fontMaterial.mainTexture == null)
+                        fontMaterial.mainTexture = font.atlasTexture;
+
+                    if (_safeTmpShader != null)
+                        fontMaterial.shader = _safeTmpShader;
+                    else
+                        BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: Could not find safe TMP shader! Text might render in one eye only.");
+
+                    _fontsByName[font.name] = font;
+                    if (!string.Equals(font.name, DefaultFontAssetName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!_fontOptions.Contains(font.name)) _fontOptions.Add(font.name);
+                    }
+                    successCount++;
+                    BeatSurgeon.Plugin.Log.Debug($"FontBundleLoader: Successfully loaded font '{font.name}'");
+                }
+
+                BeatSurgeon.LogUtils.Debug(() => $"FontBundleLoader: Loaded {successCount}/{fonts.Length} fonts from bundle");
+                BeatSurgeon.LogUtils.Debug(() => $"FontBundleLoader: Available fonts: {string.Join(", ", _fontOptions.Where(x => x != DefaultSelectionValue))}");
+                ApplySelectionFromConfig();
             }
-
-            BeatSurgeon.LogUtils.Debug(() => $"FontBundleLoader: Loaded {successCount}/{fonts.Length} fonts from bundle");
-            BeatSurgeon.LogUtils.Debug(() => $"FontBundleLoader: Available fonts: {string.Join(", ", _fontOptions.Where(x => x != DefaultSelectionValue))}");
-            ApplySelectionFromConfig();
+            catch (Exception ex)
+            {
+                BombUsernameFont = null;
+                BeatSurgeon.Plugin.Log.Error("FontBundleLoader: Unexpected load failure: " + ex);
+            }
         }
 
         /// <summary>

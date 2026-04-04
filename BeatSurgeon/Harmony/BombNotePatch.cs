@@ -22,22 +22,10 @@ namespace BeatSurgeon.HarmonyPatches
         private static readonly LogUtil _log = LogUtil.GetLogger("BombNotePatch");
         private static BombNoteController _bombPrefab;
 
-        private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
-        private static readonly int TintColorId = Shader.PropertyToID("_TintColor");
-        private static readonly int EmissionColorId = Shader.PropertyToID("_EmissionColor");
-
-        // MPB coloring (NO per-renderer material allocations)
-        private static readonly MaterialPropertyBlock _mpb = new MaterialPropertyBlock();
-        private static readonly int ColorId = Shader.PropertyToID("_Color");
-        private static readonly int SimpleColorId = Shader.PropertyToID("_SimpleColor");
-
         // Reflection caches (avoid AccessTools.Field per note init)
         private static FieldInfo _noteColorField;
         private static FieldInfo _colorManagerField;
         private static MethodInfo _colorForTypeMethod;
-
-        // Sphere fallback: keep a single shared material, use MPB for color
-        private static Material _sphereSharedMaterial;
 
         private static void Postfix(ColorNoteVisuals __instance, NoteControllerBase noteController)
         {
@@ -48,13 +36,13 @@ namespace BeatSurgeon.HarmonyPatches
                     return;
 
             var noteData = noteController?.noteData;
-            if (noteData == null || noteData.colorType == ColorType.None)
+            if (!BombManager.IsEligibleBombNote(noteData))
                 return;
 
-            var gameNote = __instance.GetComponentInParent<GameNoteController>();
+            var gameNote = noteController as GameNoteController ?? __instance.GetComponentInParent<GameNoteController>();
             if (gameNote == null)
             {
-                LogUtils.Warn("BombNotePatch: No GameNoteController parent found");
+                LogUtils.Warn("BombNotePatch: No GameNoteController found for noteController type '" + (noteController != null ? noteController.GetType().Name : "<null>") + "'");
                 return;
             }
 
@@ -63,18 +51,37 @@ namespace BeatSurgeon.HarmonyPatches
                 $"cutDir={noteData.cutDirection}, obj='{gameNote.name}', layer={gameNote.gameObject.layer}"
             );
 
-            
+            if (!TryMarkAndApplyBombVisual(gameNote, __instance, noteData, "init"))
+                return;
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "Postfix");
+            }
+        }
+
+        internal static bool TryMarkAndApplyBombVisual(GameNoteController gameNote, ColorNoteVisuals visuals, NoteData noteData, string trigger)
+        {
+            if (gameNote == null || !BombManager.IsEligibleBombNote(noteData))
+            {
+                return false;
+            }
+
             CacheBombPrefabIfNeeded();
-            
 
             bool isBomb = BombManager.Instance.MarkNoteAsBomb(noteData);
             if (!isBomb)
-                return;
+            {
+                return false;
+            }
 
-            Color noteColor = TryGetNoteColor(__instance, noteData.colorType);
+            LogUtils.Debug(() => $"BombNotePatch: Marked note via {trigger} at {noteData.time:F3}");
+
+            Color noteColor = visuals != null
+                ? TryGetNoteColor(visuals, noteData.colorType)
+                : Color.magenta;
 
             CacheAndDisableNoteCube(gameNote, out var cubeMr, out var circleMr, out var cubeWasEnabled, out var circleWasEnabled);
-
 
             // Rent pooled bomb visual and cache the exact instance
             int noteLayer = gameNote.gameObject.layer;
@@ -91,21 +98,17 @@ namespace BeatSurgeon.HarmonyPatches
                 LogUtils.Warn("BombNotePatch: Failed to start watchdog: " + ex.Message);
             }
 
+            // Give BombManager everything it needs to clear without Find()
+            BombManager.Instance.RegisterBombVisual(
+                gameNote,
+                visualInst,
+                cubeMr,
+                circleMr,
+                cubeWasEnabled,
+                circleWasEnabled
+            );
 
-                // Give BombManager everything it needs to clear without Find()
-                BombManager.Instance.RegisterBombVisual(
-                    gameNote,
-                    visualInst,
-                    cubeMr,
-                    circleMr,
-                    cubeWasEnabled,
-                    circleWasEnabled
-                );
-            }
-            catch (Exception ex)
-            {
-                _log.Exception(ex, "Postfix");
-            }
+            return true;
         }
 
         private static void CacheBombPrefabIfNeeded()
@@ -214,104 +217,47 @@ namespace BeatSurgeon.HarmonyPatches
         }
 
 
-        private static void DisableNoteCubeOnly(GameNoteController gameNote)
+    }
+
+    [HarmonyPatch(typeof(BeatmapObjectManager), "HandleNoteControllerNoteDidStartJump")]
+    internal static class BombLateStartJumpPatch
+    {
+        private static void Prefix(NoteController noteController)
+        {
+            try
             {
-                // Always log entry so the logs prove this method is actually running
-                LogUtils.Debug(() => $"BombNotePatch: DisableNoteCubeOnly called for '{gameNote.name}'");
-
-                // Find NoteCube at ANY depth (Transform.Find("NoteCube") only checks direct children)
-                var noteCube = gameNote.GetComponentsInChildren<Transform>(true)
-                    .FirstOrDefault(t => t.name == "NoteCube");
-
-                if (noteCube == null)
+                if (!BombManager.IsBombWindowActive)
                 {
-                    LogUtils.Warn($"BombNotePatch: NoteCube not found under '{gameNote.name}'");
                     return;
                 }
 
-                // Disable the main cube body renderer (either on NoteCube or inside it)
-                var cubeRenderer =
-                    noteCube.GetComponent<MeshRenderer>() ??
-                    noteCube.GetComponentInChildren<MeshRenderer>(true);
-
-                if (cubeRenderer != null)
+                var noteData = noteController?.noteData;
+                if (!BombManager.IsEligibleBombNote(noteData))
                 {
-                    cubeRenderer.enabled = false;
-                    LogUtils.Debug(() => "BombNotePatch: Disabled NoteCube renderer (keeping arrows visible)");
-                }
-                else
-                {
-                    LogUtils.Warn("BombNotePatch: NoteCube found, but no MeshRenderer found on it or its children");
+                    return;
                 }
 
-                // Disable dot-circle if present (same “any depth” approach)
-                var circle = noteCube.GetComponentsInChildren<Transform>(true)
-                    .FirstOrDefault(t => t.name == "NoteCircleGlow");
+                if (BombManager.Instance.IsNoteMarkedAsBomb(noteData))
+                {
+                    return;
+                }
 
-                var circleRenderer =
-                    circle != null
-                        ? (circle.GetComponent<MeshRenderer>() ?? circle.GetComponentInChildren<MeshRenderer>(true))
-                        : null;
+                var gameNote = noteController as GameNoteController;
+                if (gameNote == null)
+                {
+                    return;
+                }
 
-                if (circleRenderer != null)
-                    circleRenderer.enabled = false;
-        }
-
-
-        private static string GetPath(Transform t, Transform root)
-        {
-            var parts = new List<string>();
-            while (t != null && t != root)
-            {
-                parts.Add(t.name);
-                t = t.parent;
+                var visuals = gameNote.GetComponentInChildren<ColorNoteVisuals>(true);
+                if (BombNotePatch.TryMarkAndApplyBombVisual(gameNote, visuals, noteData, "start-jump"))
+                {
+                    LogUtils.Debug(() => $"BombNotePatch: Late-marked bomb note at start-jump for time={noteData.time:F3}");
+                }
             }
-            parts.Reverse();
-            return string.Join("/", parts);
-        }
-
-
-        private static void AttachBombVisualWithColor(GameNoteController gameNote, Color noteColor)
-        {
-            int noteLayer = gameNote.gameObject.layer;
-            GameObject prefabGo = _bombPrefab != null ? _bombPrefab.gameObject : null;
-
-            BombVisualPool.Instance.Rent(gameNote.transform, noteLayer, noteColor, prefabGo);
-        }
-
-
-        private static void ApplyRendererColor(Renderer r, Color noteColor)
-        {
-            if (r == null) return;
-
-            var mats = r.sharedMaterials;
-            if (mats == null || mats.Length == 0) return;
-
-            for (int i = 0; i < mats.Length; i++)
+            catch (Exception ex)
             {
-                var mat = mats[i];
-                if (mat == null) continue;
-
-                _mpb.Clear();
-                bool any = false;
-
-                if (mat.HasProperty(ColorId)) { _mpb.SetColor(ColorId, noteColor); any = true; }
-                if (mat.HasProperty(SimpleColorId)) { _mpb.SetColor(SimpleColorId, noteColor); any = true; }
-                if (mat.HasProperty(BaseColorId)) { _mpb.SetColor(BaseColorId, noteColor); any = true; }
-                if (mat.HasProperty(TintColorId)) { _mpb.SetColor(TintColorId, noteColor); any = true; }
-                if (mat.HasProperty(EmissionColorId)) { _mpb.SetColor(EmissionColorId, noteColor); any = true; }
-
-                if (any) r.SetPropertyBlock(_mpb, i);
-                else LogUtils.Debug(() => $"BombNotePatch: No known color property on shader '{mat.shader?.name}' (matIndex={i})");
+                LogUtils.Warn("BombLateStartJumpPatch: " + ex.Message);
             }
-        }
-
-
-        private static void SetLayerRecursively(Transform t, int layer)
-        {
-            t.gameObject.layer = layer;
-            for (int i = 0; i < t.childCount; i++)
-                SetLayerRecursively(t.GetChild(i), layer);
         }
     }
 
@@ -320,7 +266,6 @@ namespace BeatSurgeon.HarmonyPatches
     internal static class BombCutPatch
     {
         private static readonly LogUtil _log = LogUtil.GetLogger("BombCutPatch");
-        private static NoteCutCoreEffectsSpawner _effectsSpawner;
         private static CurvedTextMeshPro _flyingTextPrefab;
 
         // Caches to avoid repeated Resources.FindObjectsOfTypeAll
@@ -340,9 +285,15 @@ namespace BeatSurgeon.HarmonyPatches
                 var noteData = __instance.noteData;
                 if (noteData == null) return;
 
-                if (!BombManager.Instance.TryConsumeBomb(noteData, out var bomber)) return;
+                BombManager.BombRequest bombRequest;
+                if (!BombManager.Instance.TryConsumeBomb(noteData, out bombRequest)) return;
 
-                LogUtils.Info($"BombCutPatch: Bomb cut by {bomber}");
+                string requesterName = bombRequest?.RequesterName ?? "Unknown";
+                string displayText = string.IsNullOrWhiteSpace(bombRequest?.DisplayText)
+                    ? requesterName
+                    : bombRequest.DisplayText;
+
+                LogUtils.Debug(() => $"BombCutPatch: Bomb cut requestedBy={requesterName} displayText={displayText}");
 
                 EnsureRefs();
 
@@ -357,7 +308,7 @@ namespace BeatSurgeon.HarmonyPatches
                     life: 2.0f
                 );
 
-                SpawnFlyingUsername(bomber, cutPoint);
+                SpawnFlyingText(displayText, cutPoint);
 
                 BombManager.Instance.ClearBombVisuals();
             }
@@ -369,13 +320,6 @@ namespace BeatSurgeon.HarmonyPatches
 
         private static void EnsureRefs()
         {
-            if (_effectsSpawner == null)
-            {
-                _effectsSpawner = Resources.FindObjectsOfTypeAll<NoteCutCoreEffectsSpawner>().FirstOrDefault();
-                if (_effectsSpawner != null)
-                    LogUtils.Debug(() => "BombCutPatch: Cached NoteCutCoreEffectsSpawner");
-            }
-
             if (_flyingTextPrefab == null)
             {
                 var flyingScores = Resources.FindObjectsOfTypeAll<FlyingScoreEffect>();
@@ -400,24 +344,49 @@ namespace BeatSurgeon.HarmonyPatches
             }
         }
 
-        private static void SpawnFlyingUsername(string username, Vector3 cutPoint)
+        private static void SpawnFlyingText(string displayText, Vector3 cutPoint)
         {
-            if (string.IsNullOrEmpty(username)) return;
+            if (string.IsNullOrEmpty(displayText)) return;
 
             try
             {
                 if (_flyingTextPrefab != null)
-                    SpawnCurvedFlyingText(username, cutPoint);
+                    SpawnCurvedFlyingText(displayText, cutPoint);
                 else
-                    SpawnSimpleFlyingText(username, cutPoint);
+                    SpawnSimpleFlyingText(displayText, cutPoint);
             }
             catch (Exception ex)
             {
-                LogUtils.Error($"BombCutPatch: Error spawning username text: {ex}");
+                LogUtils.Error($"BombCutPatch: Error spawning bomb text: {ex}");
             }
         }
 
-        private static void SpawnCurvedFlyingText(string username, Vector3 cutPoint)
+        private static void ApplyBombTextFont(TMP_Text textComponent, TMP_FontAsset customFont, TMP_FontAsset fallbackFont)
+        {
+            if (textComponent == null)
+            {
+                return;
+            }
+
+            TMP_FontAsset resolvedFont = customFont ?? fallbackFont;
+            if (resolvedFont == null)
+            {
+                return;
+            }
+
+            textComponent.font = resolvedFont;
+
+            if (customFont != null)
+            {
+                Material fontMaterial = FontBundleLoader.GetOrCreateFontMaterial(customFont);
+                if (fontMaterial != null)
+                {
+                    textComponent.fontSharedMaterial = fontMaterial;
+                }
+            }
+        }
+
+        private static void SpawnCurvedFlyingText(string displayText, Vector3 cutPoint)
         {
             var textGo = new GameObject("BombUsername_CurvedText");
             textGo.transform.position = cutPoint + Vector3.up * 0.5f;
@@ -425,19 +394,18 @@ namespace BeatSurgeon.HarmonyPatches
             var curvedText = textGo.AddComponent<CurvedTextMeshPro>();
 
             var customFont = FontBundleLoader.BombUsernameFont;
-            if (customFont != null)
-                curvedText.font = customFont;
-            else if (_flyingTextPrefab.font != null)
-                curvedText.font = _flyingTextPrefab.font;
+            ApplyBombTextFont(curvedText, customFont, _flyingTextPrefab.font);
 
             LogUtils.Debug(() => $"BombText font = {(customFont != null ? customFont.name : "NULL (fallback)")}");
 
-            curvedText.text = username;
+            curvedText.text = displayText;
             curvedText.fontSize = 4f;
             curvedText.alignment = TextAlignmentOptions.Center;
             curvedText.color = Color.yellow;
             curvedText.outlineWidth = 0.2f;
             curvedText.outlineColor = Color.black;
+            curvedText.SetAllDirty();
+            curvedText.ForceMeshUpdate();
 
             ApplyBloomToTextMaterial(curvedText);
 
@@ -454,7 +422,7 @@ namespace BeatSurgeon.HarmonyPatches
             CoroutineHost.Instance.StartCoroutine(AnimateFlyingText(textGo, cutPoint));
         }
 
-        private static void SpawnSimpleFlyingText(string username, Vector3 cutPoint)
+        private static void SpawnSimpleFlyingText(string displayText, Vector3 cutPoint)
         {
             var textGo = new GameObject("BombUsername_Text");
             textGo.transform.position = cutPoint + Vector3.up * 0.5f;
@@ -462,17 +430,16 @@ namespace BeatSurgeon.HarmonyPatches
             var tmp = textGo.AddComponent<TextMeshPro>();
 
             var customFont = FontBundleLoader.BombUsernameFont;
-            if (customFont != null)
-                tmp.font = customFont;
-            else if (_tekoFontCached != null)
-                tmp.font = _tekoFontCached;
+            ApplyBombTextFont(tmp, customFont, _tekoFontCached);
 
-            tmp.text = username;
+            tmp.text = displayText;
             tmp.fontSize = 4f;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.color = Color.yellow;
             tmp.outlineWidth = 0.2f;
             tmp.outlineColor = Color.black;
+            tmp.SetAllDirty();
+            tmp.ForceMeshUpdate();
 
             textGo.AddComponent<LookAtCamera>();
 
@@ -541,6 +508,48 @@ namespace BeatSurgeon.HarmonyPatches
             }
 
             UnityEngine.Object.Destroy(textGo);
+        }
+    }
+
+    [HarmonyPatch(typeof(NoteCutCoreEffectsSpawner), "HandleNoteWasCut")]
+    internal static class BombMarkedNoteCutCoreEffectsPatch
+    {
+        private static bool Prefix(NoteController noteController, in NoteCutInfo noteCutInfo)
+        {
+            var noteData = noteController?.noteData;
+            if (noteData == null)
+            {
+                return true;
+            }
+
+            if (!BombManager.Instance.IsNoteMarkedAsBomb(noteData))
+            {
+                return true;
+            }
+
+            LogUtils.Debug(() => "BombMarkedNoteCutCoreEffectsPatch: Suppressing base NoteCutCoreEffectsSpawner for BeatSurgeon bomb note.");
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(BadNoteCutEffectSpawner), "HandleNoteWasCut")]
+    internal static class BombMarkedBadCutEffectsPatch
+    {
+        private static bool Prefix(NoteController noteController, in NoteCutInfo noteCutInfo)
+        {
+            var noteData = noteController?.noteData;
+            if (noteData == null)
+            {
+                return true;
+            }
+
+            if (!BombManager.Instance.IsNoteMarkedAsBomb(noteData))
+            {
+                return true;
+            }
+
+            LogUtils.Debug(() => "BombMarkedBadCutEffectsPatch: Suppressing base BadNoteCutEffectSpawner for BeatSurgeon bomb note.");
+            return false;
         }
     }
 }

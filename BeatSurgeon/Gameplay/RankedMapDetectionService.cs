@@ -2,8 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Text.RegularExpressions;
-using Newtonsoft.Json.Linq;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BeatSurgeon.Chat;
@@ -28,10 +26,9 @@ namespace BeatSurgeon.Gameplay
         };
 
         // Lightweight JSON presence checks (no JSON library dependency).
-        // BeatLeader: prefer checking `rankedTime` (non-zero means ranked).
-        // Keep a fallback to older `status` values in case API varies.
+        // BeatLeader ranked status == 3
         private static readonly Regex _blRankedRegex =
-            new Regex("\"rankedTime\"\\s*:\\s*(?!0)\\d+", RegexOptions.Compiled | RegexOptions.Singleline);
+            new Regex("\"status\"\\s*:\\s*3", RegexOptions.Compiled);
         // ScoreSaber "ranked":true
         private static readonly Regex _ssRankedRegex =
             new Regex("\"ranked\"\\s*:\\s*true", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -201,101 +198,19 @@ namespace BeatSurgeon.Gameplay
         {
             try
             {
-                // Map numeric diff (used for caching) back to the API difficulty name.
-                string diffName;
-                switch (diffNum)
-                {
-                    case 1: diffName = "Easy"; break;
-                    case 3: diffName = "Normal"; break;
-                    case 5: diffName = "Hard"; break;
-                    case 7: diffName = "Expert"; break;
-                    case 9: diffName = "ExpertPlus"; break;
-                    default: diffName = "Expert"; break;
-                }
-
-                // Query leaderboards filtered by hash, difficulty name and mode.
-                string url = "https://api.beatleader.xyz/leaderboards?hash=" + Uri.EscapeDataString(hash)
-                             + "&difficulty=" + Uri.EscapeDataString(diffName)
-                             + "&mode=" + Uri.EscapeDataString(modeStr ?? "Standard");
+                // BeatLeader API requires uppercase hash and path-segment parameters (no /v1/ prefix).
+                string url = "https://api.beatleader.xyz/leaderboard/hash/" + hash.ToUpperInvariant()
+                             + "/" + diffNum + "/" + modeStr;
 
                 HttpResponseMessage response = await _http.GetAsync(url, ct).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode) return false;
-
                 string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-                try
-                {
-                    var root = JToken.Parse(json);
-                    IEnumerable<JToken> entries;
-                    if (root.Type == JTokenType.Object && root["data"] != null)
-                    {
-                        entries = root["data"].Children();
-                    }
-                    else if (root.Type == JTokenType.Array)
-                    {
-                        entries = root.Children();
-                    }
-                    else
-                    {
-                        entries = new JToken[0];
-                    }
-
-                    foreach (var e in entries)
-                    {
-                        // Mode check (if present)
-                        string entryMode = e["modeName"]?.Value<string>() ?? e["mode"]?.Value<string>() ?? e["gameMode"]?.Value<string>();
-                        if (!string.IsNullOrEmpty(entryMode) && !string.Equals(entryMode, modeStr ?? "Standard", StringComparison.OrdinalIgnoreCase))
-                        {
-                            continue;
-                        }
-
-                        // Difficulty match check
-                        bool diffMatches = false;
-                        var diffObj = e["difficulty"] ?? e["diff"];
-                        if (diffObj != null)
-                        {
-                            int? val = diffObj["value"]?.Value<int?>();
-                            if (val.HasValue && val.Value == diffNum) diffMatches = true;
-                            string name = diffObj["name"]?.Value<string>() ?? diffObj["difficulty"]?.Value<string>();
-                            if (!diffMatches && !string.IsNullOrEmpty(name) && string.Equals(name, diffName, StringComparison.OrdinalIgnoreCase)) diffMatches = true;
-                        }
-
-                        // Some responses use top-level difficultyName
-                        if (!diffMatches)
-                        {
-                            string topDiff = e["difficultyName"]?.Value<string>() ?? e["difficultyString"]?.Value<string>();
-                            if (!string.IsNullOrEmpty(topDiff) && string.Equals(topDiff, diffName, StringComparison.OrdinalIgnoreCase)) diffMatches = true;
-                        }
-
-                        if (!diffMatches) continue;
-
-                        // rankedTime may be on the entry or inside difficulty
-                        long? rt = e["rankedTime"]?.Value<long?>() ?? diffObj?["rankedTime"]?.Value<long?>();
-                        if (rt.HasValue && rt.Value > 0)
-                        {
-                            _log.Debug("BeatLeader: hash=" + hash + " ranked=true (rankedTime=" + rt + ")");
-                            return true;
-                        }
-
-                        int? status = e["status"]?.Value<int?>() ?? diffObj?["status"]?.Value<int?>();
-                        if (status.HasValue && status.Value == 3)
-                        {
-                            _log.Debug("BeatLeader: hash=" + hash + " ranked=true (status=" + status + ")");
-                            return true;
-                        }
-                    }
-                }
-                catch (Exception parseEx)
-                {
-                    _log.Debug("BeatLeader: JSON parse failed: " + parseEx.Message);
-                    // fall through to conservative fallback below
-                }
-
-                _log.Debug("BeatLeader: hash=" + hash + " ranked=false");
-                return false;
+                bool ranked = _blRankedRegex.IsMatch(json);
+                _log.Debug("BeatLeader: hash=" + hash + " ranked=" + ranked);
+                return ranked;
             }
             catch (Exception ex)
             {
+                // Fail-open: network error / 404 / timeout / cancellation → treat as unranked.
                 _log.Warn("BeatLeader check failed for hash=" + hash + ": " + ex.Message);
                 return false;
             }

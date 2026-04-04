@@ -8,7 +8,7 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 
 *   **Rainbow Notes & Custom Colors:** Randomize note colors or set specific RGB values on the fly.
 *   **Visual Challenges:** Trigger Ghost Notes, Disappearing Arrows, or a blinding Flashbang effect.
-*   **BombS:** Arms the next note as a "bomb" and makes it look like one that displays the viewer's name when cut.
+*   **Bombs:** Arms the next note as a "bomb" and makes it look like one that displays either the viewer's name or a custom `!bmsg` message when cut.
 *   **Speed Modifiers:** Temporarily speed up (`!faster`, `!superfast`) or slow down (`!slower`) the song.
 
 > **⚠️ A Note from the Developer**
@@ -28,7 +28,7 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 *   **Custom Note Colors (`!notecolor`)**: Allows chat to set specific left and right saber colors using color names (e.g., `red`, `blue`) or hex codes.
 *   **Ghost Notes (`!ghost`)**: Hides the cube mesh, leaving only the arrows visible for a short duration.
 *   **Disappearing Arrows (`!disappear`)**: Hides the directional arrows and dots on notes, forcing players to rely on instinct.
-*   **Bombs (`!bomb`)**: Transforms the next spawnable note into a bomb. If the player cuts it, the viewer's name is displayed.
+*   **Bombs (`!bomb`, `!bmsg <text>`)**: Transforms the next spawnable note into a bomb. If the player cuts it, the viewer's name is displayed, or the custom `!bmsg` text if one was provided.
 *   **Speed Control**: Viewers can temporarily alter song speed:
     *   **`!faster`**: Increases speed by 20%.
     *   **`!superfast`**: Increases speed by 50%.
@@ -88,7 +88,7 @@ Enable or disable individual chat commands and effects with visual icon toggles.
     *   `!rainbow` / `!notecolor` - RGB note colors
     *   `!disappear` - Disappearing arrows
     *   `!ghost` - Transparent notes
-    *   `!bomb` - Convert random note to bomb
+    *   `!bomb` / `!bmsg <text>` - Convert a random note to a bomb, optionally with custom cut text
     *   `!faster` - Increase song speed
     *   `!superfast` - Dramatically increase song speed
     *   `!slower` - Decrease song speed
@@ -170,7 +170,8 @@ If you are a supporter (currently via **Twitch Subscription**), you gain access 
 | **`!notecolor <left> <right>`** | Sets custom note colors. Accepts names (`red`) or hex (`#FF0000`).<br>Example: `!notecolor red blue` or `!notecolor #FF007F #00FF00` | 30s | 60s |
 | **`!ghost`** | Activates Ghost Notes (invisible cubes, visible arrows). | 30s | 60s |
 | **`!disappear`** | Activates Disappearing Arrows (visible cubes, invisible arrows). | 30s | 60s |
-| **`!bomb`** | Arms the next note as a bomb. Displays viewer name on cut. *(Alias customizable)* | Until hit | 1s |
+| **`!bomb`** | Arms the next note as a bomb. Displays viewer name on cut. *(Alias customizable)* | Until hit | 60s |
+| **`!bmsg <text>`** | Arms the next note as a bomb. Displays up to 70 characters of custom text on cut, or falls back to the viewer name if no text is supplied. Shares the same cooldown as `!bomb`. | Until hit | 60s |
 | **`!faster`** | Increases song speed by 20%. | 30s | 60s |
 | **`!superfast`** | Increases song speed by 50%. | 30s | 60s |
 | **`!slower`** | Decreases song speed by 15%. | 30s | 60s |
@@ -313,7 +314,7 @@ Thank you for helping me keep the lights on and the sabers swinging!
 
 *   **v0.1.0**
     *   Initial release.
-    *   Core effects: `!rainbow`, `!ghost`, `!disappear`, `!bomb`, `!flashbang`.
+    *   Core effects: `!rainbow`, `!ghost`, `!disappear`, `!bomb`, `!bmsg`, `!flashbang`.
     *   Basic speed commands (`!faster`, `!slower`).
     *   Basic configuration UI.
 

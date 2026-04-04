@@ -12,7 +12,7 @@ namespace BeatSurgeon
 
         public static PluginConfig Instance { get; set; }
 
-        // --- Auth (PRD canonical fields) ---
+        // --- Auth ---
         public virtual string AccessToken { get; set; } = string.Empty;
         public virtual string RefreshToken { get; set; } = string.Empty;
         public virtual string ClientId { get; set; } = "dyq6orcrvl9cxd8d1usx6rtczt3tfb";
@@ -40,8 +40,10 @@ namespace BeatSurgeon
             TokenExpiry > System.DateTime.UtcNow.AddMinutes(1);
 
         // --- Commands / Toggles --- 
+        public virtual bool BitEffectEnabled { get; set; } = false;
+        public virtual bool SubEffectsEnabled { get; set; } = false;
+        public virtual bool FollowEffectsEnabled { get; set; } = false;
         public virtual string BombCommandName { get; set; } = "bomb";
-
         public virtual bool RainbowEnabled { get; set; } = true;
         public virtual float RainbowCycleSpeed { get; set; } = 0.1f;
         public virtual bool RainbowGradientFadeEnabled { get; set; } = true;
@@ -94,6 +96,9 @@ namespace BeatSurgeon
         public virtual string CachedBotUserLogin { get; set; } = string.Empty;
         public virtual bool AutoConnectTwitch { get; set; } = true;
         public virtual bool TwitchReauthRequired { get; set; } = false;
+        public virtual bool AllowEveryoneCommands { get; set; } = true;
+        public virtual bool AllowVIPCommands { get; set; } = false;
+        public virtual bool AllowSubscriberCommands { get; set; } = false;
 
         // --- Endless / Song Requests ---
         public virtual bool SongRequestsEnabled { get; set; } = true;
@@ -107,8 +112,25 @@ namespace BeatSurgeon
         public virtual bool AutoPauseOnMapEnd { get; set; } = true;
         public virtual bool DebugMode { get; set; } = false;
 
+        // --- Effects selection ---
+        // Optional: exact asset name/path inside the surgeoneffects bundle to use (e.g. "assets/prefabs/outlineparticles.prefab")
+        public virtual string PreferredOutlineAssetName { get; set; } = string.Empty;
+        // Preferred GameObject/child path name to select inside the chosen bundle prefab.
+        public virtual string PreferredOutlineEmitterName { get; set; } = "OutlineParticles";
+        // If true, always use the built-in runtime outline particle template and skip bundle loading
+        public virtual bool ForceBuiltinOutlineTemplate { get; set; } = false;
+        // Multiplies the OutlineParticles emitter density and max particle count.
+        public virtual float OutlineParticleDensityMultiplier { get; set; } = 20f;
+        // Existing configs may still contain old outline material values; keep the mesh hidden until visibility is explicitly re-enabled.
+        public virtual bool OutlineMaterialVisibilityEnabled { get; set; } = false;
+        // Controls the outline mesh brightness. 0 disables visible outline shading while keeping the mesh available for particle emission.
+        public virtual float OutlineMaterialBrightness { get; set; } = 0.0f;
+        // Controls the outline mesh opacity. 0 keeps the outline mesh active but fully invisible.
+        public virtual float OutlineMaterialAlpha { get; set; } = 0.0f;
+
         // --- Multiplayer ---
         public virtual string MpClientId { get; set; } = string.Empty;
+        public virtual bool MultiplayerEffectsEnabled { get; set; } = true;
 
         // --- Channel Points ---
         public virtual bool CpRainbowEnabled { get; set; } = false;
@@ -222,6 +244,13 @@ namespace BeatSurgeon
             CachedBroadcasterLogin = other.CachedBroadcasterLogin;
             CachedBotUserId = other.CachedBotUserId;
             CachedBotUserLogin = other.CachedBotUserLogin;
+            PreferredOutlineAssetName = other.PreferredOutlineAssetName;
+            PreferredOutlineEmitterName = other.PreferredOutlineEmitterName;
+            ForceBuiltinOutlineTemplate = other.ForceBuiltinOutlineTemplate;
+            OutlineParticleDensityMultiplier = other.OutlineParticleDensityMultiplier;
+            OutlineMaterialVisibilityEnabled = other.OutlineMaterialVisibilityEnabled;
+            OutlineMaterialBrightness = other.OutlineMaterialBrightness;
+            OutlineMaterialAlpha = other.OutlineMaterialAlpha;
         }
     }
 }

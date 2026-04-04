@@ -19,6 +19,7 @@ namespace BeatSurgeon.Chat
         UnknownCommand,
         GlobalDisabled,
         CommandDisabled,
+        InsufficientPermission,
         OnCooldown,
         ProcessorRejected,
         ExecutionFailed,
@@ -276,6 +277,12 @@ namespace BeatSurgeon.Chat
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.UnknownCommand);
             }
 
+            if (source == TriggerSource.Chat && !CommandRuntimeSettings.IsChatCommandAllowed(ctx))
+            {
+                _log.Command(ctx.Username, normalized, false, "InsufficientPermission");
+                return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.InsufficientPermission);
+            }
+
             if (!CommandRuntimeSettings.IsCooldownExempt(normalized) &&
                 _cooldownService.TryGetCooldownRemaining(commandKey, out TimeSpan remaining))
             {
@@ -370,11 +377,11 @@ namespace BeatSurgeon.Chat
 
                 if (!alias.Equals("bomb", StringComparison.OrdinalIgnoreCase))
                 {
-                    enabled.Add("!bomb (alias !" + alias + ")");
+                    enabled.Add("!bomb | !bmsg <text> (bomb alias !" + alias + ")");
                 }
                 else
                 {
-                    enabled.Add("!bomb");
+                    enabled.Add("!bomb | !bmsg <text>");
                 }
             }
 

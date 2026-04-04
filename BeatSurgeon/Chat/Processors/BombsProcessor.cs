@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using BeatSurgeon.Gameplay;
@@ -8,6 +9,7 @@ namespace BeatSurgeon.Chat.Processors
     internal sealed class BombsProcessor : ICommandProcessor
     {
         private static readonly LogUtil _log = LogUtil.GetLogger("BombsProcessor");
+        private const int MaxBombMessageLength = 70;
         private readonly GameplayManager _gameplayManager;
 
         public BombsProcessor(GameplayManager gameplayManager)
@@ -15,7 +17,7 @@ namespace BeatSurgeon.Chat.Processors
             _gameplayManager = gameplayManager;
         }
 
-        public string[] HandledCommands => new[] { "!bomb" };
+        public string[] HandledCommands => new[] { "!bomb", "!bmsg" };
 
         public bool CanHandle(ChatContext ctx)
         {
@@ -30,8 +32,60 @@ namespace BeatSurgeon.Chat.Processors
 
         public async Task ExecuteAsync(ChatContext ctx, CancellationToken ct)
         {
-            _log.Command(ctx.Username, ctx.Command, true);
-            await _gameplayManager.ApplyBombAsync(ctx, ct).ConfigureAwait(false);
+            string displayTextOverride = GetDisplayTextOverride(ctx);
+
+            if (string.IsNullOrWhiteSpace(displayTextOverride))
+            {
+                _log.Command(ctx.Username, ctx.Command, true);
+            }
+            else
+            {
+                _log.Command(ctx.Username, ctx.Command, true, "displayText=" + displayTextOverride);
+            }
+
+            await _gameplayManager.ApplyBombAsync(ctx, ct, displayTextOverride).ConfigureAwait(false);
+        }
+
+        private static string GetDisplayTextOverride(ChatContext ctx)
+        {
+            if (!string.Equals(ctx?.Command, "!bmsg", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return ExtractMessageSuffix(ctx?.MessageText);
+        }
+
+        private static string ExtractMessageSuffix(string messageText)
+        {
+            if (string.IsNullOrWhiteSpace(messageText))
+            {
+                return null;
+            }
+
+            if (!ChatContext.TryExtractFirstCommandToken(messageText, out _, out int commandStart, out int commandLength))
+            {
+                return null;
+            }
+
+            int suffixStart = commandStart + commandLength;
+            if (suffixStart >= messageText.Length)
+            {
+                return null;
+            }
+
+            string raw = messageText.Substring(suffixStart).Trim();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+
+            if (raw.Length > MaxBombMessageLength)
+            {
+                raw = raw.Substring(0, MaxBombMessageLength).TrimEnd();
+            }
+
+            return raw;
         }
     }
 }

@@ -210,6 +210,8 @@ namespace BeatSurgeon.Chat
 
             switch (key)
             {
+                case "bmsg":
+                    return "bomb";
                 case "rainbownotes":
                 case "notecolor":
                 case "notecolour":
@@ -239,6 +241,7 @@ namespace BeatSurgeon.Chat
                 case "!ghostnotes":
                     return GhostEnabled;
                 case "!bomb":
+                case "!bmsg":
                     return BombEnabled;
                 case "!faster":
                     return FasterEnabled;
@@ -264,10 +267,47 @@ namespace BeatSurgeon.Chat
             {
                 case "!sr":
                 case "!bsr":
+                case "!test":
                     return true;
                 default:
                     return false;
             }
+        }
+
+        internal static bool IsChatCommandAllowed(ChatContext ctx)
+        {
+            if (ctx == null)
+            {
+                return false;
+            }
+
+            if (ctx.IsBroadcaster || ctx.IsModerator)
+            {
+                return true;
+            }
+
+            PluginConfig config = PluginConfig.Instance;
+            if (config == null)
+            {
+                return true;
+            }
+
+            if (config.AllowEveryoneCommands)
+            {
+                return true;
+            }
+
+            if (config.AllowVIPCommands && ctx.IsVip)
+            {
+                return true;
+            }
+
+            if (config.AllowSubscriberCommands && ctx.IsSubscriber)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         internal static double GetCooldownSeconds(string commandName)
@@ -286,6 +326,7 @@ namespace BeatSurgeon.Chat
                 case "ghostnotes":
                     return GhostCooldownSeconds;
                 case "bomb":
+                case "bmsg":
                     return BombCooldownSeconds;
                 case "faster":
                     return FasterCooldownSeconds;
@@ -311,6 +352,7 @@ namespace BeatSurgeon.Chat
                 case "ghost":
                     return Math.Max(0, (int)Math.Round(GhostCooldownSeconds));
                 case "bomb":
+                case "bmsg":
                     return Math.Max(0, (int)Math.Round(BombCooldownSeconds));
                 case "faster":
                     return Math.Max(0, (int)Math.Round(FasterCooldownSeconds));

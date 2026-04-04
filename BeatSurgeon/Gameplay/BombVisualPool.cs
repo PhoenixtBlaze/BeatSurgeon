@@ -78,7 +78,7 @@ namespace BeatSurgeon.Gameplay
                 instance.transform.localScale = Vector3.one;
                 instance.SetActive(true);
 
-                // One-time cleanup only (instead of every bomb spawn)
+                // One-time cleanup only (instead of every bomb spawn) 
                 foreach (var bomb in instance.GetComponentsInChildren<BombNoteController>(true))
                 {
                     bomb.enabled = false;

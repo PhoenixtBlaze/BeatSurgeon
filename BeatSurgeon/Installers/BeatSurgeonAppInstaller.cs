@@ -22,6 +22,10 @@ namespace BeatSurgeon.Installers
                 .AsSingle()
                 .NonLazy();
 
+            Container.BindInterfacesAndSelfTo<BombFontPreloadService>()
+                .AsSingle()
+                .NonLazy();
+
             Container.BindInterfacesAndSelfTo<TwitchAuthManager>()
                 .AsSingle()
                 .NonLazy();
@@ -69,11 +73,12 @@ namespace BeatSurgeon.Installers
             Container.Bind<ICommandProcessor>().To<BombsProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<SpeedChangeProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<FlashbangProcessor>().AsSingle();
+            Container.Bind<ICommandProcessor>().To<TestProcessor>().AsSingle();
             // Endless mode + song request command processors are intentionally disabled for now.
             // Container.Bind<ICommandProcessor>().To<EndlessModeProcessor>().AsSingle();
             // Container.Bind<ICommandProcessor>().To<SongRequestProcessor>().AsSingle();
 
-            _log.Info("Registered 7 ICommandProcessor implementations");
+            _log.Info("Registered 8 ICommandProcessor implementations");
             _log.Lifecycle("InstallBindings complete");
         }
     }

@@ -750,6 +750,34 @@ namespace BeatSurgeon.Gameplay
             return Task.CompletedTask;
         }
 
+        internal async Task ApplyOutlineEffectAsync(ChatContext ctx, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            float durationSeconds = GetRemainingTime();
+            if (durationSeconds <= 0f)
+            {
+                // Fallback to a reasonable default if remaining time is not available
+                durationSeconds = CommandRuntimeSettings.RainbowEffectSeconds;
+            }
+
+            bool started = false;
+            try
+            {
+                started = await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                    .StartNew(() => OutlineEmitterManager.Instance.StartOutlineEffect(durationSeconds))
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "ApplyOutlineEffectAsync");
+            }
+
+            _log.Effect("Outline", started, "requestedBy=" + (ctx?.Username ?? "Unknown"));
+            if (!started) throw new InvalidOperationException("Outline effect could not be started (not in map).");
+            return;
+        }
+
         internal Task ApplyNoteColorAsync(ChatContext ctx, UnityEngine.Color left, UnityEngine.Color right, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
@@ -787,13 +815,32 @@ namespace BeatSurgeon.Gameplay
             return Task.CompletedTask;
         }
 
-        internal Task ApplyBombAsync(ChatContext ctx, CancellationToken ct)
+        internal async Task ApplyBombAsync(ChatContext ctx, CancellationToken ct, string displayTextOverride = null)
         {
             ct.ThrowIfCancellationRequested();
-            bool started = BombManager.Instance.ArmBomb(ctx?.Username, CommandRuntimeSettings.RainbowEffectSeconds);
-            _log.Effect("Bomb", started, "requestedBy=" + (ctx?.Username ?? "Unknown"));
+
+            await FontBundleLoader.EnsureBombFontReadyAsync().ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+
+            if (!FontBundleLoader.IsBombFontReady)
+            {
+                throw new InvalidOperationException("Bomb font bundle could not be loaded.");
+            }
+
+            bool started = false;
+            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                .StartNew(() =>
+                {
+                    started = BombManager.Instance.ArmBomb(ctx?.Username, displayTextOverride, CommandRuntimeSettings.RainbowEffectSeconds);
+                })
+                .ConfigureAwait(false);
+
+            string requestedBy = ctx?.Username ?? "Unknown";
+            string detail = string.IsNullOrWhiteSpace(displayTextOverride)
+                ? "requestedBy=" + requestedBy
+                : "requestedBy=" + requestedBy + " displayText=" + displayTextOverride;
+            _log.Effect("Bomb", started, detail);
             if (!started) throw new InvalidOperationException("Bomb could not be armed (not in map).");
-            return Task.CompletedTask;
         }
 
         internal Task ApplySpeedAsync(string effectKey, ChatContext ctx, CancellationToken ct)

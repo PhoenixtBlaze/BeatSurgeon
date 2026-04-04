@@ -43,6 +43,10 @@ namespace BeatSurgeon
 
         internal static void Init() => _instance?.Initialize();
         internal static void DisposeStatic() => _instance?.Dispose();
+        internal static void RefreshConnectionState() => _instance?.OnRoomMaybeChanged();
+
+        private static bool MultiplayerEffectsEnabled =>
+            PluginConfig.Instance?.MultiplayerEffectsEnabled ?? true;
 
         [Inject]
         public MultiplayerRoomSyncClient()
@@ -99,6 +103,7 @@ namespace BeatSurgeon
 
         internal void EnqueueSync(string command)
         {
+            if (!MultiplayerEffectsEnabled) return;
             if (string.IsNullOrWhiteSpace(command)) return;
             var message = new SyncMessage { Type = "host_state", Command = command };
             lock (_batchLock)
@@ -115,6 +120,12 @@ namespace BeatSurgeon
 
         private void OnRoomMaybeChanged()
         {
+            if (!MultiplayerEffectsEnabled)
+            {
+                Disconnect();
+                return;
+            }
+
             if (!SceneHelper.MpPlusInRoom)
             {
                 Disconnect();
@@ -241,6 +252,7 @@ namespace BeatSurgeon
 
         private void SendSyncMessage(SyncMessage msg)
         {
+            if (!MultiplayerEffectsEnabled) return;
             if (!SceneHelper.MpPlusInRoom) return;
             if (SceneHelper.MpPlusIsHost) return;
             if (MultiplayerStateClient.GetLocalControl()) return;

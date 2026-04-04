@@ -330,6 +330,7 @@
     <Compile Include="Chat\Processors\GhostNotesProcessor.cs" />
     <Compile Include="Chat\Processors\ICommandProcessor.cs" />
     <Compile Include="Chat\Processors\NoteColorProcessor.cs" />
+    <Compile Include="Chat\Processors\TestProcessor.cs" />
     <Compile Include="Chat\Processors\RainbowNotesProcessor.cs" />
     <Compile Include="Chat\Processors\SongRequestProcessor.cs" />
     <Compile Include="Chat\Processors\SpeedChangeProcessor.cs" />
@@ -342,6 +343,8 @@
     <Compile Include="Gameplay\FireworksExplosionPool.cs" />
     <Compile Include="Gameplay\FlashbangManager.cs" />
     <Compile Include="Gameplay\FontBundleLoader.cs" />
+    <Compile Include="Gameplay\VrVfxMaterialHelper.cs" />
+    <Compile Include="Gameplay\BombFontPreloadService.cs" />
     <Compile Include="Gameplay\GameplayManager.cs" />
     <Compile Include="Gameplay\RankedMapDetectionService.cs" />
     <Compile Include="Gameplay\GhostNotesManager.cs" />
@@ -353,6 +356,9 @@
     <Compile Include="Gameplay\RendererWatchdog.cs" />
     <Compile Include="Gameplay\BeatSurgeonTextMover.cs" />
     <Compile Include="Gameplay\SongRequest.cs" />
+    <Compile Include="Gameplay\BundleRegistry.cs" />
+    <Compile Include="Gameplay\SurgeonEffectsBundleService.cs" />
+    <Compile Include="Gameplay\OutlineEmitterManager.cs" />
     <Compile Include="Harmony\BombNotePatch.cs" />
     <Compile Include="Harmony\DisappearingArrowsPatch.cs" />
     <Compile Include="Harmony\EndlessHarmonyPatch.cs" />
