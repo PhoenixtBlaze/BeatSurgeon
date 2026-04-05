@@ -66,7 +66,7 @@ namespace BeatSurgeon.Gameplay
             _daCoroutine = null;
             MultiplayerStateClient.SetActiveCommand(null);
             LogUtils.Debug(() => "DisappearingArrowsManager: Disappearing arrows finished");
-            ChatManager.GetInstance().SendChatMessage("!!Disappearing arrows effect has ended.");
+            ChatManager.GetInstance().SendMutedChatMessage("Effect disappearing arrows has ended.");
         }
     }
 }

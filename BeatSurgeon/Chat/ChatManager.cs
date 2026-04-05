@@ -608,6 +608,33 @@ namespace BeatSurgeon.Chat
             _ = SendChatMessageAsync(message, CancellationToken.None);
         }
 
+        internal void SendMutedChatMessage(string message)
+        {
+            string mutedMessage = BuildMutedChatMessage(message);
+            if (string.IsNullOrWhiteSpace(mutedMessage))
+            {
+                return;
+            }
+
+            SendChatMessage(mutedMessage);
+        }
+
+        private static string BuildMutedChatMessage(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return string.Empty;
+            }
+
+            string trimmed = message.Trim();
+            if (trimmed.StartsWith("!", StringComparison.Ordinal))
+            {
+                return trimmed;
+            }
+
+            return "!!" + trimmed;
+        }
+
         private async Task SendChatMessageAsync(string message, CancellationToken ct)
         {
             if (string.IsNullOrWhiteSpace(message))

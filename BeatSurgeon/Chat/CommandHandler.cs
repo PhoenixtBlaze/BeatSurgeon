@@ -357,9 +357,9 @@ namespace BeatSurgeon.Chat
                 }
             }
 
-            string msg = BuildSurgeonStatusMessage();
-            _log.Info("Surgeon command executed by " + (ctx?.SenderName ?? "Unknown"));
-            ChatManager.GetInstance()?.SendChatMessage(msg);
+            SendResponse(
+                "Surgeon command executed by " + (ctx?.SenderName ?? "Unknown"),
+                BuildSurgeonStatusMessage());
             return true;
         }
 
@@ -398,22 +398,23 @@ namespace BeatSurgeon.Chat
             if (CommandRuntimeSettings.SlowerEnabled) enabled.Add("!slower");
             if (CommandRuntimeSettings.FlashbangEnabled) enabled.Add("!flashbang");
 
-            string commandsPart = enabled.Count > 0
-                ? string.Join(" | ", enabled)
-                : "(no commands enabled in menu)";
-
-            string noteColorHelp = string.Empty;
-            if (CommandRuntimeSettings.RainbowEnabled)
-            {
-                noteColorHelp =
-                    " || NoteColor: !notecolor <left> <right> (names or hex). " +
-                    "Examples: !notecolor red blue, !notecolor #FF0000 #0000FF, or !notecolor rainbow rainbow";
-            }
-
             string version = typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "unknown";
             string globalStatus = GlobalDisableActive ? " [GLOBALLY DISABLED]" : string.Empty;
 
-            return "!BeatSurgeon v" + version + globalStatus + " | Enabled Commands: " + commandsPart + " | " + noteColorHelp;
+            string commandsPart = enabled.Count > 0
+                ? "Enabled commands include " + string.Join(" | ", enabled)
+                : "No commands are enabled in the menu";
+
+            string message = "BeatSurgeon v" + version + globalStatus + " | " + commandsPart;
+
+            if (CommandRuntimeSettings.RainbowEnabled)
+            {
+                message +=
+                    " | Note color usage is !notecolor <left> <right> (names or hex). " +
+                    "Example commands include !notecolor red blue, !notecolor #FF0000 #0000FF, or !notecolor rainbow rainbow.";
+            }
+
+            return message;
         }
 
         private bool HandleSurgeonDisable(ChatContext ctx, string fullCommand)
@@ -422,7 +423,7 @@ namespace BeatSurgeon.Chat
             {
                 SendResponse(
                     "Permission denied: " + ctx.SenderName + " attempted !surgeon disable",
-                    "Sorry " + ctx.SenderName + ", !surgeon disable is a mods only command");
+                    "Sorry " + ctx.SenderName + ", the !surgeon disable command is mods only.");
                 return false;
             }
 
@@ -450,11 +451,11 @@ namespace BeatSurgeon.Chat
                     CommandRuntimeSettings.FlashbangEnabled = false;
 
                     GlobalDisableActive = true;
-                    SendResponse("Global Disable Activated", "!!All Surgeon commands disabled.");
+                    SendResponse("Global Disable Activated", "All Surgeon commands are now disabled.");
                 }
                 else
                 {
-                    SendResponse("Already Disabled", "!!Surgeon is already disabled.");
+                    SendResponse("Already Disabled", "Surgeon is already disabled.");
                 }
             }
 
@@ -467,7 +468,7 @@ namespace BeatSurgeon.Chat
             {
                 SendResponse(
                     "Permission denied: " + ctx.SenderName + " attempted !surgeon enable",
-                    "Sorry " + ctx.SenderName + ", !surgeon enable is a mods only command");
+                    "Sorry " + ctx.SenderName + ", the !surgeon enable command is mods only.");
                 return false;
             }
 
@@ -475,7 +476,7 @@ namespace BeatSurgeon.Chat
             {
                 SendResponse(
                     "Global disable not active",
-                    "!!No commands are currently disabled. Use !surgeon disable to disable all.");
+                    "No commands are currently disabled. To disable all commands, use !surgeon disable.");
                 return false;
             }
 
@@ -501,7 +502,7 @@ namespace BeatSurgeon.Chat
 
             SendResponse(
                 "Global enable activated by " + (ctx?.SenderName ?? "Unknown"),
-                "!!Surgeon Enabled");
+                "Surgeon is now enabled.");
 
             _log.Info("[CommandHandler] Global enable activated by " + ctx?.SenderName);
             return true;
@@ -515,7 +516,7 @@ namespace BeatSurgeon.Chat
                 string firstCmd = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "unknown";
                 SendResponse(
                     "Permission denied: " + ctx.SenderName + " attempted !surgeon " + firstCmd,
-                    "Sorry " + ctx.SenderName + ", !surgeon " + firstCmd + " is a mods only command");
+                    "Sorry " + ctx.SenderName + ", the !surgeon " + firstCmd + " command is mods only.");
                 return false;
             }
 
@@ -524,7 +525,7 @@ namespace BeatSurgeon.Chat
             {
                 SendResponse(
                     "Surgeon toggle: bad syntax",
-                    "!!Usage: !surgeon <command> <enable|disable>. Example: !surgeon rainbow disable");
+                    "To toggle a Surgeon command, use !surgeon <command> <enable|disable>. For example, use !surgeon rainbow disable.");
                 return false;
             }
 
@@ -592,14 +593,14 @@ namespace BeatSurgeon.Chat
                 default:
                     SendResponse(
                         "Surgeon toggle: unknown command '" + targetCommand + "'",
-                        "!!Unknown command: " + targetCommand + ". Try: !surgeon <rainbow|disappear|ghost|bomb|faster|superfast|slower|flashbang> <enable|disable>");
+                        "Unknown command: " + targetCommand + ". To change a command state, use !surgeon <rainbow|disappear|ghost|bomb|faster|superfast|slower|flashbang> <enable|disable>.");
                     return false;
             }
 
             string newStatus = enable ? "enabled" : "disabled";
             SendResponse(
                 "Surgeon: !" + targetCommand + " " + newStatus + " by " + (ctx?.SenderName ?? "Unknown"),
-                "!!BeatSurgeon: !" + targetCommand + " is now " + newStatus);
+                "BeatSurgeon set the !" + targetCommand + " command to " + newStatus + ".");
 
             _log.Info("[CommandHandler] !" + targetCommand + " toggled to " + newStatus + " by " + ctx?.SenderName);
             return true;
@@ -614,7 +615,7 @@ namespace BeatSurgeon.Chat
 
             if (!string.IsNullOrWhiteSpace(chatMessage))
             {
-                ChatManager.GetInstance()?.SendChatMessage(chatMessage);
+                ChatManager.GetInstance()?.SendMutedChatMessage(chatMessage);
             }
         }
 

@@ -35,7 +35,7 @@ namespace BeatSurgeon.Chat.Processors
             string[] parts = (ctx.MessageText ?? string.Empty).Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 2)
             {
-                ChatManager.GetInstance()?.SendChatMessage("!!Usage: !sr <bsrCode>");
+                //ChatManager.GetInstance()?.SendMutedChatMessage("Song request usage is !sr <bsrCode>.");
                 _log.Command(ctx.Username, ctx.Command, false, "MissingBsrCode");
                 return;
             }

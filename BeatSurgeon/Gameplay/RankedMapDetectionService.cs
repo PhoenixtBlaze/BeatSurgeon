@@ -244,8 +244,8 @@ namespace BeatSurgeon.Gameplay
                 if (!_instance?._isInGameplay == true) return;
                 if (PluginConfig.Instance?.NotifyOnRankedDisable == true)
                 {
-                    ChatManager.GetInstance()?.SendChatMessage(
-                        "!BeatSurgeon: Ranked map detected — all commands and channel points are disabled.");
+                    ChatManager.GetInstance()?.SendMutedChatMessage(
+                        "BeatSurgeon detected a ranked map. All sabotage disabled.");
                 }
             }
             catch { }

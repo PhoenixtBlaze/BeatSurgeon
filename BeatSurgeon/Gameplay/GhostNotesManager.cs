@@ -91,13 +91,13 @@ namespace BeatSurgeon.Gameplay
 
             if (!string.IsNullOrEmpty(requesterName))
             {
-                ChatManager.GetInstance().SendChatMessage(
-                    $"!!Ghost notes enabled for {durationSeconds:F0} seconds! (requested by {requesterName})");
+                ChatManager.GetInstance().SendMutedChatMessage(
+                    $"The ghost notes effect is enabled for {durationSeconds:F0} seconds. Requested by {requesterName}.");
             }
             else
             {
-                ChatManager.GetInstance().SendChatMessage(
-                    $"!!Ghost notes enabled for {durationSeconds:F0} seconds!");
+                ChatManager.GetInstance().SendMutedChatMessage(
+                    $"The ghost notes effect is enabled for {durationSeconds:F0} seconds.");
             }
 
             float elapsed = 0f;
@@ -113,7 +113,7 @@ namespace BeatSurgeon.Gameplay
 
             LogUtils.Debug(() => "GhostNotesManager: Ghost notes finished");
             MultiplayerStateClient.SetActiveCommand(null);
-            ChatManager.GetInstance().SendChatMessage("!!Ghost notes effect has ended.");
+            ChatManager.GetInstance().SendMutedChatMessage("Effect ghost notes has ended.");
         }
     }
 }

@@ -227,7 +227,7 @@ namespace BeatSurgeon.Gameplay
             _rainbowCoroutine = null;
             Plugin.Log.Info("RainbowManager: Rainbow finished");
             MultiplayerStateClient.SetActiveCommand(null);
-            ChatManager.GetInstance().SendChatMessage("!!Rainbow notes effect has ended.");
+            ChatManager.GetInstance().SendMutedChatMessage("Effect rainbow notes has ended.");
         }
 
         private IEnumerator NoteColorCoroutine(float durationSeconds)
@@ -246,7 +246,7 @@ namespace BeatSurgeon.Gameplay
             NoteColorActive = false;
             _noteColorCoroutine = null;
             Plugin.Log.Info("RainbowManager: NoteColor override finished");
-            ChatManager.GetInstance().SendChatMessage("!!NoteColor effect has ended.");
+            ChatManager.GetInstance().SendMutedChatMessage("Effect note color has ended.");
         }
     }
 }

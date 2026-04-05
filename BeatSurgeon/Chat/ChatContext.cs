@@ -71,45 +71,40 @@ namespace BeatSurgeon.Chat
                 return false;
             }
 
-            for (int i = 0; i < messageText.Length - 1; i++)
+            if (messageText.Length < 2 || messageText[0] != '!')
             {
-                if (messageText[i] != '!')
-                {
-                    continue;
-                }
-
-                char first = messageText[i + 1];
-                if (!char.IsLetter(first))
-                {
-                    continue;
-                }
-
-                int j = i + 2;
-                while (j < messageText.Length)
-                {
-                    char c = messageText[j];
-                    if (char.IsLetterOrDigit(c) || c == '_')
-                    {
-                        j++;
-                        continue;
-                    }
-
-                    break;
-                }
-
-                int tokenLength = j - i;
-                if (tokenLength <= 1)
-                {
-                    continue;
-                }
-
-                start = i;
-                length = tokenLength;
-                commandToken = messageText.Substring(i, tokenLength);
-                return true;
+                return false;
             }
 
-            return false;
+            char first = messageText[1];
+            if (!char.IsLetter(first))
+            {
+                return false;
+            }
+
+            int j = 2;
+            while (j < messageText.Length)
+            {
+                char c = messageText[j];
+                if (char.IsLetterOrDigit(c) || c == '_')
+                {
+                    j++;
+                    continue;
+                }
+
+                break;
+            }
+
+            int tokenLength = j;
+            if (tokenLength <= 1)
+            {
+                return false;
+            }
+
+            start = 0;
+            length = tokenLength;
+            commandToken = messageText.Substring(0, tokenLength);
+            return true;
         }
 
         internal bool HasPermission(string required)
