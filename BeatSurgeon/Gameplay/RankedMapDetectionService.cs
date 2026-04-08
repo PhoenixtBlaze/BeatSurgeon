@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeatSurgeon.Chat;
 using BeatSurgeon.Utils;
+using Newtonsoft.Json.Linq;
 using SongCore;
 
 namespace BeatSurgeon.Gameplay
@@ -25,10 +26,6 @@ namespace BeatSurgeon.Gameplay
             Timeout = TimeSpan.FromSeconds(10)
         };
 
-        // Lightweight JSON presence checks (no JSON library dependency).
-        // BeatLeader ranked status == 3
-        private static readonly Regex _blRankedRegex =
-            new Regex("\"status\"\\s*:\\s*3", RegexOptions.Compiled);
         // ScoreSaber "ranked":true
         private static readonly Regex _ssRankedRegex =
             new Regex("\"ranked\"\\s*:\\s*true", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -198,15 +195,58 @@ namespace BeatSurgeon.Gameplay
         {
             try
             {
-                // BeatLeader API requires uppercase hash and path-segment parameters (no /v1/ prefix).
-                string url = "https://api.beatleader.xyz/leaderboard/hash/" + hash.ToUpperInvariant()
-                             + "/" + diffNum + "/" + modeStr;
+                string diffName = DifficultyNumberToBeatLeaderName(diffNum);
+                string expectedMode = modeStr ?? "Standard";
+                string url = "https://api.beatleader.xyz/leaderboards/hash/" + hash;
 
                 HttpResponseMessage response = await _http.GetAsync(url, ct).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _log.Debug("BeatLeader: hash=" + hash + " diff=" + diffName + " mode=" + expectedMode + " http=" + (int)response.StatusCode);
+                    return false;
+                }
+
                 string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                bool ranked = _blRankedRegex.IsMatch(json);
-                _log.Debug("BeatLeader: hash=" + hash + " ranked=" + ranked);
-                return ranked;
+                JObject root = JObject.Parse(json);
+                JArray leaderboards = root["leaderboards"] as JArray;
+                if (leaderboards == null || leaderboards.Count == 0)
+                {
+                    _log.Debug("BeatLeader: hash=" + hash + " diff=" + diffName + " mode=" + expectedMode + " returned no leaderboards.");
+                    return false;
+                }
+
+                foreach (JToken leaderboardToken in leaderboards)
+                {
+                    JObject difficulty = leaderboardToken?["difficulty"] as JObject;
+                    if (difficulty == null)
+                    {
+                        continue;
+                    }
+
+                    int value = difficulty["value"]?.Value<int>() ?? 0;
+                    string apiDiffName = difficulty["difficultyName"]?.ToString() ?? string.Empty;
+                    string apiModeName = difficulty["modeName"]?.ToString() ?? string.Empty;
+
+                    bool diffMatches = value == diffNum || string.Equals(apiDiffName, diffName, StringComparison.OrdinalIgnoreCase);
+                    bool modeMatches = string.Equals(apiModeName, expectedMode, StringComparison.OrdinalIgnoreCase);
+                    if (!diffMatches || !modeMatches)
+                    {
+                        continue;
+                    }
+
+                    int status = difficulty["status"]?.Value<int>() ?? 0;
+                    double stars = difficulty["stars"]?.Value<double>() ?? 0d;
+                    bool ranked = status == 3;
+                    _log.Debug("BeatLeader: hash=" + hash + " diff=" + apiDiffName + " mode=" + apiModeName + " status=" + status + " stars=" + stars.ToString("0.##") + " ranked=" + ranked);
+                    return ranked;
+                }
+
+                _log.Debug("BeatLeader: hash=" + hash + " diff=" + diffName + " mode=" + expectedMode + " had no matching difficulty entry.");
+                return false;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return false;
             }
             catch (Exception ex)
             {
@@ -245,7 +285,7 @@ namespace BeatSurgeon.Gameplay
                 if (PluginConfig.Instance?.NotifyOnRankedDisable == true)
                 {
                     ChatManager.GetInstance()?.SendMutedChatMessage(
-                        "BeatSurgeon detected a ranked map. All sabotage disabled.");
+                        "BeatSurgeon detected a ranked map. All Commands and Channel Points disabled.");
                 }
             }
             catch { }
@@ -261,6 +301,19 @@ namespace BeatSurgeon.Gameplay
                 case BeatmapDifficulty.Expert:     return 7;
                 case BeatmapDifficulty.ExpertPlus: return 9;
                 default:                           return 1;
+            }
+        }
+
+        private static string DifficultyNumberToBeatLeaderName(int diffNum)
+        {
+            switch (diffNum)
+            {
+                case 1: return "Easy";
+                case 3: return "Normal";
+                case 5: return "Hard";
+                case 7: return "Expert";
+                case 9: return "ExpertPlus";
+                default: return "Easy";
             }
         }
     }
