@@ -230,7 +230,29 @@
 									interactable="~followEffectsToggleInteractable"
 									on-change="OnFollowEffectsChanged"
 									hover-hint="Enable supporter-only follower message effects and commands when viewers follow"/>
+					<!-- Bomb Font Selection -->
+					<horizontal horizontal-fit="PreferredSize" spacing="2" pad-top="4">
+						<text text="Bomb Font"
+							  font-size="4.5"
+							  color="#FFCC44"
+							  align="MidlineLeft"
+							  font-style="Bold"/>
+					</horizontal>
 
+					<dropdown-list-setting
+						id="bomb-font-dropdown"
+						text="Font Style"
+						value="bomb_font_selected"
+						choices="bomb_font_options"
+						apply-on-change="true"
+						hover-hint="Select the font for bomb username text"/>
+
+					<horizontal child-force-expand-width="false">
+						<text id="bomb-font-preview"
+							  text="PreviewUsername"
+							  align="Center"
+							  font-size="5" />
+					</horizontal>
 				</modifier-container>
 			</tab>
 			<!-- TAB 3: Endless Mode(Disabled for now)  -->

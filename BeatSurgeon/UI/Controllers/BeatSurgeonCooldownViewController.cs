@@ -1,7 +1,6 @@
 using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.ViewControllers;
-using BeatSaberMarkupLanguage.Components.Settings;
 using HMUI;
 using BeatSurgeon.Chat;
 using BeatSurgeon.Gameplay;
@@ -342,19 +341,7 @@ namespace BeatSurgeon.UI.Controllers
             // Show modal immediately - BSML handles initialization
             _bombVisualsModal.Show(true);
 
-            // Start coroutines after modal is shown
-            StartCoroutine(RefreshBombFontDropdown());
-            StartBombFontPreview();
         }
-
-
-        [UIComponent("bomb-font-preview")]
-        private TMP_Text _bombFontPreview;
-
-        private Coroutine _bombFontPreviewCoroutine;
-
-        [UIComponent("bomb-font-dropdown")]
-        private DropDownListSetting _bombFontDropdown;
 
 
         [UIValue("bomb_text_height")]
@@ -405,68 +392,6 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
-
-        // *** Font Selection Logic ***
-
-        [UIValue("bomb_font_options")]
-        public List<object> BombFontOptions
-        {
-            get
-            {
-                // Pull dynamic options from FontBundleLoader
-                // BSML expects List<object> for dropdown choices
-                var options = FontBundleLoader.GetBombFontOptions();
-                return options.Cast<object>().ToList();
-            }
-        }
-
-        [UIValue("bomb_font_selected")]
-        public string BombFontSelected
-        {
-            get => FontBundleLoader.GetSelectedBombFontOption();
-            set
-            {
-                if (!HasCachedVisualsAccess())
-                    return;
-
-                StopBombFontPreview();
-
-                FontBundleLoader.SetSelectedBombFontOption(value);
-                NotifyPropertyChanged(nameof(BombFontSelected));
-                // Stop current preview animation
-                
-                StartCoroutine(ApplyFontChangeDelayed());
-                
-            }
-        }
-
-        private IEnumerator ApplyFontChangeDelayed()
-        {
-            // Disable the component to prevent layout calculations during transition
-            if (_bombFontPreview != null)
-            {
-                _bombFontPreview.enabled = false;
-            }
-
-            // Wait 2 frames to ensure FontBundleLoader updates BombUsernameFont
-            yield return null;
-            yield return null;
-
-            // Now apply the new font fresh
-            ApplyBombFontPreviewStatic();
-
-            // Re-enable the component
-            if (_bombFontPreview != null)
-            {
-                _bombFontPreview.enabled = true;
-            }
-
-            // Restart the color animation
-            if (_bombFontPreview != null && _bombFontPreview.gameObject.activeInHierarchy)
-            {
-                _bombFontPreviewCoroutine = StartCoroutine(BombFontPreviewRoutine());
-            }
-        }
 
         // *** Gradient Color Logic ***
 
@@ -1161,112 +1086,11 @@ namespace BeatSurgeon.UI.Controllers
         }
 
 
-
-        private IEnumerator RefreshBombFontDropdown()
-        {
-            
-            // If you don’t care about hot-swapping bundles during runtime, you can use EnsureLoadedAsync() instead.
-            var task = FontBundleLoader.EnsureLoadedAsync();
-            while (!task.IsCompleted) yield return null;
-
-            // Update BSML-bound properties
-            NotifyPropertyChanged(nameof(BombFontOptions));
-            NotifyPropertyChanged(nameof(BombFontSelected));
-
-            // Force the dropdown to rebuild its UI list
-            if (_bombFontDropdown != null)
-            {
-                _bombFontDropdown.Values = BombFontOptions;
-                _bombFontDropdown.UpdateChoices();
-                _bombFontDropdown.ReceiveValue();
-            }
-
-            ApplyBombFontPreviewStatic();
-        }
-
-        private void StartBombFontPreview()
-        {
-            StopBombFontPreview();
-
-            if (_bombFontPreview == null)
-                return;
-
-            ApplyBombFontPreviewStatic(); // apply font + scale immediately
-            _bombFontPreviewCoroutine = StartCoroutine(BombFontPreviewRoutine());
-        }
-
-        private void StopBombFontPreview()
-        {
-            if (_bombFontPreviewCoroutine != null)
-            {
-                StopCoroutine(_bombFontPreviewCoroutine);
-                _bombFontPreviewCoroutine = null;
-            }
-        }
-
-        private void ApplyBombFontPreviewStatic()
-        {
-            if (_bombFontPreview == null)
-                return;
-
-            if (!BeatSurgeon.Gameplay.FontBundleLoader.TryApplySelectedBombFont(_bombFontPreview))
-            {
-                Plugin.Log.Warn("BombUsernameFont is null in ApplyBombFontPreviewStatic");
-                return;
-            }
-
-            // Set text (do this AFTER setting font)
-            _bombFontPreview.text = "PreviewUsername";
-
-            // Mimic gameplay "shape" controls
-            _bombFontPreview.rectTransform.localScale = new Vector3(BombTextWidth, BombTextHeight, 1f);
-
-            // Optional styling similar to your in-game text
-            _bombFontPreview.outlineWidth = 0.2f;
-            _bombFontPreview.outlineColor = Color.black;
-
-            // *** CRITICAL: Force TextMeshPro to regenerate mesh with new font ***
-            _bombFontPreview.SetAllDirty();
-            _bombFontPreview.ForceMeshUpdate();
-        }
-
-
-
-        private IEnumerator BombFontPreviewRoutine()
-        {
-            // If you want it to feel like your in-game 2s flight, keep this at 2.0
-            const float cycleSeconds = 2.0f;
-
-            while (_bombFontPreview != null && _bombFontPreview.gameObject.activeInHierarchy)
-            {
-                // 0..1..0..1...
-                float t = Mathf.PingPong(Time.unscaledTime / cycleSeconds, 1f);
-
-                // use your existing settings as the gradient endpoints
-                Color c = Color.Lerp(BombGradientStart, BombGradientEnd, t);
-                c.a = 1f;
-
-                _bombFontPreview.color = c;
-
-                // If user changes options while it’s open, keep it in sync.
-                // (Cheap enough to do every frame)
-                //ApplyBombFontPreviewStatic();
-
-                yield return null;
-            }
-
-            _bombFontPreviewCoroutine = null;
-        }
-
-
-
         [UIAction("CloseBombVisuals")]
         private void CloseBombVisuals()
         {
             if (_bombVisualsModal != null)
                 _bombVisualsModal.Hide(true);
-
-            StopBombFontPreview();
         }
 
 
@@ -1408,4 +1232,3 @@ namespace BeatSurgeon.UI.Controllers
 
     }
 }
-

@@ -265,16 +265,7 @@
 					apply-on-change="true" />
 			</horizontal>
 
-			<!-- Font dropdown -->
-			<horizontal spacing="1" pad="0">
-				<dropdown-list-setting
-					id="bomb-font-dropdown"
-					text="Font Style"
-					value="bomb_font_selected"
-					choices="bomb_font_options"
-					apply-on-change="true"
-					hover-hint="Select the font for bomb text"/>
-			</horizontal>
+
 			<!-- Gradient Colors -->
 			<horizontal>
 					<horizontal pad="1">
@@ -297,12 +288,7 @@
 			</horizontal>
 		</vertical>
 		</settings-scroll-view>
-		<horizontal child-force-expand-width="false" pad-bottom="20" pad-right="65">
-			<text id="bomb-font-preview"
-					text="PreviewUsername"
-					align="Center"
-					font-size="5" />
-		</horizontal>
+
 		
 		<!--
 		<horizontal pad-right="70" pad-top="5">
