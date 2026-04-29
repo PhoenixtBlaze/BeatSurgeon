@@ -121,6 +121,35 @@ namespace BeatSurgeon.Gameplay
             StartCoroutine(DespawnAfter(explosion, Mathf.Max(2.5f, maxScheduledDelay + life)));
         }
 
+        internal bool Prewarm()
+        {
+            if (_explosionPrefab == null)
+            {
+                LoadAssetBundle();
+                if (_explosionPrefab == null)
+                {
+                    return false;
+                }
+            }
+
+            GameObject explosion = GetOrCreateInstance();
+            if (explosion == null)
+            {
+                return false;
+            }
+
+            PrepareExplosionInstance(explosion);
+            explosion.transform.SetParent(null, false);
+            explosion.SetActive(false);
+
+            if (!_pool.Contains(explosion))
+            {
+                _pool.Enqueue(explosion);
+            }
+
+            return true;
+        }
+
         private void SetLayerRecursively(GameObject obj, int newLayer)
         {
             obj.layer = newLayer;

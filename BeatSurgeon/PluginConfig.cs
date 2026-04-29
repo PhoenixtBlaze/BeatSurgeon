@@ -13,6 +13,8 @@ namespace BeatSurgeon
         public static PluginConfig Instance { get; set; }
 
         // --- Auth ---
+        // AccessToken / RefreshToken are legacy serialized fields retained only so older configs can be read.
+        // TwitchAuthManager normalizes persisted auth state into the encrypted fields and keeps these blank.
         public virtual string AccessToken { get; set; } = string.Empty;
         public virtual string RefreshToken { get; set; } = string.Empty;
         public virtual string ClientId { get; set; } = "dyq6orcrvl9cxd8d1usx6rtczt3tfb";
@@ -36,13 +38,16 @@ namespace BeatSurgeon
 
         [Ignore]
         public bool HasValidToken =>
-            !string.IsNullOrEmpty(AccessToken) &&
+            (!string.IsNullOrEmpty(EncryptedAccessToken) ||
+             (!string.IsNullOrEmpty(AccessToken) && string.IsNullOrEmpty(EncryptedAccessToken))) &&
             TokenExpiry > System.DateTime.UtcNow.AddMinutes(1);
 
         // --- Commands / Toggles --- 
         public virtual bool BitEffectEnabled { get; set; } = false;
+        public virtual string BitEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
         public virtual bool SubEffectsEnabled { get; set; } = false;
         public virtual bool FollowEffectsEnabled { get; set; } = false;
+        public virtual string FollowEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
         public virtual string BombCommandName { get; set; } = "bomb";
         public virtual bool RainbowEnabled { get; set; } = true;
         public virtual float RainbowCycleSpeed { get; set; } = 0.1f;
@@ -73,7 +78,8 @@ namespace BeatSurgeon
         public virtual float RainbowCooldownSeconds { get; set; } = 60f;
         public virtual float DisappearCooldownSeconds { get; set; } = 60f;
         public virtual float GhostCooldownSeconds { get; set; } = 60f;
-        public virtual float BombCooldownSeconds { get; set; } = 60f;
+        public virtual float BombCooldownSeconds { get; set; } = 1f;
+        public virtual float GlitterCooldownSeconds { get; set; } = 10f;
         public virtual float FasterCooldownSeconds { get; set; } = 60f;
         public virtual float SuperFastCooldownSeconds { get; set; } = 60f;
         public virtual float SlowerCooldownSeconds { get; set; } = 60f;
@@ -81,7 +87,7 @@ namespace BeatSurgeon
 
         public virtual bool SpeedExclusiveEnabled { get; set; } = true;
 
-        // --- Legacy encrypted auth fields (backwards compatibility) ---
+        // --- Encrypted auth storage ---
         public virtual string EncryptedAccessToken { get; set; } = string.Empty;
         public virtual string EncryptedRefreshToken { get; set; } = string.Empty;
 
@@ -237,13 +243,18 @@ namespace BeatSurgeon
 
             AccessToken = other.AccessToken;
             RefreshToken = other.RefreshToken;
+            EncryptedAccessToken = other.EncryptedAccessToken;
+            EncryptedRefreshToken = other.EncryptedRefreshToken;
             ClientId = other.ClientId;
             TokenExpiryTicks = other.TokenExpiryTicks;
             ChannelUserId = other.ChannelUserId;
+            BitEffectManualDisabledBroadcasterId = other.BitEffectManualDisabledBroadcasterId;
+            FollowEffectManualDisabledBroadcasterId = other.FollowEffectManualDisabledBroadcasterId;
             CachedBroadcasterId = other.CachedBroadcasterId;
             CachedBroadcasterLogin = other.CachedBroadcasterLogin;
             CachedBotUserId = other.CachedBotUserId;
             CachedBotUserLogin = other.CachedBotUserLogin;
+            GlitterCooldownSeconds = other.GlitterCooldownSeconds;
             PreferredOutlineAssetName = other.PreferredOutlineAssetName;
             PreferredOutlineEmitterName = other.PreferredOutlineEmitterName;
             ForceBuiltinOutlineTemplate = other.ForceBuiltinOutlineTemplate;

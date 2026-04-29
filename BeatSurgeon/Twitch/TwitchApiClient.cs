@@ -461,7 +461,7 @@ namespace BeatSurgeon.Twitch
                         string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                         if (!response.IsSuccessStatusCode)
                         {
-                            EntitlementsState.Clear();
+                            InvalidateSupporterState();
                             OnSubscriberStatusChanged?.Invoke();
                             return;
                         }
@@ -470,13 +470,14 @@ namespace BeatSurgeon.Twitch
                         string entitlementToken = json["entitlementToken"]?.ToString();
                         if (!TryVerifyAndParseEntitlement(entitlementToken, out EntitlementsSnapshot snapshot))
                         {
-                            EntitlementsState.Clear();
+                            InvalidateSupporterState();
                             OnSubscriberStatusChanged?.Invoke();
                             return;
                         }
 
                         EntitlementsState.Set(snapshot);
                         PluginConfig.Instance.CachedSupporterTier = (int)snapshot.Tier;
+                        PremiumVisualFeatureAccessController.SyncAllConfigEnabledStates();
                         OnSubscriberStatusChanged?.Invoke();
                     }
                 }
@@ -484,9 +485,20 @@ namespace BeatSurgeon.Twitch
             catch (Exception ex)
             {
                 _log.Exception(ex, "RefreshEntitlementsAsync");
-                EntitlementsState.Clear();
+                InvalidateSupporterState();
                 OnSubscriberStatusChanged?.Invoke();
             }
+        }
+
+        private static void InvalidateSupporterState()
+        {
+            EntitlementsState.Clear();
+            if (PluginConfig.Instance != null)
+            {
+                PluginConfig.Instance.CachedSupporterTier = 0;
+            }
+
+            PremiumVisualFeatureAccessController.SyncAllConfigEnabledStates();
         }
 
         internal async Task<bool> CheckVisualsPermissionAsync(CancellationToken ct = default(CancellationToken))

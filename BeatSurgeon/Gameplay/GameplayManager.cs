@@ -51,6 +51,15 @@ namespace BeatSurgeon.Gameplay
                 if (_isInMap == value) return;
                 _isInMap = value;
                 _log.Info("IsInMap changed -> " + value);
+
+                if (_isInMap)
+                {
+                    ScheduleGlitterWarmup();
+                }
+                else
+                {
+                    CancelGlitterWarmup();
+                }
             }
         }
 
@@ -143,6 +152,8 @@ namespace BeatSurgeon.Gameplay
         // Coroutines
         private Coroutine _gameplayCoroutine;
         private Coroutine _timerCoroutine;
+        private Coroutine _glitterWarmupRoutine;
+        private bool _glitterWarmupCompletedForScene;
 
         public static GameplayManager GetInstance()
         {
@@ -182,6 +193,7 @@ namespace BeatSurgeon.Gameplay
 
         private void OnDestroy()
         {
+            CancelGlitterWarmup();
             UnregisterSceneCallbacks();
             if (_instance == this)
             {
@@ -223,6 +235,7 @@ namespace BeatSurgeon.Gameplay
                     GhostVisualController.Audio = null;
                     DisappearingArrowsVisualController.Audio = null;
                     FasterSongPatch.ClearCache();
+                    FollowerMessageManager.ClearForSceneExit();
                     RankedMapDetectionService.Instance.Reset();
                 }
             }
@@ -237,6 +250,84 @@ namespace BeatSurgeon.Gameplay
             if (logTransition)
             {
                 _log.Debug("Scene changed -> " + sceneName + " IsInMap=" + IsInMap + " IsMultiplayer=" + _isMultiplayerScene);
+            }
+        }
+
+        private void ScheduleGlitterWarmup()
+        {
+            if (_glitterWarmupCompletedForScene || _glitterWarmupRoutine != null)
+            {
+                return;
+            }
+
+            _glitterWarmupRoutine = StartCoroutine(WarmGlitterEffectsCoroutine());
+        }
+
+        private void CancelGlitterWarmup()
+        {
+            _glitterWarmupCompletedForScene = false;
+
+            if (_glitterWarmupRoutine != null)
+            {
+                StopCoroutine(_glitterWarmupRoutine);
+                _glitterWarmupRoutine = null;
+            }
+        }
+
+        private IEnumerator WarmGlitterEffectsCoroutine()
+        {
+            _log.Debug("Scheduling glitter effects warmup for current gameplay scene.");
+
+            FontBundleLoader.StartPreload();
+            BombCutPatch.PrewarmFlyingTextResources();
+
+            yield return null;
+            yield return null;
+
+            if (!IsInMap)
+            {
+                _glitterWarmupRoutine = null;
+                yield break;
+            }
+
+            bool warmupSucceeded = SurgeonEffectsBundleService.GetFollowerCanvasTemplate() != null;
+            yield return null;
+
+            if (IsInMap)
+            {
+                warmupSucceeded &= GlitterLoopEmitterManager.Instance.Prewarm();
+            }
+
+            yield return null;
+
+            IReadOnlyList<int> denominations = BitParticleEmitterPool.WarmupDenominations;
+            for (int index = 0; index < denominations.Count; index++)
+            {
+                if (!IsInMap)
+                {
+                    _glitterWarmupRoutine = null;
+                    yield break;
+                }
+
+                warmupSucceeded &= BitParticleEmitterPool.Instance.PrewarmDenomination(denominations[index]);
+                yield return null;
+            }
+
+            if (IsInMap)
+            {
+                warmupSucceeded &= FireworksExplosionPool.Instance.Prewarm();
+            }
+
+            _glitterWarmupCompletedForScene = warmupSucceeded;
+            _glitterWarmupRoutine = null;
+
+            if (warmupSucceeded)
+            {
+                _log.Info("Gameplay glitter effects warmup complete.");
+            }
+            else
+            {
+                _log.Warn("Gameplay glitter effects warmup completed with missing assets or incomplete pools.");
             }
         }
 
@@ -778,6 +869,51 @@ namespace BeatSurgeon.Gameplay
             return;
         }
 
+        internal async Task ApplyGlitterAsync(ChatContext ctx, int requestedBits, CancellationToken ct)
+        {
+            await QueueBitEffectAsync("Glitter", ctx, requestedBits, ct).ConfigureAwait(false);
+        }
+
+        private async Task QueueBitEffectAsync(string effectName, ChatContext ctx, int requestedBits, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            bool started = false;
+            int queuedEffects = 0;
+            int queuedBits = 0;
+            string breakdown = string.Empty;
+
+            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                .StartNew(() =>
+                {
+                    started = TestEffectManager.Instance.QueueBits(
+                        requestedBits,
+                        ctx?.Username,
+                        out queuedEffects,
+                        out queuedBits,
+                        out breakdown);
+                })
+                .ConfigureAwait(false);
+
+            _log.Effect(
+                effectName,
+                started,
+                "requestedBy="
+                + (ctx?.Username ?? "Unknown")
+                + " requestedBits="
+                + requestedBits
+                + " queuedBits="
+                + queuedBits
+                + " queuedEffects="
+                + queuedEffects
+                + (string.IsNullOrWhiteSpace(breakdown) ? string.Empty : " breakdown=" + breakdown));
+
+            if (!started)
+            {
+                throw new InvalidOperationException(effectName + " could not be armed (not in map or queue is full).");
+            }
+        }
+
         internal Task ApplyNoteColorAsync(ChatContext ctx, UnityEngine.Color left, UnityEngine.Color right, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
@@ -841,6 +977,34 @@ namespace BeatSurgeon.Gameplay
                 : "requestedBy=" + requestedBy + " displayText=" + displayTextOverride;
             _log.Effect("Bomb", started, detail);
             if (!started) throw new InvalidOperationException("Bomb could not be armed (not in map).");
+        }
+
+        internal async Task ApplyFollowerMessageAsync(ChatContext ctx, string displayText, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            await FontBundleLoader.EnsureBombFontReadyAsync().ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+
+            if (!FontBundleLoader.IsBombFontReady)
+            {
+                throw new InvalidOperationException("Bomb font bundle could not be loaded.");
+            }
+
+            bool started = false;
+            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                .StartNew(() =>
+                {
+                    started = FollowerMessageManager.Instance.EnqueueMessage(ctx?.Username, displayText);
+                })
+                .ConfigureAwait(false);
+
+            string requestedBy = ctx?.Username ?? "Unknown";
+            string detail = string.IsNullOrWhiteSpace(displayText)
+                ? "requestedBy=" + requestedBy
+                : "requestedBy=" + requestedBy + " displayText=" + displayText;
+            _log.Effect("FollowerMessage", started, detail);
+            if (!started) throw new InvalidOperationException("Follower message could not be started (not in map, queue full, or follower canvas unavailable).");
         }
 
         internal Task ApplySpeedAsync(string effectKey, ChatContext ctx, CancellationToken ct)

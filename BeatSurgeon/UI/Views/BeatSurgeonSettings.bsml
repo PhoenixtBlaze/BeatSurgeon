@@ -176,26 +176,35 @@
 			</tab>
 			<!-- TAB:3 Surgeon Settings -->
 			<tab tab-name="SurgeonSettings" tags="saber-surgeon-tabs">
-				<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
-						<vertical pref-width="80">
-							<horizontal>
-								<text text="Extra Settings"></text>
-							</horizontal>
-							<horizontal>
-								<toggle-setting text="Enable Surgeon Multiplayer effects" value="multiplayerEnable" apply-on-change="true" hover-hint="When enabled, Beat Surgeon will apply the same commands/effects to your game that your multiplayer+ lobby leader gets"/>
-							</horizontal>
-							<horizontal>
-								<toggle-setting text="Auto-Disable everything on Ranked maps" value="rankedAutoDisable" apply-on-change="true" hover-hint="When enabled, all commands and channel points are Stopped and blocked on ranked maps being played"/>
-							</horizontal>
-							<horizontal active="~rankedAutoDisable">
-								<toggle-setting text="BeatLeader" value="BLAutoDisable" apply-on-change="true" hover-hint="Detect BeatLeader ranked for Auto-Disable"/>
-								<toggle-setting text="Scoresaber" value="SSAutoDisable" apply-on-change="true" hover-hint="Detect ScoreSaber ranked for Auto-Disable"/>
-							</horizontal>
-						</vertical>
+				<modifier-container pref-width="90" horizontal-fit="PreferredSize">
+					<toggle-setting
+						text="Enable Surgeon Multiplayer effects"
+						value="multiplayerEnable"
+						apply-on-change="true"
+						hover-hint="When enabled, Beat Surgeon will apply the same commands/effects to your game that your multiplayer+ lobby leader gets" />
+
+					<toggle-setting
+						text="Auto-Disable everything on Ranked maps"
+						value="rankedAutoDisable"
+						apply-on-change="true"
+						hover-hint="When enabled, all commands and channel points are Stopped and blocked on ranked maps being played" />
+
+					<horizontal active="~rankedAutoDisable">
+						<toggle-setting
+							text="BeatLeader"
+							value="BLAutoDisable"
+							apply-on-change="true"
+							hover-hint="Detect BeatLeader ranked for Auto-Disable" />
+						<toggle-setting
+							text="Scoresaber"
+							value="SSAutoDisable"
+							apply-on-change="true"
+							hover-hint="Detect ScoreSaber ranked for Auto-Disable" />
+					</horizontal>
 				</modifier-container>
 			</tab>
 			<!-- TAB: Supporter -->
-			<tab tab-name="Supporter" tags="saber-surgeon-tabs">
+			<tab id="supporter-tab" tab-name="Supporter" tags="saber-surgeon-tabs">
 				<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
 
 					<horizontal horizontal-fit="PreferredSize" spacing="2">
@@ -209,17 +218,18 @@
 					<toggle-setting text="Bit Effect"
 									value="BitEffectEnabled"
 									on-change="OnBitEffectChanged"
-									hover-hint="Enable special saber effects for Twitch Bit donations"/>
+									hover-hint="Enable supporter-only Bits and Cheer effects and commands"/>
 
 					<toggle-setting text="Sub Effects"
 									value="SubEffectsEnabled"
 									on-change="OnSubEffectsChanged"
-									hover-hint="Enable special saber effects when viewers subscribe"/>
+									hover-hint="Enable supporter-only Subscriber effects and commands for when viewers subscribe"/>
 
 					<toggle-setting text="Follow Effects"
 									value="FollowEffectsEnabled"
+									interactable="~followEffectsToggleInteractable"
 									on-change="OnFollowEffectsChanged"
-									hover-hint="Enable special saber effects when viewers follow"/>
+									hover-hint="Enable supporter-only follower message effects and commands when viewers follow"/>
 
 				</modifier-container>
 			</tab>

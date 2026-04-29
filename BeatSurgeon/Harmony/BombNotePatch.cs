@@ -67,6 +67,17 @@ namespace BeatSurgeon.HarmonyPatches
                 return false;
             }
 
+            if (TestEffectManager.Instance.TryRequeueMarkedEffect(gameNote, "BombOverride", out int requeuedDenomination))
+            {
+                OutlineEmitterManager.Instance.DetachFromNote(gameNote);
+                GlitterLoopEmitterManager.Instance.DetachFromNote(gameNote);
+                LogUtils.Debug(() =>
+                    "BombNotePatch: Requeued glitter effect because note became a bomb at "
+                    + noteData.time.ToString("F3")
+                    + " denomination="
+                    + requeuedDenomination);
+            }
+
             CacheBombPrefabIfNeeded();
 
             bool isBomb = BombManager.Instance.MarkNoteAsBomb(noteData);
@@ -344,9 +355,23 @@ namespace BeatSurgeon.HarmonyPatches
             }
         }
 
-        private static void SpawnFlyingText(string displayText, Vector3 cutPoint)
+        internal static void PrewarmFlyingTextResources()
+        {
+            try
+            {
+                EnsureRefs();
+            }
+            catch (Exception ex)
+            {
+                LogUtils.Warn("BombCutPatch: Failed to prewarm flying text resources: " + ex.Message);
+            }
+        }
+
+        internal static void SpawnFlyingText(string displayText, Vector3 cutPoint)
         {
             if (string.IsNullOrEmpty(displayText)) return;
+
+            EnsureRefs();
 
             try
             {
@@ -368,22 +393,7 @@ namespace BeatSurgeon.HarmonyPatches
                 return;
             }
 
-            TMP_FontAsset resolvedFont = customFont ?? fallbackFont;
-            if (resolvedFont == null)
-            {
-                return;
-            }
-
-            textComponent.font = resolvedFont;
-
-            if (customFont != null)
-            {
-                Material fontMaterial = FontBundleLoader.GetOrCreateFontMaterial(customFont);
-                if (fontMaterial != null)
-                {
-                    textComponent.fontSharedMaterial = fontMaterial;
-                }
-            }
+            FontBundleLoader.TryApplySelectedBombFont(textComponent, fallbackFont);
         }
 
         private static void SpawnCurvedFlyingText(string displayText, Vector3 cutPoint)
@@ -471,13 +481,19 @@ namespace BeatSurgeon.HarmonyPatches
             float duration = 2.0f;
             float elapsed = 0f;
 
-            float spawnDistance = EntitlementsState.HasVisualsAccess
-                ? (Plugin.Settings?.BombSpawnDistance ?? 10.0f)
-                : 10.0f;
-            spawnDistance = Mathf.Clamp(spawnDistance, 2f, 20f);
+            Vector3 initialPosition = startPos + Vector3.up * 0.5f;
+            Vector3 targetPos;
 
-            Vector3 forward = Camera.main != null ? Camera.main.transform.forward : Vector3.forward;
-            Vector3 targetPos = startPos + forward * spawnDistance + Vector3.up * 2f;
+            if (!SurgeonEffectsBundleService.TryResolveFollowerCanvasStartWorldPosition(out targetPos))
+            {
+                float spawnDistance = EntitlementsState.HasVisualsAccess
+                    ? (Plugin.Settings?.BombSpawnDistance ?? 10.0f)
+                    : 10.0f;
+                spawnDistance = Mathf.Clamp(spawnDistance, 2f, 20f);
+
+                Vector3 forward = Camera.main != null ? Camera.main.transform.forward : Vector3.forward;
+                targetPos = startPos + forward * spawnDistance + Vector3.up * 2f;
+            }
 
             TMP_Text tmp = textGo.GetComponent<TMP_Text>();
             Color startColor = EntitlementsState.HasVisualsAccess
@@ -492,7 +508,7 @@ namespace BeatSurgeon.HarmonyPatches
                 elapsed += Time.deltaTime;
                 float t = elapsed / duration;
 
-                textGo.transform.position = Vector3.Lerp(startPos + Vector3.up * 0.5f, targetPos, t);
+                textGo.transform.position = Vector3.Lerp(initialPosition, targetPos, t);
 
                 if (tmp != null)
                 {

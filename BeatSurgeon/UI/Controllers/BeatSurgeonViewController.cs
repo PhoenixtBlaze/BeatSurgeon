@@ -1,5 +1,6 @@
 using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
+using BeatSaberMarkupLanguage.Components;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSurgeon.Chat;
 using BeatSurgeon.Twitch;
@@ -415,13 +416,14 @@ namespace BeatSurgeon.UI.Controllers
             base.DidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
             ActiveInstance = this;
 
-            UpdateSupportUI();
+            RefreshSupporterUiState();
 
             // Subscribe to auth events for reauth notification display
             if (firstActivation)
             {
-                TwitchAuthManager.Instance.OnReauthRequired += RefreshTwitchStatusText;
-                TwitchAuthManager.Instance.OnTokensUpdated += RefreshTwitchStatusText;
+                TwitchAuthManager.Instance.OnReauthRequired += HandleSupportStateChanged;
+                TwitchAuthManager.Instance.OnTokensUpdated += HandleSupportStateChanged;
+                TwitchAuthManager.Instance.OnIdentityUpdated += HandleSupportStateChanged;
 
                 if (rainbowButton != null)
                 {
@@ -543,7 +545,7 @@ namespace BeatSurgeon.UI.Controllers
                     rt.anchoredPosition = Vector2.zero;
                     rt.sizeDelta = new Vector2(12f, 12f);
                 }
-                TwitchApiClient.OnSubscriberStatusChanged += UpdateSupportUI;
+                TwitchApiClient.OnSubscriberStatusChanged += HandleSupportStateChanged;
 
             }
 
@@ -557,7 +559,7 @@ namespace BeatSurgeon.UI.Controllers
             UpdateSuperFastButtonVisual();
             UpdateSlowerButtonVisual();
             UpdateFlashbangButtonVisual();
-            RefreshTwitchStatusText();
+            RefreshSupporterUiState();
             
 
         }
@@ -568,8 +570,10 @@ namespace BeatSurgeon.UI.Controllers
             {
                 ActiveInstance = null;
                 // Unsubscribe from auth events
-                TwitchAuthManager.Instance.OnReauthRequired -= RefreshTwitchStatusText;
-                TwitchAuthManager.Instance.OnTokensUpdated -= RefreshTwitchStatusText;
+                TwitchAuthManager.Instance.OnReauthRequired -= HandleSupportStateChanged;
+                TwitchAuthManager.Instance.OnTokensUpdated -= HandleSupportStateChanged;
+                TwitchAuthManager.Instance.OnIdentityUpdated -= HandleSupportStateChanged;
+                TwitchApiClient.OnSubscriberStatusChanged -= HandleSupportStateChanged;
             }
 
             base.DidDeactivate(removedFromHierarchy, screenSystemDisabling);
@@ -600,6 +604,30 @@ namespace BeatSurgeon.UI.Controllers
             vc.UpdateSuperFastButtonVisual();
             vc.UpdateSlowerButtonVisual();
             vc.UpdateFlashbangButtonVisual();
+        }
+
+        public static void RefreshSupporterUiFromExternal()
+        {
+            var vc = ActiveInstance;
+            if (vc == null) return;
+
+            vc.RefreshSupporterUiState();
+        }
+
+        private void HandleSupportStateChanged()
+        {
+            _ = IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(RefreshSupporterUiState);
+        }
+
+        private void RefreshSupporterUiState()
+        {
+            RefreshTwitchStatusText();
+            NotifyPropertyChanged(nameof(SupporterTabVisible));
+            UpdateSupportUI();
+            NotifyPropertyChanged(nameof(BitEffectEnabled));
+            NotifyPropertyChanged(nameof(FollowEffectsEnabled));
+            NotifyPropertyChanged(nameof(FollowEffectsToggleInteractable));
+            NotifyPropertyChanged(nameof(SubscribeButtonText));
         }
 
 
@@ -773,7 +801,7 @@ namespace BeatSurgeon.UI.Controllers
 
 
 
-        // ── Supporter Tab ──────────────────────────────────────────
+        // ── Supporter Tab ────────────────────────────────────────── 
 
         [UIValue("BitEffectEnabled")]
         public bool BitEffectEnabled
@@ -785,7 +813,8 @@ namespace BeatSurgeon.UI.Controllers
         [UIAction("OnBitEffectChanged")]
         private void OnBitEffectChanged(bool value)
         {
-            PluginConfig.Instance.BitEffectEnabled = value;
+            BitEffectAccessController.ApplyManualToggle(value);
+            NotifyPropertyChanged(nameof(BitEffectEnabled));
         }
 
         [UIValue("SubEffectsEnabled")]
@@ -808,10 +837,16 @@ namespace BeatSurgeon.UI.Controllers
             set => PluginConfig.Instance.FollowEffectsEnabled = value;
         }
 
+        [UIValue("followEffectsToggleInteractable")]
+        public bool FollowEffectsToggleInteractable => FollowEffectAccessController.IsToggleInteractable;
+
         [UIAction("OnFollowEffectsChanged")]
         private void OnFollowEffectsChanged(bool value)
         {
-            PluginConfig.Instance.FollowEffectsEnabled = value;
+            FollowEffectAccessController.ApplyManualToggle(value);
+            NotifyPropertyChanged(nameof(FollowEffectsEnabled));
+            NotifyPropertyChanged(nameof(FollowEffectsToggleInteractable));
+            _ = TwitchEventSubClient.Instance.RefreshSubscriptionsAsync();
         }
 
 
@@ -913,7 +948,11 @@ namespace BeatSurgeon.UI.Controllers
                        ?? Plugin.Settings.CachedBroadcasterLogin
                        ?? "Unknown";
 
-            int tier = Plugin.Settings.CachedSupporterTier;
+            int tier = (int)SupporterState.CurrentTier;
+            if (tier <= 0)
+            {
+                tier = Plugin.Settings.CachedSupporterTier;
+            }
 
             if (tier > 0)
             {
@@ -1070,19 +1109,21 @@ namespace BeatSurgeon.UI.Controllers
         [UIComponent("supporter-text")]
         private TMP_Text _supporterText;
 
+        [UIComponent("supporter-tab")]
+        private Tab _supporterTab;
+
+        [UIValue("supporterTabVisible")]
+        public bool SupporterTabVisible => PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
+
 
 
 
         private void UpdateSupportUI()
         {
-            bool isAuthenticated = TwitchAuthManager.Instance.IsAuthenticated;
+            bool isSupporter = SupporterTabVisible;
 
-            bool isSupporter =
-                isAuthenticated &&
-                (
-                    SupporterState.CurrentTier != SupporterTier.None ||
-                    (Plugin.Settings?.CachedSupporterTier ?? 0) > 0
-                );
+            if (_supporterTab != null)
+                _supporterTab.IsVisible = isSupporter;
 
             if (_supportButton != null)
                 _supportButton.gameObject.SetActive(!isSupporter);
@@ -1099,10 +1140,7 @@ namespace BeatSurgeon.UI.Controllers
         {
             get
             {
-                // Check if user is subscribed
-                int supporterTier = Plugin.Settings?.CachedSupporterTier ?? 0;
-
-                if (supporterTier > 0)
+                if (SupporterTabVisible)
                 {
                     // Subscriber - show unlocked message in green
                     return "<color=#00FF00>✓ Subscriber Features Unlocked ♡</color>";
@@ -1135,9 +1173,7 @@ namespace BeatSurgeon.UI.Controllers
         [UIAction("OnSubscribeClicked")]
         private void OnSubscribeClicked()
         {
-            int supporterTier = Plugin.Settings?.CachedSupporterTier ?? 0;
-
-            if (supporterTier > 0)
+            if (SupporterTabVisible)
             {
                 LogUtils.Debug(() => "User is already subscribed!");
                 return;

@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using BeatSurgeon.Twitch;
 using UnityEngine;
 using Unity.Profiling;
 
@@ -27,7 +28,9 @@ namespace BeatSurgeon.Gameplay
         public void Initialize(NoteControllerBase gameNote, float noteHitTime)
         {
             _noteHitTime = noteHitTime;
-            hideLeadTime = Plugin.Settings?.DisappearFadeDuration ?? 0.3f;
+            hideLeadTime = EntitlementsState.HasVisualsAccess
+                ? (Plugin.Settings?.DisappearFadeDuration ?? 0.3f)
+                : 0.3f;
             _suppressOnDisableRestore = false;
             CacheRenderers(gameNote);
             _initialized = true;

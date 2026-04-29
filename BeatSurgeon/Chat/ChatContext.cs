@@ -12,7 +12,8 @@ namespace BeatSurgeon.Chat
     internal enum TriggerSource
     {
         Chat,
-        ChannelPoints
+        ChannelPoints,
+        BitEvent
     }
 
     /// <summary>

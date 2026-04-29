@@ -292,6 +292,45 @@ namespace BeatSurgeon.Gameplay
             return newMat;
         }
 
+        internal static bool TryApplySelectedBombFont(TMP_Text textComponent, TMP_FontAsset fallbackFont = null, bool cloneMaterial = false)
+        {
+            if (textComponent == null)
+            {
+                return false;
+            }
+
+            TMP_FontAsset customFont = BombUsernameFont;
+            TMP_FontAsset resolvedFont = customFont ?? fallbackFont;
+            if (resolvedFont == null)
+            {
+                return false;
+            }
+
+            textComponent.font = resolvedFont;
+
+            if (customFont != null)
+            {
+                Material fontMaterial = GetOrCreateFontMaterial(customFont);
+                if (fontMaterial != null)
+                {
+                    if (cloneMaterial)
+                    {
+                        Material clonedMaterial = new Material(fontMaterial)
+                        {
+                            name = fontMaterial.name + " (BeatSurgeon Clone)"
+                        };
+                        textComponent.fontSharedMaterial = clonedMaterial;
+                    }
+                    else
+                    {
+                        textComponent.fontSharedMaterial = fontMaterial;
+                    }
+                }
+            }
+
+            return true;
+        }
+
         /// <summary>
         /// Attempts to get existing material via reflection (for old versions).
         /// </summary>

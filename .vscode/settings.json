@@ -2,5 +2,6 @@
     "dotnet.preferCSharpExtension": true,
     "chat.tools.terminal.autoApprove": {
         "dotnet build": true
-    }
+    },
+    "dotnet.defaultSolution": "BeatSurgeon.sln"
 }

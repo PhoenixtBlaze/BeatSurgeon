@@ -181,6 +181,27 @@ namespace BeatSurgeon.Gameplay
             return _templateParticleSystem != null;
         }
 
+        public bool TryAttachToNote(NoteController noteController)
+        {
+            if (noteController == null)
+            {
+                return false;
+            }
+
+            if (!EnsureTemplate())
+            {
+                Plugin.Log.Warn("OutlineEmitterManager: Could not resolve outline particle template for targeted note attach.");
+                return false;
+            }
+
+            return TryAttachEmitter(noteController);
+        }
+
+        public void DetachFromNote(NoteController noteController)
+        {
+            CleanupFor(noteController);
+        }
+
 
         
         private void RepairTemplateShaders()
@@ -209,17 +230,22 @@ namespace BeatSurgeon.Gameplay
 
         private void NoteDidStartJumpEvent(NoteController noteController)
         {
-            if (noteController == null || _templateParticleSystem == null) return;
+            TryAttachEmitter(noteController);
+        }
+
+        private bool TryAttachEmitter(NoteController noteController)
+        {
+            if (noteController == null || _templateParticleSystem == null) return false;
 
             try
             {
                 // Only attach to regular cube notes (ignore bombs)
                 var noteData = noteController?.noteData;
-                if (noteData == null) return;
-                if (noteData.colorType == ColorType.None) return;
+                if (noteData == null) return false;
+                if (noteData.colorType == ColorType.None) return false;
 
                 // Prevent duplicate attachments
-                if (_attached.ContainsKey(noteController)) return;
+                if (_attached.ContainsKey(noteController)) return true;
 
                 var go = GetOrCreatePooledInstance();
 
@@ -242,10 +268,12 @@ namespace BeatSurgeon.Gameplay
                     catch { }
                 }
                 _attached[noteController] = go;
+                return true;
             }
             catch (Exception ex)
             {
                 Plugin.Log.Warn("OutlineEmitterManager: spawn attach failed:" + ex.Message);
+                return false;
             }
         }
 

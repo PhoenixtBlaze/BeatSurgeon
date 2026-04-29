@@ -145,6 +145,12 @@ namespace BeatSurgeon.Chat
             set { if (PluginConfig.Instance != null) PluginConfig.Instance.BombCooldownSeconds = value; }
         }
 
+        internal static float GlitterCooldownSeconds
+        {
+            get => PluginConfig.Instance?.GlitterCooldownSeconds ?? 10f;
+            set { if (PluginConfig.Instance != null) PluginConfig.Instance.GlitterCooldownSeconds = value; }
+        }
+
         internal static float FasterCooldownSeconds
         {
             get => PluginConfig.Instance?.FasterCooldownSeconds ?? 60f;
@@ -267,6 +273,7 @@ namespace BeatSurgeon.Chat
             {
                 case "!sr":
                 case "!bsr":
+                case "!fmsg":
                 case "!test":
                     return true;
                 default:
@@ -328,6 +335,8 @@ namespace BeatSurgeon.Chat
                 case "bomb":
                 case "bmsg":
                     return BombCooldownSeconds;
+                case "glitter":
+                    return GlitterCooldownSeconds;
                 case "faster":
                     return FasterCooldownSeconds;
                 case "superfast":

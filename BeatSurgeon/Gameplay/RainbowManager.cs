@@ -22,7 +22,18 @@ namespace BeatSurgeon.Gameplay
         public static Color RightColor { get; private set; }
 
         // NEW: Rainbow cycling configuration
-        public static float RainbowCycleSpeed { get; set; } = 0.5f; // Full spectrum cycles per second
+        private static float _rainbowCycleSpeed = 0.5f;
+        public static float RainbowCycleSpeed
+        {
+            get => _rainbowCycleSpeed;
+            set
+            {
+                float clamped = Mathf.Clamp(value, 0.01f, 5f);
+                _rainbowCycleSpeed = Twitch.EntitlementsState.HasVisualsAccess
+                    ? clamped
+                    : 0.1f;
+            }
+        }
 
         // NEW: Global current hue for all notes
         private static float _currentLeftHue = 0f;

@@ -472,17 +472,51 @@ namespace BeatSurgeon.Chat
                 return Task.CompletedTask;
             }
 
-            if (!ChatContext.TryExtractFirstCommandToken(ctx.MessageText, out _))
+            bool hasCommand = ChatContext.TryExtractFirstCommandToken(ctx.MessageText, out string rawCommand);
+
+            if (ctx.Bits > 0)
+            {
+                ChatContext bitEventCtx = CreateBitEventContext(ctx);
+                if (bitEventCtx != null)
+                {
+                    TryEnqueueCommandContext(bitEventCtx);
+                }
+            }
+
+            if (!hasCommand)
             {
                 return Task.CompletedTask;
+            }
+
+            string normalizedCommand = CommandRuntimeSettings.NormalizeCommand(rawCommand);
+            if (ctx.Bits > 0 && string.Equals(normalizedCommand, "!glitter", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.CompletedTask;
+            }
+
+            TryEnqueueCommandContext(ctx);
+            return Task.CompletedTask;
+        }
+
+        private void TryEnqueueCommandContext(ChatContext ctx)
+        {
+            if (ctx == null)
+            {
+                return;
             }
 
             int queued = Interlocked.Increment(ref _queuedCommands);
             if (queued > _maxQueuedCommands)
             {
                 Interlocked.Decrement(ref _queuedCommands);
-                _log.Warn("CommandQueueFull - rejecting command from user=" + ctx.Username + " queueSize=" + queued);
-                return Task.CompletedTask;
+                _log.Warn(
+                    "CommandQueueFull - rejecting command from user="
+                    + ctx.Username
+                    + " queueSize="
+                    + queued
+                    + " source="
+                    + ctx.TriggerSource);
+                return;
             }
 
             _commandQueue.Enqueue(ctx);
@@ -494,8 +528,29 @@ namespace BeatSurgeon.Chat
             {
                 Interlocked.Decrement(ref _queuedCommands);
             }
+        }
 
-            return Task.CompletedTask;
+        private static ChatContext CreateBitEventContext(ChatContext source)
+        {
+            if (source == null || source.Bits <= 0)
+            {
+                return null;
+            }
+
+            return new ChatContext
+            {
+                SenderName = source.SenderName,
+                MessageText = "!glitter " + source.Bits,
+                IsModerator = source.IsModerator,
+                IsSubscriber = source.IsSubscriber,
+                IsVip = source.IsVip,
+                IsBroadcaster = source.IsBroadcaster,
+                Bits = source.Bits,
+                RawService = source.RawService,
+                RawMessage = source.RawMessage,
+                Source = source.Source,
+                TriggerSource = TriggerSource.BitEvent
+            };
         }
 
         private async Task CommandDispatchLoopAsync(CancellationToken ct)
@@ -536,7 +591,7 @@ namespace BeatSurgeon.Chat
 
                     try
                     {
-                        await _commandHandler.HandleMessageAsync(queuedCtx, TriggerSource.Chat, ct).ConfigureAwait(false);
+                        await _commandHandler.HandleMessageAsync(queuedCtx, queuedCtx.TriggerSource, ct).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {
@@ -582,7 +637,11 @@ namespace BeatSurgeon.Chat
             int msgSplit = working.IndexOf(" :", StringComparison.Ordinal);
             if (msgSplit < 0) return false;
             string message = working.Substring(msgSplit + 2);
-            if (string.IsNullOrWhiteSpace(message) || !ChatContext.TryExtractFirstCommandToken(message, out _)) return false;
+            if (string.IsNullOrWhiteSpace(message)) return false;
+
+            int bits = TryParseTagInt(tags, "bits");
+            bool hasCommand = ChatContext.TryExtractFirstCommandToken(message, out _);
+            if (!hasCommand && bits <= 0) return false;
 
             bool isMod = tags.Contains("mod=1");
             bool isSub = tags.Contains("subscriber=1");
@@ -597,10 +656,46 @@ namespace BeatSurgeon.Chat
                 IsSubscriber = isSub,
                 IsVip = isVip,
                 IsBroadcaster = isBroadcaster,
+                Bits = bits,
                 Source = ChatSource.NativeTwitch
             };
 
             return true;
+        }
+
+        private static int TryParseTagInt(string tags, string key)
+        {
+            if (!TryGetTagValue(tags, key, out string value) || !int.TryParse(value, out int parsed))
+            {
+                return 0;
+            }
+
+            return parsed;
+        }
+
+        private static bool TryGetTagValue(string tags, string key, out string value)
+        {
+            value = string.Empty;
+            if (string.IsNullOrWhiteSpace(tags) || string.IsNullOrWhiteSpace(key))
+            {
+                return false;
+            }
+
+            string prefix = key + "=";
+            string[] entries = tags.Split(';');
+            for (int index = 0; index < entries.Length; index++)
+            {
+                string entry = entries[index];
+                if (!entry.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                value = entry.Substring(prefix.Length);
+                return true;
+            }
+
+            return false;
         }
 
         internal void SendChatMessage(string message)

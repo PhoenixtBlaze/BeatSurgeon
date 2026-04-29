@@ -327,8 +327,11 @@
     <Compile Include="Chat\Processors\DisappearingArrowsProcessor.cs" />
     <Compile Include="Chat\Processors\EndlessModeProcessor.cs" />
     <Compile Include="Chat\Processors\FlashbangProcessor.cs" />
+    <Compile Include="Chat\Processors\FollowerMessageProcessor.cs" />
+    <Compile Include="Chat\Processors\GlitterProcessor.cs" />
     <Compile Include="Chat\Processors\GhostNotesProcessor.cs" />
     <Compile Include="Chat\Processors\ICommandProcessor.cs" />
+    <Compile Include="Chat\Processors\NumericBitCommandParser.cs" />
     <Compile Include="Chat\Processors\NoteColorProcessor.cs" />
     <Compile Include="Chat\Processors\TestProcessor.cs" />
     <Compile Include="Chat\Processors\RainbowNotesProcessor.cs" />
@@ -342,7 +345,10 @@
     <Compile Include="Gameplay\FasterSongManager.cs" />
     <Compile Include="Gameplay\FireworksExplosionPool.cs" />
     <Compile Include="Gameplay\FlashbangManager.cs" />
+    <Compile Include="Gameplay\FollowerMessageManager.cs" />
     <Compile Include="Gameplay\FontBundleLoader.cs" />
+    <Compile Include="Gameplay\GlitterLoopEmitterManager.cs" />
+    <Compile Include="Gameplay\BitParticleEmitterPool.cs" />
     <Compile Include="Gameplay\VrVfxMaterialHelper.cs" />
     <Compile Include="Gameplay\BombFontPreloadService.cs" />
     <Compile Include="Gameplay\GameplayManager.cs" />
@@ -356,6 +362,7 @@
     <Compile Include="Gameplay\RendererWatchdog.cs" />
     <Compile Include="Gameplay\BeatSurgeonTextMover.cs" />
     <Compile Include="Gameplay\SongRequest.cs" />
+    <Compile Include="Gameplay\TestEffectManager.cs" />
     <Compile Include="Gameplay\BundleRegistry.cs" />
     <Compile Include="Gameplay\SurgeonEffectsBundleService.cs" />
     <Compile Include="Gameplay\OutlineEmitterManager.cs" />
@@ -367,6 +374,7 @@
     <Compile Include="Harmony\GameplayCoreInstallerPatch.cs" />
     <Compile Include="Harmony\LevelSelectionPatch.cs" />
     <Compile Include="Harmony\RainbowNotePatch.cs" />
+    <Compile Include="Harmony\TestCutPatch.cs" />
     <Compile Include="Integrations\BeatSaverClient.cs" />
     <Compile Include="Integrations\EndlessPlaylistService.cs" />
     <Compile Include="Integrations\SongInstaller.cs" />
@@ -376,8 +384,12 @@
     <Compile Include="Multiplayer\MultiplayerRoomSyncClient.cs" />
     <Compile Include="Twitch\ChannelPointCommandExecutor.cs" />
     <Compile Include="Twitch\ChannelPointRouter.cs" />
+    <Compile Include="Twitch\BitEffectAccessController.cs" />
     <Compile Include="Twitch\EntitlementsState.cs" />
+    <Compile Include="Twitch\FollowEffectAccessController.cs" />
+    <Compile Include="Twitch\FollowEventCoordinator.cs" />
     <Compile Include="Twitch\JwtEd25519.cs" />
+    <Compile Include="Twitch\PremiumVisualFeatureAccessController.cs" />
     <Compile Include="Twitch\TwitchChannelPointsManager.cs" />
     <Compile Include="UI\Settings\BeatSurgeonMenuButtonHost.cs" />
     <Compile Include="UI\Settings\SurgeonGameplaySetupHost.cs" />

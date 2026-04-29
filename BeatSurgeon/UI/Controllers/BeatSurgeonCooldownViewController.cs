@@ -254,22 +254,7 @@ namespace BeatSurgeon.UI.Controllers
 
         private bool HasCachedVisualsAccess()
         {
-            if (!TwitchAuthManager.Instance.IsAuthenticated)
-            {
-                return false;
-            }
-
-            if (EntitlementsState.HasVisualsAccess)
-            {
-                return true;
-            }
-
-            if (SupporterState.CurrentTier >= SupporterTier.Tier1)
-            {
-                return true;
-            }
-
-            return (Plugin.Settings?.CachedSupporterTier ?? 0) > 0;
+            return PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
         }
 
         private async System.Threading.Tasks.Task<bool> EnsureVisualsAccessAsync(string visualName)
@@ -1224,26 +1209,11 @@ namespace BeatSurgeon.UI.Controllers
             if (_bombFontPreview == null)
                 return;
 
-            // Get the newly selected font
-            var font = BeatSurgeon.Gameplay.FontBundleLoader.BombUsernameFont;
-            if (font == null)
+            if (!BeatSurgeon.Gameplay.FontBundleLoader.TryApplySelectedBombFont(_bombFontPreview))
             {
                 Plugin.Log.Warn("BombUsernameFont is null in ApplyBombFontPreviewStatic");
                 return;
             }
-
-            // *** VERSION-SAFE: Use reflection helper instead of direct .material access ***
-            // NEW:
-            Material fontMaterial = BeatSurgeon.Gameplay.FontBundleLoader.GetOrCreateFontMaterial(font);
-            if (fontMaterial == null)
-            {
-                Plugin.Log.Warn($"Could not get material for font '{font.name}' in ApplyBombFontPreviewStatic");
-                return;
-            }
-
-            // Apply font and material
-            _bombFontPreview.font = font;
-            _bombFontPreview.fontSharedMaterial = fontMaterial;  //Use the reflection-retrieved material
 
             // Set text (do this AFTER setting font)
             _bombFontPreview.text = "PreviewUsername";

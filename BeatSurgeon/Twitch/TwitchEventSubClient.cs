@@ -33,6 +33,14 @@ namespace BeatSurgeon.Twitch
             internal string UserInput;
         }
 
+        internal sealed class FollowNotification
+        {
+            internal string EventId;
+            internal string UserId;
+            internal string UserLogin;
+            internal string UserName;
+        }
+
         internal static string CurrentSessionId { get; private set; }
 
         private static TwitchEventSubClient _instance;
@@ -46,14 +54,19 @@ namespace BeatSurgeon.Twitch
 
         private readonly Dictionary<string, string> _rewardSubscriptions = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly HashSet<string> _pendingRewardIds = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Queue<string> _recentFollowEventIds = new Queue<string>();
+        private readonly HashSet<string> _recentFollowEventIdSet = new HashSet<string>(StringComparer.Ordinal);
         private readonly SemaphoreSlim _subscriptionLock = new SemaphoreSlim(1, 1);
         private readonly object _stateLock = new object();
+        private string _followSubscriptionId = string.Empty;
+        private bool _pendingFollowSubscription;
 
         private CancellationTokenSource _cts;
         private Task _receiveLoop;
         private volatile bool _isConnected;
 
         internal event Action<ChannelPointRedemption> OnChannelPointRedeemed;
+        internal event Action<FollowNotification> OnFollowReceived;
 
         internal bool IsConnected => _isConnected;
 
@@ -71,16 +84,20 @@ namespace BeatSurgeon.Twitch
         {
             _log.Lifecycle("Initialize");
             _authManager.OnAuthReady += HandleAuthReady;
+            _authManager.OnTokensUpdated += HandleAuthStateChanged;
+            _authManager.OnIdentityUpdated += HandleAuthStateChanged;
+            _authManager.OnReauthRequired += HandleAuthStateChanged;
+            TwitchApiClient.OnSubscriberStatusChanged += HandleSupporterStateChanged;
 
             if (PluginConfig.Instance != null && PluginConfig.Instance.HasValidToken)
             {
-                if (HasConfiguredRewardSubscriptions())
+                if (ShouldKeepConnectionAlive())
                 {
                     StartReceiveLoop();
                 }
                 else
                 {
-                    _log.TwitchState("DeferredConnect", "WaitingForRewardSubscriptions");
+                    _log.TwitchState("DeferredConnect", "WaitingForConfiguredSubscriptions");
                 }
             }
             else
@@ -93,11 +110,14 @@ namespace BeatSurgeon.Twitch
         {
             _log.Lifecycle("Dispose - cancelling EventSub receive loop");
             _authManager.OnAuthReady -= HandleAuthReady;
+            _authManager.OnTokensUpdated -= HandleAuthStateChanged;
+            _authManager.OnIdentityUpdated -= HandleAuthStateChanged;
+            _authManager.OnReauthRequired -= HandleAuthStateChanged;
+            TwitchApiClient.OnSubscriberStatusChanged -= HandleSupporterStateChanged;
 
             try
             {
-                _cts?.Cancel();
-                _receiveLoop?.Wait(TimeSpan.FromSeconds(5));
+                StopReceiveLoopAsync().GetAwaiter().GetResult();
                 _log.Lifecycle("Dispose - receive loop stopped");
             }
             catch (Exception ex)
@@ -106,10 +126,13 @@ namespace BeatSurgeon.Twitch
             }
             finally
             {
-                _cts?.Dispose();
                 _cts = null;
                 _receiveLoop = null;
                 _isConnected = false;
+                _followSubscriptionId = string.Empty;
+                _pendingFollowSubscription = false;
+                _recentFollowEventIds.Clear();
+                _recentFollowEventIdSet.Clear();
             }
         }
 
@@ -122,16 +145,51 @@ namespace BeatSurgeon.Twitch
 
         internal void Shutdown() => Dispose();
 
-        private void HandleAuthReady()
+        internal async Task RefreshSubscriptionsAsync(CancellationToken ct = default(CancellationToken))
         {
-            if (!HasConfiguredRewardSubscriptions())
+            bool shouldFollow = ShouldSubscribeToFollowEffects();
+            bool shouldKeepAlive = HasConfiguredRewardSubscriptions() || shouldFollow;
+
+            if (!shouldKeepAlive)
             {
-                _log.TwitchState("AuthReady", "NoRewardSubscriptionsConfigured");
+                await RemoveFollowSubscriptionAsync(ct).ConfigureAwait(false);
+                await StopReceiveLoopAsync().ConfigureAwait(false);
+                _log.TwitchState("SubscriptionsRefresh", "NoConfiguredSubscriptions");
                 return;
             }
 
-            _log.TwitchState("AuthReady", "Starting EventSub receive loop");
             StartReceiveLoop();
+
+            if (!shouldFollow)
+            {
+                await RemoveFollowSubscriptionAsync(ct).ConfigureAwait(false);
+                return;
+            }
+
+            try
+            {
+                string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+                await EnsureFollowSubscriptionAsync(channelUserId, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("RefreshSubscriptionsAsync follow refresh failed: " + ex.Message);
+            }
+        }
+
+        private void HandleAuthReady()
+        {
+            _ = RefreshSubscriptionsAsync();
+        }
+
+        private void HandleAuthStateChanged()
+        {
+            _ = RefreshSubscriptionsAsync();
+        }
+
+        private void HandleSupporterStateChanged()
+        {
+            _ = RefreshSubscriptionsAsync();
         }
 
         private void StartReceiveLoop()
@@ -143,6 +201,54 @@ namespace BeatSurgeon.Twitch
 
             _cts = new CancellationTokenSource();
             _receiveLoop = Task.Run(() => RunWithReconnectAsync(_cts.Token), _cts.Token);
+        }
+
+        private async Task StopReceiveLoopAsync()
+        {
+            CancellationTokenSource cts;
+            Task receiveLoop;
+
+            lock (_stateLock)
+            {
+                cts = _cts;
+                receiveLoop = _receiveLoop;
+                _cts = null;
+                _receiveLoop = null;
+                _isConnected = false;
+            }
+
+            CurrentSessionId = null;
+
+            if (cts == null)
+            {
+                return;
+            }
+
+            try
+            {
+                cts.Cancel();
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "StopReceiveLoopAsync.Cancel");
+            }
+
+            if (receiveLoop != null)
+            {
+                try
+                {
+                    await receiveLoop.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception ex)
+                {
+                    _log.Exception(ex, "StopReceiveLoopAsync.Wait");
+                }
+            }
+
+            cts.Dispose();
         }
 
         private async Task RunWithReconnectAsync(CancellationToken ct)
@@ -360,6 +466,16 @@ namespace BeatSurgeon.Twitch
                 || (cfg.CpFlashbangEnabled && !string.IsNullOrWhiteSpace(cfg.CpFlashbangRewardId));
         }
 
+        private static bool ShouldSubscribeToFollowEffects()
+        {
+            return FollowEffectAccessController.ShouldMaintainSubscription();
+        }
+
+        private static bool ShouldKeepConnectionAlive()
+        {
+            return HasConfiguredRewardSubscriptions() || ShouldSubscribeToFollowEffects();
+        }
+
         private async Task ProcessMessageAsync(string message, CancellationToken ct)
         {
             JObject json = JObject.Parse(message);
@@ -398,6 +514,12 @@ namespace BeatSurgeon.Twitch
         private Task HandleNotificationAsync(JObject json, CancellationToken ct)
         {
             string subscriptionType = json["metadata"]?["subscription_type"]?.ToString();
+            if (string.Equals(subscriptionType, "channel.follow", StringComparison.Ordinal))
+            {
+                HandleFollowNotification(json);
+                return Task.CompletedTask;
+            }
+
             if (!string.Equals(subscriptionType, "channel.channel_points_custom_reward_redemption.add", StringComparison.Ordinal))
             {
                 return Task.CompletedTask;
@@ -434,14 +556,61 @@ namespace BeatSurgeon.Twitch
             return Task.CompletedTask;
         }
 
+        private void HandleFollowNotification(JObject json)
+        {
+            JToken payload = json["payload"]?["event"];
+            if (payload == null)
+            {
+                return;
+            }
+
+            string eventId = json["metadata"]?["message_id"]?.ToString();
+            if (string.IsNullOrWhiteSpace(eventId))
+            {
+                eventId = (payload["user_id"]?.ToString() ?? string.Empty)
+                    + "|"
+                    + (payload["followed_at"]?.ToString() ?? string.Empty);
+            }
+
+            if (!TrackFollowEventId(eventId))
+            {
+                _log.Debug("Follow notification duplicate ignored eventId=" + eventId);
+                return;
+            }
+
+            var notification = new FollowNotification
+            {
+                EventId = eventId,
+                UserId = payload["user_id"]?.ToString() ?? string.Empty,
+                UserLogin = payload["user_login"]?.ToString() ?? string.Empty,
+                UserName = payload["user_name"]?.ToString() ?? string.Empty
+            };
+
+            _log.Info(
+                "Follow notification received user="
+                + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName)
+                + " userId="
+                + notification.UserId);
+
+            try
+            {
+                OnFollowReceived?.Invoke(notification);
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "OnFollowReceived invoke");
+            }
+        }
+
         private async Task ResubscribeAllAsync(CancellationToken ct)
         {
             var localSnapshot = new Dictionary<string, string>(_rewardSubscriptions, StringComparer.Ordinal);
             var pending = new HashSet<string>(_pendingRewardIds, StringComparer.Ordinal);
-
             _log.Info("Resubscribing " + localSnapshot.Count + " known rewards + " + pending.Count + " pending after session_welcome");
             _rewardSubscriptions.Clear();
             _pendingRewardIds.Clear();
+            _followSubscriptionId = string.Empty;
+            _pendingFollowSubscription = false;
 
             string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
 
@@ -466,6 +635,11 @@ namespace BeatSurgeon.Twitch
             if (localSnapshot.Count == 0 && pending.Count == 0)
             {
                 await BootstrapConfigRewardSubscriptionsAsync(channelUserId, ct).ConfigureAwait(false);
+            }
+
+            if (ShouldSubscribeToFollowEffects())
+            {
+                await EnsureFollowSubscriptionAsync(channelUserId, ct).ConfigureAwait(false);
             }
 
             _log.Info("Resubscription complete");
@@ -496,6 +670,116 @@ namespace BeatSurgeon.Twitch
                     await SubscribeToRewardAsync(rewardId, channelUserId, ct).ConfigureAwait(false);
                 }
             }
+        }
+
+        private async Task EnsureFollowSubscriptionAsync(string channelUserId, CancellationToken ct)
+        {
+            await _subscriptionLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                if (_followSubscriptionId.Length > 0)
+                {
+                    return;
+                }
+
+                if (!ShouldSubscribeToFollowEffects())
+                {
+                    _pendingFollowSubscription = false;
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(CurrentSessionId))
+                {
+                    _pendingFollowSubscription = true;
+                    _log.TwitchState("FollowSubscriptionDeferred", "WaitingForSessionWelcome");
+                    StartReceiveLoop();
+                    return;
+                }
+
+                _log.TwitchState("FollowSubscription", "Subscribing broadcasterUserId=" + channelUserId);
+                _followSubscriptionId = await _apiClient.CreateEventSubSubscriptionAsync(
+                    type: "channel.follow",
+                    version: "2",
+                    condition: new Dictionary<string, string>
+                    {
+                        { "broadcaster_user_id", channelUserId },
+                        { "moderator_user_id", channelUserId }
+                    },
+                    ct: ct).ConfigureAwait(false);
+
+                _pendingFollowSubscription = false;
+                _log.TwitchState("FollowSubscription", "Subscribed subscriptionId=" + _followSubscriptionId);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested || (_cts != null && _cts.IsCancellationRequested))
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _pendingFollowSubscription = true;
+                _log.Warn("EnsureFollowSubscriptionAsync failed transiently (" + ex.GetType().Name + ") - re-queuing for next session_welcome");
+            }
+            finally
+            {
+                _subscriptionLock.Release();
+            }
+        }
+
+        private async Task RemoveFollowSubscriptionAsync(CancellationToken ct)
+        {
+            await _subscriptionLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                _pendingFollowSubscription = false;
+
+                if (string.IsNullOrWhiteSpace(_followSubscriptionId))
+                {
+                    return;
+                }
+
+                string subscriptionId = _followSubscriptionId;
+                _followSubscriptionId = string.Empty;
+
+                if (string.IsNullOrWhiteSpace(CurrentSessionId))
+                {
+                    return;
+                }
+
+                _log.TwitchState("FollowSubscription", "Unsubscribing subscriptionId=" + subscriptionId);
+                await _apiClient.DeleteEventSubSubscriptionAsync(subscriptionId, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "RemoveFollowSubscriptionAsync");
+            }
+            finally
+            {
+                _subscriptionLock.Release();
+            }
+        }
+
+        private bool TrackFollowEventId(string eventId)
+        {
+            if (string.IsNullOrWhiteSpace(eventId))
+            {
+                return true;
+            }
+
+            if (_recentFollowEventIdSet.Contains(eventId))
+            {
+                return false;
+            }
+
+            _recentFollowEventIdSet.Add(eventId);
+            _recentFollowEventIds.Enqueue(eventId);
+
+            while (_recentFollowEventIds.Count > 64)
+            {
+                string expiredId = _recentFollowEventIds.Dequeue();
+                _recentFollowEventIdSet.Remove(expiredId);
+            }
+
+            return true;
         }
     }
 }

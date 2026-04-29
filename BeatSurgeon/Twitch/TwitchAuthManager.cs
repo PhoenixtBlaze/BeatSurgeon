@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 using BeatSurgeon.Utils;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -61,6 +62,7 @@ namespace BeatSurgeon.Twitch
 
             LoadTokens();
             RestoreIdentityFromCache();
+            PremiumVisualFeatureAccessController.SyncAllConfigEnabledStates();
 
             // Run startup auth bootstrap asynchronously so plugin initialization stays fast.
             // Retry briefly to survive BSIPA config rewrite races after PluginConfig schema changes,
@@ -107,7 +109,7 @@ namespace BeatSurgeon.Twitch
                         await ValidateTokenAsync(CancellationToken.None).ConfigureAwait(false);
                         if (!IsReauthRequired)
                         {
-                            await EnsureIdentityAsync(CancellationToken.None).ConfigureAwait(false);
+                            await BootstrapIdentityAndEntitlementsAsync(CancellationToken.None).ConfigureAwait(false);
                             RaiseAuthReadyIfPossible();
                         }
                     }
@@ -168,7 +170,7 @@ namespace BeatSurgeon.Twitch
         internal async Task<bool> EnsureReadyAsync(CancellationToken ct = default(CancellationToken))
         {
             await GetAccessTokenAsync(ct).ConfigureAwait(false);
-            await EnsureIdentityAsync(ct).ConfigureAwait(false);
+            await BootstrapIdentityAndEntitlementsAsync(ct).ConfigureAwait(false);
             RaiseAuthReadyIfPossible();
 
             return !string.IsNullOrWhiteSpace(_accessToken)
@@ -207,7 +209,7 @@ namespace BeatSurgeon.Twitch
 
                 PluginConfig.Instance.BackendStatus = "Waiting for authorization...";
                 await PollForBackendTokenAsync(state, _loginCts.Token).ConfigureAwait(false);
-                await EnsureIdentityAsync(_loginCts.Token).ConfigureAwait(false);
+                await BootstrapIdentityAndEntitlementsAsync(_loginCts.Token).ConfigureAwait(false);
                 ScheduleProactiveRefresh();
                 RaiseAuthReadyIfPossible();
 
@@ -258,8 +260,11 @@ namespace BeatSurgeon.Twitch
             PluginConfig.Instance.CachedBroadcasterLogin = string.Empty;
             PluginConfig.Instance.CachedBotUserId = string.Empty;
             PluginConfig.Instance.CachedBotUserLogin = string.Empty;
+            PluginConfig.Instance.CachedSupporterTier = 0;
             PluginConfig.Instance.BackendStatus = "Not connected";
+            EntitlementsState.Clear();
             ClearTwitchReauthRequired();
+            PremiumVisualFeatureAccessController.SyncAllConfigEnabledStates();
 
             OnTokensUpdated?.Invoke();
             OnIdentityUpdated?.Invoke();
@@ -370,6 +375,7 @@ namespace BeatSurgeon.Twitch
                     PluginConfig.Instance.CachedBroadcasterLogin = BroadcasterLogin;
                     PluginConfig.Instance.CachedBotUserId = BotUserId;
                     PluginConfig.Instance.CachedBotUserLogin = BroadcasterLogin;
+                    PremiumVisualFeatureAccessController.SyncAllConfigEnabledStates();
                     OnIdentityUpdated?.Invoke();
                 }
             }
@@ -498,7 +504,11 @@ namespace BeatSurgeon.Twitch
             if (cfg != null)
             {
                 cfg.TwitchReauthRequired = true;
+                cfg.CachedSupporterTier = 0;
             }
+
+            EntitlementsState.Clear();
+            PremiumVisualFeatureAccessController.SyncAllConfigEnabledStates();
             _authReadyRaised = false;
             OnReauthRequired?.Invoke();
         }
@@ -549,6 +559,8 @@ namespace BeatSurgeon.Twitch
         {
             if (string.IsNullOrWhiteSpace(_accessToken)) return;
 
+            string[] requiredScopes = { "moderator:read:followers" };
+
             try
             {
                 using (var request = new HttpRequestMessage(HttpMethod.Get, "https://id.twitch.tv/oauth2/validate"))
@@ -578,7 +590,19 @@ namespace BeatSurgeon.Twitch
                             string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                             JObject json = JObject.Parse(body);
                             string login = json["login"]?.ToString() ?? "(unknown)";
-                            int scopeCount = (json["scopes"] as JArray)?.Count ?? 0;
+                            var scopes = (json["scopes"] as JArray)?.Values<string>()?.ToList() ?? new System.Collections.Generic.List<string>();
+                            int scopeCount = scopes.Count;
+                            for (int index = 0; index < requiredScopes.Length; index++)
+                            {
+                                string requiredScope = requiredScopes[index];
+                                if (!scopes.Contains(requiredScope))
+                                {
+                                    _log.Warn("StartupTokenValidation - missing required scope=" + requiredScope);
+                                    SetTwitchReauthRequired("Saved Twitch token is missing required scopes - please re-authenticate");
+                                    return;
+                                }
+                            }
+
                             _log.Auth("StartupTokenValidation", "OK login=" + login + " scopes=" + scopeCount);
                             ClearTwitchReauthRequired();
                         }
@@ -608,17 +632,22 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
-            _accessToken = cfg.AccessToken ?? string.Empty;
-            _refreshToken = cfg.RefreshToken ?? string.Empty;
+            bool normalizeStoredAccessToken;
+            bool normalizeStoredRefreshToken;
 
-            if (string.IsNullOrWhiteSpace(_accessToken) && !string.IsNullOrWhiteSpace(cfg.EncryptedAccessToken))
-            {
-                _accessToken = DecryptString(cfg.EncryptedAccessToken);
-            }
+            _accessToken = ReadStoredToken(
+                cfg.AccessToken,
+                cfg.EncryptedAccessToken,
+                out normalizeStoredAccessToken);
+            _refreshToken = ReadStoredToken(
+                cfg.RefreshToken,
+                cfg.EncryptedRefreshToken,
+                out normalizeStoredRefreshToken);
 
-            if (string.IsNullOrWhiteSpace(_refreshToken) && !string.IsNullOrWhiteSpace(cfg.EncryptedRefreshToken))
+            if (normalizeStoredAccessToken || normalizeStoredRefreshToken)
             {
-                _refreshToken = DecryptString(cfg.EncryptedRefreshToken);
+                _log.Auth("LoadTokens", "Normalizing stored tokens to encrypted-only config fields");
+                PersistTokenState();
             }
 
             if (cfg.TokenExpiry == DateTime.MinValue && cfg.TokenExpiryTicks > 0)
@@ -635,13 +664,48 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
-            cfg.AccessToken = _accessToken ?? string.Empty;
-            cfg.RefreshToken = _refreshToken ?? string.Empty;
+            string encryptedAccessToken = EncryptString(_accessToken ?? string.Empty);
+            string encryptedRefreshToken = EncryptString(_refreshToken ?? string.Empty);
 
-            // Maintain backwards compatibility with prior encrypted config fields.
-            cfg.EncryptedAccessToken = EncryptString(cfg.AccessToken);
-            cfg.EncryptedRefreshToken = EncryptString(cfg.RefreshToken);
+            // Keep legacy plaintext fields empty so config leaks never expose token material there.
+            cfg.AccessToken = string.Empty;
+            cfg.RefreshToken = string.Empty;
+
+            // Persist tokens only in encrypted-at-rest fields.
+            cfg.EncryptedAccessToken = encryptedAccessToken;
+            cfg.EncryptedRefreshToken = encryptedRefreshToken;
             cfg.TokenExpiryTicks = cfg.TokenExpiry.ToUniversalTime().Ticks;
+        }
+
+        private string ReadStoredToken(string primaryStoredToken, string encryptedStoredToken, out bool normalizeStoredToken)
+        {
+            normalizeStoredToken = false;
+
+            if (!string.IsNullOrWhiteSpace(encryptedStoredToken) &&
+                TryDecryptString(encryptedStoredToken, out string decryptedEncryptedToken))
+            {
+                if (!string.IsNullOrWhiteSpace(primaryStoredToken))
+                {
+                    normalizeStoredToken = true;
+                }
+
+                return decryptedEncryptedToken;
+            }
+
+            if (!string.IsNullOrWhiteSpace(primaryStoredToken))
+            {
+                if (TryDecryptString(primaryStoredToken, out string decryptedPrimaryToken))
+                {
+                    normalizeStoredToken = true;
+                    return decryptedPrimaryToken;
+                }
+
+                // Older configs wrote the token in plaintext. Use it once, then migrate on next persist.
+                normalizeStoredToken = true;
+                return primaryStoredToken;
+            }
+
+            return string.Empty;
         }
 
         private void RestoreIdentityFromCache()
@@ -656,6 +720,18 @@ namespace BeatSurgeon.Twitch
             BroadcasterLogin = cfg.CachedBroadcasterLogin ?? string.Empty;
             BotUserId = string.IsNullOrWhiteSpace(cfg.CachedBotUserId) ? BroadcasterId : cfg.CachedBotUserId;
             _cachedChannelUserId = BroadcasterId ?? string.Empty;
+        }
+
+        private async Task BootstrapIdentityAndEntitlementsAsync(CancellationToken ct)
+        {
+            await EnsureIdentityAsync(ct).ConfigureAwait(false);
+
+            if (string.IsNullOrWhiteSpace(_accessToken))
+            {
+                return;
+            }
+
+            await TwitchApiClient.Instance.RefreshEntitlementsAsync(_accessToken, ct).ConfigureAwait(false);
         }
 
         private DateTime ReadTokenExpiryUtc()
@@ -700,23 +776,33 @@ namespace BeatSurgeon.Twitch
             }
         }
 
-        private string DecryptString(string cipherText)
+        private bool TryDecryptString(string cipherText, out string plainText)
         {
+            plainText = string.Empty;
             if (string.IsNullOrEmpty(cipherText))
             {
-                return string.Empty;
+                return false;
             }
 
             try
             {
                 byte[] cipher = Convert.FromBase64String(cipherText);
                 byte[] plain = ProtectedData.Unprotect(cipher, null, DataProtectionScope.CurrentUser);
-                return Encoding.UTF8.GetString(plain);
+                plainText = Encoding.UTF8.GetString(plain);
+                return true;
             }
             catch
             {
-                return string.Empty;
+                plainText = string.Empty;
+                return false;
             }
+        }
+
+        private string DecryptString(string cipherText)
+        {
+            return TryDecryptString(cipherText, out string plainText)
+                ? plainText
+                : string.Empty;
         }
     }
 }

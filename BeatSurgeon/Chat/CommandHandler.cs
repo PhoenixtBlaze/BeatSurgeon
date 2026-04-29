@@ -283,7 +283,8 @@ namespace BeatSurgeon.Chat
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.InsufficientPermission);
             }
 
-            if (!CommandRuntimeSettings.IsCooldownExempt(normalized) &&
+            if (source != TriggerSource.BitEvent &&
+                !CommandRuntimeSettings.IsCooldownExempt(normalized) &&
                 _cooldownService.TryGetCooldownRemaining(commandKey, out TimeSpan remaining))
             {
                 _log.Command(ctx.Username, normalized, false, "OnCooldown");
@@ -302,7 +303,10 @@ namespace BeatSurgeon.Chat
                 }
 
                 await processor.ExecuteAsync(ctx, ct).ConfigureAwait(false);
-                _cooldownService.ApplyCooldown(normalized);
+                if (source != TriggerSource.BitEvent)
+                {
+                    _cooldownService.ApplyCooldown(normalized);
+                }
                 _log.Info("Command '" + normalized + "' executed successfully by user=" + ctx.Username);
                 return CommandExecutionResult.Success(commandKey, source);
             }
@@ -397,6 +401,11 @@ namespace BeatSurgeon.Chat
             if (CommandRuntimeSettings.SuperFastEnabled) enabled.Add("!superfast");
             if (CommandRuntimeSettings.SlowerEnabled) enabled.Add("!slower");
             if (CommandRuntimeSettings.FlashbangEnabled) enabled.Add("!flashbang");
+            enabled.Add("!fmsg <text> [supporter]");
+            if (PluginConfig.Instance?.BitEffectEnabled ?? false)
+            {
+                enabled.Add("!glitter <bits>");
+            }
 
             string version = typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "unknown";
             string globalStatus = GlobalDisableActive ? " [GLOBALLY DISABLED]" : string.Empty;

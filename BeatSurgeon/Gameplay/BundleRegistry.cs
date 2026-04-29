@@ -57,8 +57,27 @@ namespace BeatSurgeon.Gameplay
             public const string TrailNodeName = "TrailCube";
             public const string BitsBurstEmitterName = "BitsHyperCubeBurst";
             public const string SubBurstEmitterName = "SubHyperCubeBurst";
+            public const string FollowerCanvasRootName = "FollowerListCanvas";
+            public const string FollowerLineName = "Line";
+            public const string FollowerStartName = "Start";
+            public const string FollowerEndName = "End";
             public const string BitsOutlineEmitterPath = "Bits/BitsHyperCube/Outline/OutlineParticles";
             public const string BitsOutlineRootPath = "Bits/BitsHyperCube/Outline";
+            public const string BitsBurstRootPath = "Bits/BitsHyperCube/BitsHyperCubeBurst";
+            public const string FollowerCanvasRootPath = "NewFollower/FollowerListCanvas";
+            public const string FollowerLinePath = "NewFollower/FollowerListCanvas/Line";
+            public const string FollowerStartPath = "NewFollower/FollowerListCanvas/Start";
+            public const string FollowerEndPath = "NewFollower/FollowerListCanvas/End";
+            public const string OneBitParticleName = "1BitParticle";
+            public const string OneBitParticleSpecialName = "1BitParticleSpecial";
+            public const string HundredBitParticleName = "100BitParticle";
+            public const string HundredBitParticleSpecialName = "100BitParticleSpecial";
+            public const string ThousandBitParticleName = "1000BitParticle";
+            public const string ThousandBitParticleSpecialName = "1000BitParticleSpecial";
+            public const string FiveThousandBitParticleName = "5000BitParticle";
+            public const string FiveThousandBitParticleSpecialName = "5000BitParticleSpecial";
+            public const string TenThousandBitParticleName = "10000BitParticle";
+            public const string TenThousandBitParticleSpecialName = "10000BitParticleSpecial";
 
             public static readonly string[] OutlineMeshCandidates =
             {
