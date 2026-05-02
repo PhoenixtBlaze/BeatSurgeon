@@ -33,7 +33,10 @@ namespace BeatSurgeon.Chat.Processors
         public async Task ExecuteAsync(ChatContext ctx, CancellationToken ct)
         {
             int requestedBits = NumericBitCommandParser.ParseRequestedBits(ctx?.MessageText, "!glitter");
-            await BitEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+            if (ctx?.TriggerSource != TriggerSource.BitEvent)
+            {
+                await BitEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+            }
             _log.Command(
                 ctx.Username,
                 ctx.Command,
