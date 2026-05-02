@@ -1,6 +1,7 @@
 using BeatSurgeon.Chat;
 using BeatSurgeon.Chat.Processors;
 using BeatSurgeon.Gameplay;
+using BeatSurgeon.Integrations;
 using BeatSurgeon;
 using BeatSurgeon.Twitch;
 using BeatSurgeon.Utils;
@@ -19,6 +20,14 @@ namespace BeatSurgeon.Installers
             // Legacy singleton bridge for existing gameplay call sites.
             Container.Bind<GameplayManager>()
                 .FromMethod(_ => GameplayManager.GetInstance())
+                .AsSingle()
+                .NonLazy();
+
+            Container.BindInterfacesAndSelfTo<DeferredEventQueue>()
+                .AsSingle()
+                .NonLazy();
+
+            Container.BindInterfacesAndSelfTo<AccSaberClient>()
                 .AsSingle()
                 .NonLazy();
 

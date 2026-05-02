@@ -2,6 +2,7 @@ using IPA.Utilities;
 using BeatSurgeon.Chat;
 using BeatSurgeon.HarmonyPatches;
 using BeatSurgeon.Integrations;
+using BeatSurgeon.Twitch;
 using SongCore;
 using SongCore.Utilities;
 using UnityEngine.SceneManagement;
@@ -34,6 +35,7 @@ namespace BeatSurgeon.Gameplay
         private static readonly LogUtil _log = LogUtil.GetLogger("GameplayManager");
 
         [Inject] private EnvironmentsListModel _environmentsListModel;
+        [Inject] private DeferredEventQueue _deferredEventQueue;
 
         private static GameplayManager _instance;
         private static GameObject _persistentGO;
@@ -238,6 +240,12 @@ namespace BeatSurgeon.Gameplay
                     FollowerMessageManager.ClearForSceneExit();
                     RankedMapDetectionService.Instance.Reset();
                 }
+                else if (!wasInMap && IsInMap && _deferredEventQueue != null)
+                {
+                    // InLevelQueueProcessor owns song-switch timing only and has no
+                    // "process pending effects at level start" phase, so the drain lives here.
+                    _ = FlushDeferredQueueAsync();
+                }
             }
         }
 
@@ -328,6 +336,76 @@ namespace BeatSurgeon.Gameplay
             else
             {
                 _log.Warn("Gameplay glitter effects warmup completed with missing assets or incomplete pools.");
+            }
+        }
+
+        private async Task FlushDeferredQueueAsync()
+        {
+            var pending = new List<DeferredEventEntry>();
+            _deferredEventQueue.DrainTo(pending);
+
+            if (pending.Count == 0)
+            {
+                return;
+            }
+
+            _log.Info("[BeatSurgeon] Flushing " + pending.Count + " deferred event(s) at gameplay scene entry.");
+
+            foreach (DeferredEventEntry entry in pending)
+            {
+                await ProcessDeferredEntryAsync(entry).ConfigureAwait(false);
+            }
+        }
+
+        private async Task ProcessDeferredEntryAsync(DeferredEventEntry entry)
+        {
+            try
+            {
+                switch (entry.EventKind)
+                {
+                    case EventKind.Follow:
+                    {
+                        await FollowEffectAccessController.EnsureAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
+                        string displayText = entry.DisplayName + " is now Following!";
+                        var ctx = new ChatContext
+                        {
+                            SenderName = entry.DisplayName,
+                            MessageText = "!fmsg " + displayText,
+                            Source = ChatSource.NativeTwitch,
+                            TriggerSource = TriggerSource.Chat
+                        };
+                        await ApplyFollowerMessageAsync(ctx, displayText, CancellationToken.None).ConfigureAwait(false);
+                        _log.Info("[BeatSurgeon] Deferred Follow effect fired for " + entry.DisplayName);
+                        break;
+                    }
+                    case EventKind.Bits:
+                    {
+                        await BitEffectAccessController.EnsureAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
+                        var ctx = new ChatContext
+                        {
+                            SenderName = entry.DisplayName,
+                            MessageText = "!glitter " + entry.BitAmount,
+                            Bits = entry.BitAmount,
+                            Source = ChatSource.NativeTwitch,
+                            TriggerSource = TriggerSource.BitEvent
+                        };
+                        await ApplyGlitterAsync(ctx, entry.BitAmount, CancellationToken.None).ConfigureAwait(false);
+                        _log.Info("[BeatSurgeon] Deferred Bits effect fired for " + entry.DisplayName + " bits=" + entry.BitAmount);
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (entry.RetryCount == 0)
+                {
+                    _log.Warn("[BeatSurgeon] Deferred " + entry.EventKind + " for " + entry.DisplayName + " failed (will retry next scene): " + ex.Message);
+                    _deferredEventQueue.Enqueue(new DeferredEventEntry(entry.EventKind, entry.DisplayName, entry.BitAmount, entry.QueuedAtUtc, 1));
+                }
+                else
+                {
+                    _log.Error("[BeatSurgeon] Deferred " + entry.EventKind + " for " + entry.DisplayName + " permanently failed after retry: " + ex.Message);
+                }
             }
         }
 

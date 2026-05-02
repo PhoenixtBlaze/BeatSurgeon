@@ -14,12 +14,14 @@ namespace BeatSurgeon.Twitch
 
         private readonly TwitchEventSubClient _eventSubClient;
         private readonly GameplayManager _gameplayManager;
+        private readonly DeferredEventQueue _deferredEventQueue;
 
         [Inject]
-        public FollowEventCoordinator(TwitchEventSubClient eventSubClient, GameplayManager gameplayManager)
+        public FollowEventCoordinator(TwitchEventSubClient eventSubClient, GameplayManager gameplayManager, DeferredEventQueue deferredEventQueue)
         {
             _eventSubClient = eventSubClient;
             _gameplayManager = gameplayManager;
+            _deferredEventQueue = deferredEventQueue;
         }
 
         public void Initialize()
@@ -44,9 +46,18 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
+            string displayName = string.IsNullOrWhiteSpace(notification.UserName)
+                ? (string.IsNullOrWhiteSpace(notification.UserLogin) ? "Someone" : notification.UserLogin)
+                : notification.UserName;
+
             if (!_gameplayManager.IsInMap)
             {
-                _log.Debug("Ignoring follow effect because gameplay is not active.");
+                _deferredEventQueue.Enqueue(new DeferredEventEntry(
+                    EventKind.Follow,
+                    displayName,
+                    0,
+                    DateTime.UtcNow));
+                _log.Debug("[BeatSurgeon] Follow event deferred for " + displayName + " — not in gameplay.");
                 return;
             }
 
@@ -60,9 +71,6 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
-            string displayName = string.IsNullOrWhiteSpace(notification.UserName)
-                ? (string.IsNullOrWhiteSpace(notification.UserLogin) ? "Someone" : notification.UserLogin)
-                : notification.UserName;
             string displayText = displayName + " is now Following!";
 
             var ctx = new ChatContext

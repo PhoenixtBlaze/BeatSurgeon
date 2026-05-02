@@ -365,6 +365,18 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
+        [UIValue("AccSaberAutoDisable")]
+        public bool RankedAccSaber
+        {
+            get => Plugin.Settings?.DisableOnRankedAccSaber ?? true;
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.DisableOnRankedAccSaber = value;
+                NotifyPropertyChanged(nameof(RankedAccSaber));
+            }
+        }
+
         [UIValue("multiplayerEnable")]
         public bool MultiplayerEnable
         {

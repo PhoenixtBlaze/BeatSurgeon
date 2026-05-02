@@ -157,21 +157,26 @@ namespace BeatSurgeon.Gameplay
         {
             bool blRanked = false;
             bool ssRanked = false;
+            bool accSaberRanked = false;
 
             try
             {
-                // Run both checks in parallel to minimise latency.
+                // Run all three checks in parallel to minimise latency.
                 Task<bool> blTask = (PluginConfig.Instance?.DisableOnRankedBL == true)
                     ? CheckBeatLeaderAsync(hash, diffNum, modeStr, ct)
                     : Task.FromResult(false);
                 Task<bool> ssTask = (PluginConfig.Instance?.DisableOnRankedSS == true)
                     ? CheckScoreSaberAsync(hash, diffNum, modeStr, ct)
                     : Task.FromResult(false);
+                Task<bool> accSaberTask = (PluginConfig.Instance?.DisableOnRankedAccSaber == true)
+                    ? CheckAccSaberAsync(hash, diffNum, ct)
+                    : Task.FromResult(false);
 
-                await Task.WhenAll(blTask, ssTask).ConfigureAwait(false);
+                await Task.WhenAll(blTask, ssTask, accSaberTask).ConfigureAwait(false);
 
                 blRanked = blTask.Status == TaskStatus.RanToCompletion && blTask.Result;
                 ssRanked = ssTask.Status == TaskStatus.RanToCompletion && ssTask.Result;
+                accSaberRanked = accSaberTask.Status == TaskStatus.RanToCompletion && accSaberTask.Result;
             }
             catch (Exception ex)
             {
@@ -181,14 +186,32 @@ namespace BeatSurgeon.Gameplay
             // Discard the result if this check was superseded by a newer one.
             if (ct.IsCancellationRequested) return;
 
-            bool ranked = blRanked || ssRanked;
-            _log.Info("Ranked check complete: hash=" + hash + " BL=" + blRanked + " SS=" + ssRanked + " → ranked=" + ranked);
+            bool ranked = blRanked || ssRanked || accSaberRanked;
+            _log.Info("Ranked check complete: hash=" + hash + " BL=" + blRanked + " SS=" + ssRanked + " AccSaber=" + accSaberRanked + " → ranked=" + ranked);
 
             _cache[cacheKey] = ranked;
             _isRanked = ranked;
             _isChecking = false;
 
             if (ranked) NotifyIfRanked();
+        }
+
+        private static Task<bool> CheckAccSaberAsync(string hash, int diffNum, CancellationToken ct)
+        {
+            // IsRanked reads from a volatile in-memory set — no network I/O needed.
+            // AccSaber hash is uppercase; RankedMapDetectionService works with lowercase hash.
+            if (ct.IsCancellationRequested) return Task.FromResult(false);
+
+            var client = Integrations.AccSaberClient.Instance;
+            if (client == null) return Task.FromResult(false);
+
+            string diffLabel = DifficultyNumberToBeatLeaderName(diffNum); // e.g. "ExpertPlus"
+            bool ranked = client.IsRanked(hash, diffLabel);
+
+            if (ranked)
+                _log.Debug("[BeatSurgeon][AccSaber] Map is AccSaber ranked (" + diffLabel + ") — sabotage suppressed.");
+
+            return Task.FromResult(ranked);
         }
 
         private static async Task<bool> CheckBeatLeaderAsync(string hash, int diffNum, string modeStr, CancellationToken ct)

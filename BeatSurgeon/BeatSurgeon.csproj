@@ -337,6 +337,7 @@
     <Compile Include="Chat\Processors\RainbowNotesProcessor.cs" />
     <Compile Include="Chat\Processors\SongRequestProcessor.cs" />
     <Compile Include="Chat\Processors\SpeedChangeProcessor.cs" />
+    <Compile Include="Gameplay\DeferredEventQueue.cs" />
     <Compile Include="Gameplay\BombManager.cs" />
     <Compile Include="Gameplay\BombVisualPool.cs" />
     <Compile Include="Gameplay\CoroutineHost.cs" />
@@ -375,6 +376,7 @@
     <Compile Include="Harmony\LevelSelectionPatch.cs" />
     <Compile Include="Harmony\RainbowNotePatch.cs" />
     <Compile Include="Harmony\TestCutPatch.cs" />
+    <Compile Include="Integrations\AccSaberClient.cs" />
     <Compile Include="Integrations\BeatSaverClient.cs" />
     <Compile Include="Integrations\EndlessPlaylistService.cs" />
     <Compile Include="Integrations\SongInstaller.cs" />

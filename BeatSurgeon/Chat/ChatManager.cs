@@ -5,6 +5,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using BeatSurgeon.Gameplay;
 using BeatSurgeon.Twitch;
 using BeatSurgeon.Utils;
 using CP_SDK.Chat.Interfaces;
@@ -27,6 +28,7 @@ namespace BeatSurgeon.Chat
         private readonly TwitchAuthManager _authManager;
         private readonly TwitchApiClient _apiClient;
         private readonly CommandHandler _commandHandler;
+        private readonly DeferredEventQueue _deferredEventQueue;
         private readonly ConcurrentQueue<ChatContext> _commandQueue = new ConcurrentQueue<ChatContext>();
         private readonly SemaphoreSlim _commandQueueSignal;
         private readonly TimeSpan _commandDispatchInterval;
@@ -57,15 +59,17 @@ namespace BeatSurgeon.Chat
             _instance ?? (_instance = new ChatManager(
                 TwitchAuthManager.Instance,
                 TwitchApiClient.Instance,
-                CommandHandler.Instance));
+                CommandHandler.Instance,
+                null));
 
         [Inject]
-        public ChatManager(TwitchAuthManager authManager, TwitchApiClient apiClient, CommandHandler commandHandler)
+        public ChatManager(TwitchAuthManager authManager, TwitchApiClient apiClient, CommandHandler commandHandler, DeferredEventQueue deferredEventQueue)
         {
             _instance = this;
             _authManager = authManager;
             _apiClient = apiClient;
             _commandHandler = commandHandler;
+            _deferredEventQueue = deferredEventQueue;
 
             int maxPerSecond = Math.Max(1, PluginConfig.Instance?.MaxCommandsPerSecond ?? 3);
             _commandDispatchInterval = TimeSpan.FromSeconds(1d / maxPerSecond);
@@ -479,7 +483,19 @@ namespace BeatSurgeon.Chat
                 ChatContext bitEventCtx = CreateBitEventContext(ctx);
                 if (bitEventCtx != null)
                 {
-                    TryEnqueueCommandContext(bitEventCtx);
+                    if (_deferredEventQueue != null && !(GameplayManager.GetInstance()?.IsInMap ?? false))
+                    {
+                        _deferredEventQueue.Enqueue(new DeferredEventEntry(
+                            EventKind.Bits,
+                            ctx.SenderName,
+                            ctx.Bits,
+                            DateTime.UtcNow));
+                        _log.Debug("[BeatSurgeon] Bits event deferred for " + ctx.SenderName + " (" + ctx.Bits + " bits) — not in gameplay.");
+                    }
+                    else
+                    {
+                        TryEnqueueCommandContext(bitEventCtx);
+                    }
                 }
             }
 
