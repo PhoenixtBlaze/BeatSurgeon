@@ -226,11 +226,12 @@
 		<horizontal pad-bottom="50">
 			<text text="Bomb Visuals" align="Center" font-size="5" />
 		</horizontal>
-		<settings-scroll-view pad-left="45" pad-top="5">
+		<settings-scroll-view pad-left="0" pad-top="5">
 		<vertical vertical-fit="PreferredSize" horizontal-fit="PreferredSize" spacing="2" pad="2" pref-width="60">
 			
-
+			
 			<!-- Text size / shape -->
+			<!--
 			<horizontal spacing="1" pad="0">
 				<text text="Text height" align="Left" font-size="3" pref-width="25" />
 				<increment-setting
@@ -252,7 +253,7 @@
 					increment="0.1"
 					apply-on-change="true" />
 			</horizontal>
-
+			-->
 			<!-- Spawn distance from player -->
 			<horizontal spacing="1" pad="0">
 				<text text="Spawn distance" align="Left" font-size="3" pref-width="25" />
@@ -269,7 +270,7 @@
 			<!-- Gradient Colors -->
 			<horizontal>
 					<horizontal pad="1">
-						<text text="Start"></text>
+						<text text="Start Colour" font-size="3"></text>
 						<color-setting
 							text=""
 							value="bomb_gradient_start"
@@ -278,7 +279,7 @@
 					</horizontal>
 				
 					<horizontal pad="1">
-						<text text="End"></text>
+						<text text="End Colour" font-size="3"></text>
 						<color-setting
 							text=""
 							value="bomb_gradient_end"

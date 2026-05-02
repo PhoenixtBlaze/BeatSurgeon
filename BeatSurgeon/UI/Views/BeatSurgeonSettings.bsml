@@ -232,7 +232,7 @@
 									hover-hint="Enable supporter-only follower message effects and commands when viewers follow"/>
 					<!-- Bomb Font Selection -->
 					<horizontal horizontal-fit="PreferredSize" spacing="2" pad-top="4">
-						<text text="Bomb Font"
+						<text text="Surgeon Fonts"
 							  font-size="4.5"
 							  color="#FFCC44"
 							  align="MidlineLeft"
@@ -245,11 +245,11 @@
 						value="bomb_font_selected"
 						choices="bomb_font_options"
 						apply-on-change="true"
-						hover-hint="Select the font for bomb username text"/>
+						hover-hint="Select the fonts that surgeon will use for all effects"/>
 
 					<horizontal child-force-expand-width="false">
 						<text id="bomb-font-preview"
-							  text="PreviewUsername"
+							  text="Preview Text"
 							  align="Center"
 							  font-size="5" />
 					</horizontal>
