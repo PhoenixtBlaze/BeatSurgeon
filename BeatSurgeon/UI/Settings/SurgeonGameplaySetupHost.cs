@@ -35,49 +35,49 @@ namespace BeatSurgeon.UI.Settings
         private Color _rainbowCpBackgroundColor = Color.white;
         private int _rainbowCpCost = 500;
         private string _rainbowCpCostText = "500";
-        private int _rainbowCpCooldownSeconds = 0;
+        private int _rainbowCpCooldownSeconds = 1;
 
 
         private bool _daCpEnabled;
         private int _daCpCost = 500;
         private string _daCpCostText = "500";
-        private int _daCpCooldownSeconds = 0;
+        private int _daCpCooldownSeconds = 1;
         private Color _daCpBackgroundColor = Color.white;
 
         private bool _ghostCpEnabled;
         private int _ghostCpCost = 500;
         private string _ghostCpCostText = "500";
-        private int _ghostCpCooldownSeconds = 0;
+        private int _ghostCpCooldownSeconds = 1;
         private Color _ghostCpBackgroundColor = Color.white;
 
         private bool _bombCpEnabled;
         private int _bombCpCost = 500;
         private string _bombCpCostText = "500";
-        private int _bombCpCooldownSeconds = 0;
+        private int _bombCpCooldownSeconds = 1;
         private Color _bombCpBackgroundColor = Color.white;
 
         private bool _fasterCpEnabled;
         private int _fasterCpCost = 500;
         private string _fasterCpCostText = "500";
-        private int _fasterCpCooldownSeconds = 0;
+        private int _fasterCpCooldownSeconds = 1;
         private Color _fasterCpBackgroundColor = Color.white;
 
         private bool _superFastCpEnabled;
         private int _superFastCpCost = 500;
         private string _superFastCpCostText = "500";
-        private int _superFastCpCooldownSeconds = 0;
+        private int _superFastCpCooldownSeconds = 1;
         private Color _superFastCpBackgroundColor = Color.white;
 
         private bool _slowerCpEnabled;
         private int _slowerCpCost = 500;
         private string _slowerCpCostText = "500";
-        private int _slowerCpCooldownSeconds = 0;
+        private int _slowerCpCooldownSeconds = 1;
         private Color _slowerCpBackgroundColor = Color.white;
 
         private bool _flashbangCpEnabled;
         private int _flashbangCpCost = 500;
         private string _flashbangCpCostText = "500";
-        private int _flashbangCpCooldownSeconds = 0;
+        private int _flashbangCpCooldownSeconds = 1;
         private Color _flashbangCpBackgroundColor = Color.white;
 
 
@@ -411,7 +411,7 @@ namespace BeatSurgeon.UI.Settings
                     LogUtils.Debug(() => "Syncing Rainbow reward...");
                     var t = GetRewardText("rainbow");
                     await SyncRewardAsync("rainbow", t.Title, t.Prompt, cfg.CpRainbowCost,
-                        cfg.CpRainbowCooldownSeconds, true,
+                        Math.Max(1, cfg.CpRainbowCooldownSeconds), true,
                         () => cfg.CpRainbowRewardId, id => cfg.CpRainbowRewardId = id,
                         t.BgHex, cts.Token);
                 }
@@ -421,7 +421,7 @@ namespace BeatSurgeon.UI.Settings
                     LogUtils.Debug(() => "Syncing Disappear reward...");
                     var t = GetRewardText("disappear");
                     await SyncRewardAsync("disappear", t.Title, t.Prompt, cfg.CpDisappearCost,
-                        cfg.CpDisappearCooldownSeconds, true,
+                        Math.Max(1, cfg.CpDisappearCooldownSeconds), true,
                         () => cfg.CpDisappearRewardId, id => cfg.CpDisappearRewardId = id,
                         t.BgHex, cts.Token);
                 }
@@ -431,7 +431,7 @@ namespace BeatSurgeon.UI.Settings
                     LogUtils.Debug(() => "Syncing Ghost reward...");
                     var t = GetRewardText("ghost");
                     await SyncRewardAsync("ghost", t.Title, t.Prompt, cfg.CpGhostCost,
-                        cfg.CpGhostCooldownSeconds, true,
+                        Math.Max(1, cfg.CpGhostCooldownSeconds), true,
                         () => cfg.CpGhostRewardId, id => cfg.CpGhostRewardId = id,
                         t.BgHex, cts.Token);
                 }
@@ -441,7 +441,7 @@ namespace BeatSurgeon.UI.Settings
                     LogUtils.Debug(() => "Syncing Bomb reward...");
                     var t = GetRewardText("bomb");
                     await SyncRewardAsync("bomb", t.Title, t.Prompt, cfg.CpBombCost,
-                        cfg.CpBombCooldownSeconds, true,
+                        Math.Max(1, cfg.CpBombCooldownSeconds), true,
                         () => cfg.CpBombRewardId, id => cfg.CpBombRewardId = id,
                         t.BgHex, cts.Token);
                 }
@@ -451,7 +451,7 @@ namespace BeatSurgeon.UI.Settings
                     LogUtils.Debug(() => "Syncing Faster reward...");
                     var t = GetRewardText("faster");
                     await SyncRewardAsync("faster", t.Title, t.Prompt, cfg.CpFasterCost,
-                        cfg.CpFasterCooldownSeconds, true,
+                        Math.Max(1, cfg.CpFasterCooldownSeconds), true,
                         () => cfg.CpFasterRewardId, id => cfg.CpFasterRewardId = id,
                         t.BgHex, cts.Token);
                 }
@@ -461,7 +461,7 @@ namespace BeatSurgeon.UI.Settings
                     LogUtils.Debug(() => "Syncing SuperFast reward...");
                     var t = GetRewardText("superfast");
                     await SyncRewardAsync("superfast", t.Title, t.Prompt, cfg.CpSuperFastCost,
-                        cfg.CpSuperFastCooldownSeconds, true,
+                        Math.Max(1, cfg.CpSuperFastCooldownSeconds), true,
                         () => cfg.CpSuperFastRewardId, id => cfg.CpSuperFastRewardId = id,
                         t.BgHex, cts.Token);
                 }
@@ -471,7 +471,7 @@ namespace BeatSurgeon.UI.Settings
                     LogUtils.Debug(() => "Syncing Slower reward...");
                     var t = GetRewardText("slower");
                     await SyncRewardAsync("slower", t.Title, t.Prompt, cfg.CpSlowerCost,
-                        cfg.CpSlowerCooldownSeconds, true,
+                        Math.Max(1, cfg.CpSlowerCooldownSeconds), true,
                         () => cfg.CpSlowerRewardId, id => cfg.CpSlowerRewardId = id,
                         t.BgHex, cts.Token);
                 }
@@ -481,7 +481,7 @@ namespace BeatSurgeon.UI.Settings
                     LogUtils.Debug(() => "Syncing Flashbang reward...");
                     var t = GetRewardText("flashbang");
                     await SyncRewardAsync("flashbang", t.Title, t.Prompt, cfg.CpFlashbangCost,
-                        cfg.CpFlashbangCooldownSeconds, true,
+                        Math.Max(1, cfg.CpFlashbangCooldownSeconds), true,
                         () => cfg.CpFlashbangRewardId, id => cfg.CpFlashbangRewardId = id,
                         t.BgHex, cts.Token);
                 }
@@ -764,96 +764,88 @@ namespace BeatSurgeon.UI.Settings
                 case "rainbow":
                     cfg.CpRainbowRewardId = id;
                     cfg.CpRainbowCost = cost;
-                    cfg.CpRainbowCooldownSeconds = cooldown;
+                    // Cooldown intentionally NOT read from Twitch — local config is canonical.
                     cfg.CpRainbowBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpRainbowBackgroundColor);
 
                     _rainbowCpCost = cfg.CpRainbowCost;
                     _rainbowCpCostText = cfg.CpRainbowCost.ToString();
-                    _rainbowCpCooldownSeconds = cfg.CpRainbowCooldownSeconds;
                     _rainbowCpBackgroundColor = cfg.CpRainbowBackgroundColor;
                     break;
 
                 case "disappear":
                     cfg.CpDisappearRewardId = id;
                     cfg.CpDisappearCost = cost;
-                    cfg.CpDisappearCooldownSeconds = cooldown;
+                    // Cooldown intentionally NOT read from Twitch — local config is canonical.
                     cfg.CpDisappearBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpDisappearBackgroundColor);
 
                     _daCpCost = cfg.CpDisappearCost;
                     _daCpCostText = cfg.CpDisappearCost.ToString();
-                    _daCpCooldownSeconds = cfg.CpDisappearCooldownSeconds;
                     _daCpBackgroundColor = cfg.CpDisappearBackgroundColor;
                     break;
 
                 case "ghost":
                     cfg.CpGhostRewardId = id;
                     cfg.CpGhostCost = cost;
-                    cfg.CpGhostCooldownSeconds = cooldown;
+                    // Cooldown intentionally NOT read from Twitch — local config is canonical.
                     cfg.CpGhostBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpGhostBackgroundColor);
 
                     _ghostCpCost = cfg.CpGhostCost;
                     _ghostCpCostText = cfg.CpGhostCost.ToString();
-                    _ghostCpCooldownSeconds = cfg.CpGhostCooldownSeconds;
                     _ghostCpBackgroundColor = cfg.CpGhostBackgroundColor;
                     break;
 
                 case "bomb":
                     cfg.CpBombRewardId = id;
                     cfg.CpBombCost = cost;
-                    cfg.CpBombCooldownSeconds = cooldown;
+                    // Cooldown intentionally NOT read from Twitch — local config is canonical.
                     cfg.CpBombBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpBombBackgroundColor);
 
                     _bombCpCost = cfg.CpBombCost;
                     _bombCpCostText = cfg.CpBombCost.ToString();
-                    _bombCpCooldownSeconds = cfg.CpBombCooldownSeconds;
                     _bombCpBackgroundColor = cfg.CpBombBackgroundColor;
                     break;
 
                 case "faster":
                     cfg.CpFasterRewardId = id;
                     cfg.CpFasterCost = cost;
-                    cfg.CpFasterCooldownSeconds = cooldown;
+                    // Cooldown intentionally NOT read from Twitch — local config is canonical.
                     cfg.CpFasterBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpFasterBackgroundColor);
 
                     _fasterCpCost = cfg.CpFasterCost;
                     _fasterCpCostText = cfg.CpFasterCost.ToString();
-                    _fasterCpCooldownSeconds = cfg.CpFasterCooldownSeconds;
                     _fasterCpBackgroundColor = cfg.CpFasterBackgroundColor;
                     break;
 
                 case "superfast":
                     cfg.CpSuperFastRewardId = id;
                     cfg.CpSuperFastCost = cost;
-                    cfg.CpSuperFastCooldownSeconds = cooldown;
+                    // Cooldown intentionally NOT read from Twitch — local config is canonical.
                     cfg.CpSuperFastBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpSuperFastBackgroundColor);
 
                     _superFastCpCost = cfg.CpSuperFastCost;
                     _superFastCpCostText = cfg.CpSuperFastCost.ToString();
-                    _superFastCpCooldownSeconds = cfg.CpSuperFastCooldownSeconds;
                     _superFastCpBackgroundColor = cfg.CpSuperFastBackgroundColor;
                     break;
 
                 case "slower":
                     cfg.CpSlowerRewardId = id;
                     cfg.CpSlowerCost = cost;
-                    cfg.CpSlowerCooldownSeconds = cooldown;
+                    // Cooldown intentionally NOT read from Twitch — local config is canonical.
                     cfg.CpSlowerBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpSlowerBackgroundColor);
 
                     _slowerCpCost = cfg.CpSlowerCost;
                     _slowerCpCostText = cfg.CpSlowerCost.ToString();
-                    _slowerCpCooldownSeconds = cfg.CpSlowerCooldownSeconds;
                     _slowerCpBackgroundColor = cfg.CpSlowerBackgroundColor;
                     break;
 
                 case "flashbang":
                     cfg.CpFlashbangRewardId = id;
                     cfg.CpFlashbangCost = cost;
-                    cfg.CpFlashbangCooldownSeconds = cooldown;
+                    // Cooldown intentionally NOT read from Twitch — local config is canonical.
                     cfg.CpFlashbangBackgroundColor = ParseRewardBackgroundColor(reward, cfg.CpFlashbangBackgroundColor);
 
                     _flashbangCpCost = cfg.CpFlashbangCost;
                     _flashbangCpCostText = cfg.CpFlashbangCost.ToString();
-                    _flashbangCpCooldownSeconds = cfg.CpFlashbangCooldownSeconds;
                     _flashbangCpBackgroundColor = cfg.CpFlashbangBackgroundColor;
                     break;
             }
@@ -1082,7 +1074,6 @@ namespace BeatSurgeon.UI.Settings
             using (var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
             using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(externalCt, timeoutCts.Token))
             {
-                int effectiveCooldown = CommandRuntimeSettings.GetCooldownSecondsForRewardKey(key);
                 var id = await TwitchChannelPointsManager.Instance.EnsureRewardAsync(
                     new TwitchChannelPointsManager.RewardSpec
                     {
@@ -1090,7 +1081,8 @@ namespace BeatSurgeon.UI.Settings
                         Title = title,
                         Prompt = prompt,
                         Cost = Math.Max(1, cost),
-                        CooldownSeconds = Math.Max(0, effectiveCooldown),
+                        CooldownSeconds = Math.Max(1, cooldown),
+                        ApplyCooldown = true,
                         BackgroundColorHex = backgroundColorHex,
                     },
                     storedRewardId: getId?.Invoke() ?? "",
@@ -1114,42 +1106,42 @@ namespace BeatSurgeon.UI.Settings
             _rainbowCpEnabled = cfg.CpRainbowEnabled;
             _rainbowCpCost = cfg.CpRainbowCost;
             _rainbowCpCostText = _rainbowCpCost.ToString();
-            _rainbowCpCooldownSeconds = cfg.CpRainbowCooldownSeconds;
+            _rainbowCpCooldownSeconds = Math.Max(1, cfg.CpRainbowCooldownSeconds);
 
             _daCpEnabled = cfg.CpDisappearEnabled;
             _daCpCost = cfg.CpDisappearCost;
             _daCpCostText = _daCpCost.ToString();
-            _daCpCooldownSeconds = cfg.CpDisappearCooldownSeconds;
+            _daCpCooldownSeconds = Math.Max(1, cfg.CpDisappearCooldownSeconds);
 
             _ghostCpEnabled = cfg.CpGhostEnabled;
             _ghostCpCost = cfg.CpGhostCost;
             _ghostCpCostText = _ghostCpCost.ToString();
-            _ghostCpCooldownSeconds = cfg.CpGhostCooldownSeconds;
+            _ghostCpCooldownSeconds = Math.Max(1, cfg.CpGhostCooldownSeconds);
 
             _bombCpEnabled = cfg.CpBombEnabled;
             _bombCpCost = cfg.CpBombCost;
             _bombCpCostText = _bombCpCost.ToString();
-            _bombCpCooldownSeconds = cfg.CpBombCooldownSeconds;
+            _bombCpCooldownSeconds = Math.Max(1, cfg.CpBombCooldownSeconds);
 
             _fasterCpEnabled = cfg.CpFasterEnabled;
             _fasterCpCost = cfg.CpFasterCost;
             _fasterCpCostText = _fasterCpCost.ToString();
-            _fasterCpCooldownSeconds = cfg.CpFasterCooldownSeconds;
+            _fasterCpCooldownSeconds = Math.Max(1, cfg.CpFasterCooldownSeconds);
 
             _superFastCpEnabled = cfg.CpSuperFastEnabled;
             _superFastCpCost = cfg.CpSuperFastCost;
             _superFastCpCostText = _superFastCpCost.ToString();
-            _superFastCpCooldownSeconds = cfg.CpSuperFastCooldownSeconds;
+            _superFastCpCooldownSeconds = Math.Max(1, cfg.CpSuperFastCooldownSeconds);
 
             _slowerCpEnabled = cfg.CpSlowerEnabled;
             _slowerCpCost = cfg.CpSlowerCost;
             _slowerCpCostText = _slowerCpCost.ToString();
-            _slowerCpCooldownSeconds = cfg.CpSlowerCooldownSeconds;
+            _slowerCpCooldownSeconds = Math.Max(1, cfg.CpSlowerCooldownSeconds);
 
             _flashbangCpEnabled = cfg.CpFlashbangEnabled;
             _flashbangCpCost = cfg.CpFlashbangCost;
             _flashbangCpCostText = _flashbangCpCost.ToString();
-            _flashbangCpCooldownSeconds = cfg.CpFlashbangCooldownSeconds;
+            _flashbangCpCooldownSeconds = Math.Max(1, cfg.CpFlashbangCooldownSeconds);
 
 
             _rainbowCpBackgroundColor = cfg.CpRainbowBackgroundColor;
@@ -1645,19 +1637,16 @@ namespace BeatSurgeon.UI.Settings
                 LoadCpFromConfig();
                 RefreshCpModalValues("rainbow");
                 _twitchRainbowModal?.Show(true);
-
-                _ = Task.Run(async () =>
-                {
-                    try { await RefreshCpFromTwitchAsync("rainbow").ConfigureAwait(false); }
-                    catch { }
-                    finally { _isModalRefreshing = false; }
-                });
             }
-            catch
+            finally
             {
                 _isModalRefreshing = false;
-                throw;
             }
+            _ = Task.Run(async () =>
+            {
+                try { await RefreshCpFromTwitchAsync("rainbow").ConfigureAwait(false); }
+                catch { }
+            });
         }
         [UIAction("CloseTwitchRainbowModal")]
         private void CloseTwitchRainbowModal()
@@ -1677,19 +1666,16 @@ namespace BeatSurgeon.UI.Settings
                 LoadCpFromConfig();
                 RefreshCpModalValues("ghost");
                 _twitchGhostModal?.Show(true);
-
-                _ = Task.Run(async () =>
-                {
-                    try { await RefreshCpFromTwitchAsync("ghost").ConfigureAwait(false); }
-                    catch { }
-                    finally { _isModalRefreshing = false; }
-                });
             }
-            catch
+            finally
             {
                 _isModalRefreshing = false;
-                throw;
             }
+            _ = Task.Run(async () =>
+            {
+                try { await RefreshCpFromTwitchAsync("ghost").ConfigureAwait(false); }
+                catch { }
+            });
         }
 
         [UIAction("CloseTwitchGhostModal")] 
@@ -1710,19 +1696,16 @@ namespace BeatSurgeon.UI.Settings
                 LoadCpFromConfig();
                 RefreshCpModalValues("bomb");
                 _twitchBombModal?.Show(true);
-
-                _ = Task.Run(async () =>
-                {
-                    try { await RefreshCpFromTwitchAsync("bomb").ConfigureAwait(false); }
-                    catch { }
-                    finally { _isModalRefreshing = false; }
-                });
             }
-            catch
+            finally
             {
                 _isModalRefreshing = false;
-                throw;
             }
+            _ = Task.Run(async () =>
+            {
+                try { await RefreshCpFromTwitchAsync("bomb").ConfigureAwait(false); }
+                catch { }
+            });
         }
         [UIAction("CloseTwitchBombModal")]
         private void CloseTwitchBombModal()
@@ -1742,19 +1725,16 @@ namespace BeatSurgeon.UI.Settings
                 LoadCpFromConfig();
                 RefreshCpModalValues("disappear");
                 _twitchDAModal?.Show(true);
-
-                _ = Task.Run(async () =>
-                {
-                    try { await RefreshCpFromTwitchAsync("disappear").ConfigureAwait(false); }
-                    catch { }
-                    finally { _isModalRefreshing = false; }
-                });
             }
-            catch
+            finally
             {
                 _isModalRefreshing = false;
-                throw;
             }
+            _ = Task.Run(async () =>
+            {
+                try { await RefreshCpFromTwitchAsync("disappear").ConfigureAwait(false); }
+                catch { }
+            });
         }
         [UIAction("CloseTwitchDAModal")]
         private void CloseTwitchDAModal()
@@ -1774,19 +1754,16 @@ namespace BeatSurgeon.UI.Settings
                 LoadCpFromConfig();
                 RefreshCpModalValues("faster");
                 _twitchFasterModal?.Show(true);
-
-                _ = Task.Run(async () =>
-                {
-                    try { await RefreshCpFromTwitchAsync("faster").ConfigureAwait(false); }
-                    catch { }
-                    finally { _isModalRefreshing = false; }
-                });
             }
-            catch
+            finally
             {
                 _isModalRefreshing = false;
-                throw;
             }
+            _ = Task.Run(async () =>
+            {
+                try { await RefreshCpFromTwitchAsync("faster").ConfigureAwait(false); }
+                catch { }
+            });
         }
         [UIAction("CloseTwitchFasterModal")]
         private void CloseTwitchFasterModal()
@@ -1806,19 +1783,16 @@ namespace BeatSurgeon.UI.Settings
                 LoadCpFromConfig();
                 RefreshCpModalValues("superfast");
                 _twitchSuperFastModal?.Show(true);
-
-                _ = Task.Run(async () =>
-                {
-                    try { await RefreshCpFromTwitchAsync("superfast").ConfigureAwait(false); }
-                    catch { }
-                    finally { _isModalRefreshing = false; }
-                });
             }
-            catch
+            finally
             {
                 _isModalRefreshing = false;
-                throw;
             }
+            _ = Task.Run(async () =>
+            {
+                try { await RefreshCpFromTwitchAsync("superfast").ConfigureAwait(false); }
+                catch { }
+            });
         }
         [UIAction("CloseTwitchSuperFastModal")]
         private void CloseTwitchSuperFastModal()
@@ -1838,19 +1812,16 @@ namespace BeatSurgeon.UI.Settings
                 LoadCpFromConfig();
                 RefreshCpModalValues("slower");
                 _twitchSlowerModal?.Show(true);
-
-                _ = Task.Run(async () =>
-                {
-                    try { await RefreshCpFromTwitchAsync("slower").ConfigureAwait(false); }
-                    catch { }
-                    finally { _isModalRefreshing = false; }
-                });
             }
-            catch
+            finally
             {
                 _isModalRefreshing = false;
-                throw;
             }
+            _ = Task.Run(async () =>
+            {
+                try { await RefreshCpFromTwitchAsync("slower").ConfigureAwait(false); }
+                catch { }
+            });
         }
         [UIAction("CloseTwitchSlowerModal")]
         private void CloseTwitchSlowerModal()
@@ -1870,19 +1841,16 @@ namespace BeatSurgeon.UI.Settings
                 LoadCpFromConfig();
                 RefreshCpModalValues("flashbang");
                 _twitchFlashbangModal?.Show(true);
-
-                _ = Task.Run(async () =>
-                {
-                    try { await RefreshCpFromTwitchAsync("flashbang").ConfigureAwait(false); }
-                    catch { }
-                    finally { _isModalRefreshing = false; }
-                });
             }
-            catch
+            finally
             {
                 _isModalRefreshing = false;
-                throw;
             }
+            _ = Task.Run(async () =>
+            {
+                try { await RefreshCpFromTwitchAsync("flashbang").ConfigureAwait(false); }
+                catch { }
+            });
         }
         [UIAction("CloseTwitchFlashbangModal")]
         private void CloseTwitchFlashbangModal()
@@ -2153,10 +2121,10 @@ namespace BeatSurgeon.UI.Settings
             get => _rainbowCpCooldownSeconds;
             set
             {
-                _rainbowCpCooldownSeconds = Math.Max(0, value);
+                _rainbowCpCooldownSeconds = Math.Max(1, value);
 
                 var cfg = Plugin.Settings;
-                if (cfg != null && !_isModalRefreshing) cfg.CpRainbowCooldownSeconds = _rainbowCpCooldownSeconds;
+                if (cfg != null) cfg.CpRainbowCooldownSeconds = _rainbowCpCooldownSeconds;
 
                 if (cfg != null && _rainbowCpEnabled && !_isModalRefreshing)
                 {
@@ -2254,10 +2222,10 @@ namespace BeatSurgeon.UI.Settings
             get => _daCpCooldownSeconds;
             set
             {
-                _daCpCooldownSeconds = Math.Max(0, value);
+                _daCpCooldownSeconds = Math.Max(1, value);
 
                 var cfg = Plugin.Settings;
-                if (cfg != null && !_isModalRefreshing) cfg.CpDisappearCooldownSeconds = _daCpCooldownSeconds;
+                if (cfg != null) cfg.CpDisappearCooldownSeconds = _daCpCooldownSeconds;
 
                 if (cfg != null && _daCpEnabled && !_isModalRefreshing)
                 {
@@ -2354,10 +2322,10 @@ namespace BeatSurgeon.UI.Settings
             get => _ghostCpCooldownSeconds;
             set
             {
-                _ghostCpCooldownSeconds = Math.Max(0, value);
+                _ghostCpCooldownSeconds = Math.Max(1, value);
 
                 var cfg = Plugin.Settings;
-                if (cfg != null && !_isModalRefreshing) cfg.CpGhostCooldownSeconds = _ghostCpCooldownSeconds;
+                if (cfg != null) cfg.CpGhostCooldownSeconds = _ghostCpCooldownSeconds;
 
                 if (cfg != null && _ghostCpEnabled && !_isModalRefreshing)
                 {
@@ -2454,10 +2422,10 @@ namespace BeatSurgeon.UI.Settings
             get => _bombCpCooldownSeconds;
             set
             {
-                _bombCpCooldownSeconds = Math.Max(0, value);
+                _bombCpCooldownSeconds = Math.Max(1, value);
 
                 var cfg = Plugin.Settings;
-                if (cfg != null && !_isModalRefreshing) cfg.CpBombCooldownSeconds = _bombCpCooldownSeconds;
+                if (cfg != null) cfg.CpBombCooldownSeconds = _bombCpCooldownSeconds;
 
                 if (cfg != null && _bombCpEnabled && !_isModalRefreshing)
                 {
@@ -2554,10 +2522,10 @@ namespace BeatSurgeon.UI.Settings
             get => _fasterCpCooldownSeconds;
             set
             {
-                _fasterCpCooldownSeconds = Math.Max(0, value);
+                _fasterCpCooldownSeconds = Math.Max(1, value);
 
                 var cfg = Plugin.Settings;
-                if (cfg != null && !_isModalRefreshing) cfg.CpFasterCooldownSeconds = _fasterCpCooldownSeconds;
+                if (cfg != null) cfg.CpFasterCooldownSeconds = _fasterCpCooldownSeconds;
 
                 if (cfg != null && _fasterCpEnabled && !_isModalRefreshing)
                 {
@@ -2654,10 +2622,10 @@ namespace BeatSurgeon.UI.Settings
             get => _superFastCpCooldownSeconds;
             set
             {
-                _superFastCpCooldownSeconds = Math.Max(0, value);
+                _superFastCpCooldownSeconds = Math.Max(1, value);
 
                 var cfg = Plugin.Settings;
-                if (cfg != null && !_isModalRefreshing) cfg.CpSuperFastCooldownSeconds = _superFastCpCooldownSeconds;
+                if (cfg != null) cfg.CpSuperFastCooldownSeconds = _superFastCpCooldownSeconds;
 
                 if (cfg != null && _superFastCpEnabled && !_isModalRefreshing)
                 {
@@ -2754,10 +2722,10 @@ namespace BeatSurgeon.UI.Settings
             get => _slowerCpCooldownSeconds;
             set
             {
-                _slowerCpCooldownSeconds = Math.Max(0, value);
+                _slowerCpCooldownSeconds = Math.Max(1, value);
 
                 var cfg = Plugin.Settings;
-                if (cfg != null && !_isModalRefreshing) cfg.CpSlowerCooldownSeconds = _slowerCpCooldownSeconds;
+                if (cfg != null) cfg.CpSlowerCooldownSeconds = _slowerCpCooldownSeconds;
 
                 if (cfg != null && _slowerCpEnabled && !_isModalRefreshing)
                 {
@@ -2854,10 +2822,10 @@ namespace BeatSurgeon.UI.Settings
             get => _flashbangCpCooldownSeconds;
             set
             {
-                _flashbangCpCooldownSeconds = Math.Max(0, value);
+                _flashbangCpCooldownSeconds = Math.Max(1, value);
 
                 var cfg = Plugin.Settings;
-                if (cfg != null && !_isModalRefreshing) cfg.CpFlashbangCooldownSeconds = _flashbangCpCooldownSeconds;
+                if (cfg != null) cfg.CpFlashbangCooldownSeconds = _flashbangCpCooldownSeconds;
 
                 if (cfg != null && _flashbangCpEnabled && !_isModalRefreshing)
                 {

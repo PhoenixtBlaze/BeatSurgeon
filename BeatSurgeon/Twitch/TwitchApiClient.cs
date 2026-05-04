@@ -219,6 +219,7 @@ namespace BeatSurgeon.Twitch
                 cooldownSeconds: cooldownSeconds,
                 backgroundColorHex: backgroundColorHex,
                 enabled: enabled,
+                applyCooldown: true,
                 ct: ct).ConfigureAwait(false);
         }
 
@@ -231,6 +232,7 @@ namespace BeatSurgeon.Twitch
             int cooldownSeconds,
             string backgroundColorHex,
             bool enabled,
+            bool applyCooldown = false,
             CancellationToken ct = default(CancellationToken))
         {
             return await CreateOrUpdateCustomRewardAsync(
@@ -242,6 +244,7 @@ namespace BeatSurgeon.Twitch
                 cooldownSeconds: cooldownSeconds,
                 backgroundColorHex: backgroundColorHex,
                 enabled: enabled,
+                applyCooldown: applyCooldown,
                 ct: ct).ConfigureAwait(false);
         }
 
@@ -254,7 +257,8 @@ namespace BeatSurgeon.Twitch
             int cooldownSeconds,
             string backgroundColorHex,
             bool enabled,
-            CancellationToken ct)
+            bool applyCooldown = false,
+            CancellationToken ct = default(CancellationToken))
         {
             bool isUpdate = !string.IsNullOrWhiteSpace(rewardId);
             var payload = new JObject
@@ -266,21 +270,19 @@ namespace BeatSurgeon.Twitch
                 ["is_user_input_required"] = false
             };
 
-            if (cooldownSeconds > 0)
+            bool shouldWriteCooldown = applyCooldown;
+            if (shouldWriteCooldown)
             {
-                payload["global_cooldown_setting"] = new JObject
+                if (cooldownSeconds > 0)
                 {
-                    ["is_enabled"] = true,
-                    ["global_cooldown_seconds"] = Math.Max(1, cooldownSeconds)
-                };
-            }
-            else
-            {
-                payload["global_cooldown_setting"] = new JObject
+                    payload["is_global_cooldown_enabled"] = true;
+                    payload["global_cooldown_seconds"] = Math.Max(1, cooldownSeconds);
+                }
+                else
                 {
-                    ["is_enabled"] = false,
-                    ["global_cooldown_seconds"] = 0
-                };
+                    payload["is_global_cooldown_enabled"] = false;
+                    payload["global_cooldown_seconds"] = 0;
+                }
             }
 
             string normalizedHex = NormalizeHexColor(backgroundColorHex);

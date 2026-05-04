@@ -23,6 +23,7 @@ namespace BeatSurgeon.Twitch
             internal string Prompt;
             internal int Cost;
             internal int CooldownSeconds;
+            internal bool ApplyCooldown;
             internal string BackgroundColorHex;
         }
 
@@ -315,7 +316,8 @@ namespace BeatSurgeon.Twitch
                 spec.CooldownSeconds,
                 spec.BackgroundColorHex,
                 enabled,
-                ct).ConfigureAwait(false);
+                applyCooldown: spec.ApplyCooldown,
+                ct: ct).ConfigureAwait(false);
 
             bool rewardEnabled = updated?["is_enabled"]?.Value<bool?>()
                 ?? found["is_enabled"]?.Value<bool?>()

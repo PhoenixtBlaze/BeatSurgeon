@@ -142,6 +142,20 @@ namespace BeatSurgeon
             {
                 Settings = conf.Generated<PluginConfig>();
                 PluginConfig.Instance = Settings;
+
+                // Re-run floor migration every load — cheap, idempotent, fixes manual 0-resets
+                var mcfg = Settings;
+                mcfg.CpRainbowCooldownSeconds    = Math.Max(1, mcfg.CpRainbowCooldownSeconds);
+                mcfg.CpDisappearCooldownSeconds  = Math.Max(1, mcfg.CpDisappearCooldownSeconds);
+                mcfg.CpGhostCooldownSeconds      = Math.Max(1, mcfg.CpGhostCooldownSeconds);
+                mcfg.CpBombCooldownSeconds       = Math.Max(1, mcfg.CpBombCooldownSeconds);
+                mcfg.CpFasterCooldownSeconds     = Math.Max(1, mcfg.CpFasterCooldownSeconds);
+                mcfg.CpSuperFastCooldownSeconds  = Math.Max(1, mcfg.CpSuperFastCooldownSeconds);
+                mcfg.CpSlowerCooldownSeconds     = Math.Max(1, mcfg.CpSlowerCooldownSeconds);
+                mcfg.CpFlashbangCooldownSeconds  = Math.Max(1, mcfg.CpFlashbangCooldownSeconds);
+                if (!mcfg.CpCooldownsMigrated) mcfg.CpCooldownsMigrated = true;
+                ScopedLog.Info("BeatSurgeon CP cooldown floor pass applied.");
+
                 ScopedLog.Info("Config loaded.");
             }
             catch (Exception ex)
