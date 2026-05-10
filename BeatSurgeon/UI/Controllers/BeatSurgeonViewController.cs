@@ -1,17 +1,12 @@
 using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.Components;
-using BeatSaberMarkupLanguage.Components.Settings;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSurgeon.Chat;
-using BeatSurgeon.Gameplay;
 using BeatSurgeon.Twitch;
 using BeatSurgeon.UI.Settings;
 using System;
-using System.Collections;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using TMPro;
@@ -365,18 +360,6 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
-        [UIValue("AccSaberAutoDisable")]
-        public bool RankedAccSaber
-        {
-            get => Plugin.Settings?.DisableOnRankedAccSaber ?? true;
-            set
-            {
-                if (Plugin.Settings != null)
-                    Plugin.Settings.DisableOnRankedAccSaber = value;
-                NotifyPropertyChanged(nameof(RankedAccSaber));
-            }
-        }
-
         [UIValue("multiplayerEnable")]
         public bool MultiplayerEnable
         {
@@ -434,7 +417,6 @@ namespace BeatSurgeon.UI.Controllers
             ActiveInstance = this;
 
             RefreshSupporterUiState();
-            StartBombFontPreview();
 
             // Subscribe to auth events for reauth notification display
             if (firstActivation)
@@ -587,7 +569,6 @@ namespace BeatSurgeon.UI.Controllers
             if (removedFromHierarchy && ReferenceEquals(ActiveInstance, this))
             {
                 ActiveInstance = null;
-                StopBombFontPreview();
                 // Unsubscribe from auth events
                 TwitchAuthManager.Instance.OnReauthRequired -= HandleSupportStateChanged;
                 TwitchAuthManager.Instance.OnTokensUpdated -= HandleSupportStateChanged;
@@ -843,16 +824,10 @@ namespace BeatSurgeon.UI.Controllers
             set => PluginConfig.Instance.SubEffectsEnabled = value;
         }
 
-        [UIValue("subEffectsToggleInteractable")]
-        public bool SubEffectsToggleInteractable => SubscriberEffectAccessController.IsToggleInteractable;
-
         [UIAction("OnSubEffectsChanged")]
         private void OnSubEffectsChanged(bool value)
         {
-            SubscriberEffectAccessController.ApplyManualToggle(value);
-            NotifyPropertyChanged(nameof(SubEffectsEnabled));
-            NotifyPropertyChanged(nameof(SubEffectsToggleInteractable));
-            _ = TwitchEventSubClient.Instance.RefreshSubscriptionsAsync();
+            PluginConfig.Instance.SubEffectsEnabled = value;
         }
 
         [UIValue("FollowEffectsEnabled")]
@@ -875,136 +850,8 @@ namespace BeatSurgeon.UI.Controllers
         }
 
 
-        // ==================== Bomb Font Selection (Supporter Tab) ====================
 
-        [UIComponent("bomb-font-dropdown")]
-        private DropDownListSetting _bombFontDropdown;
-
-        [UIComponent("bomb-font-preview")]
-        private TMP_Text _bombFontPreview;
-
-        private Coroutine _bombFontPreviewCoroutine;
-
-        [UIValue("bomb_font_options")]
-        public List<object> BombFontOptions
-        {
-            get
-            {
-                var options = FontBundleLoader.GetBombFontOptions();
-                return options.Cast<object>().ToList();
-            }
-        }
-
-        [UIValue("bomb_font_selected")]
-        public string BombFontSelected
-        {
-            get => FontBundleLoader.GetSelectedBombFontOption();
-            set
-            {
-                StopBombFontPreview();
-                FontBundleLoader.SetSelectedBombFontOption(value);
-                NotifyPropertyChanged(nameof(BombFontSelected));
-                StartCoroutine(ApplyBombFontChangeDelayed());
-            }
-        }
-
-        private IEnumerator ApplyBombFontChangeDelayed()
-        {
-            if (_bombFontPreview != null)
-                _bombFontPreview.enabled = false;
-
-            yield return null;
-            yield return null;
-
-            ApplyBombFontPreviewStatic();
-
-            if (_bombFontPreview != null)
-                _bombFontPreview.enabled = true;
-
-            if (_bombFontPreview != null && _bombFontPreview.gameObject.activeInHierarchy)
-                _bombFontPreviewCoroutine = StartCoroutine(BombFontPreviewRoutine());
-        }
-
-        private void StartBombFontPreview()
-        {
-            StopBombFontPreview();
-
-            if (_bombFontPreview == null)
-                return;
-
-            var task = FontBundleLoader.EnsureLoadedAsync();
-            StartCoroutine(RefreshBombFontDropdownCoroutine(task));
-        }
-
-        private IEnumerator RefreshBombFontDropdownCoroutine(System.Threading.Tasks.Task task)
-        {
-            while (!task.IsCompleted) yield return null;
-
-            // Re-evaluate the saved font selection now that entitlements are guaranteed
-            // to be resolved. The initial load (StartPreload) runs before entitlements
-            // arrive, so ApplySelectionFromConfig() in LoadAsync sees HasVisualsAccess=false
-            // and falls back to Default. Re-calling it here fixes the stale BombUsernameFont.
-            FontBundleLoader.ApplySelectionFromConfig();
-
-            NotifyPropertyChanged(nameof(BombFontOptions));
-            NotifyPropertyChanged(nameof(BombFontSelected));
-
-            if (_bombFontDropdown != null)
-            {
-                _bombFontDropdown.Values = BombFontOptions;
-                _bombFontDropdown.UpdateChoices();
-                _bombFontDropdown.ReceiveValue();
-            }
-
-            ApplyBombFontPreviewStatic();
-            _bombFontPreviewCoroutine = StartCoroutine(BombFontPreviewRoutine());
-        }
-
-        private void StopBombFontPreview()
-        {
-            if (_bombFontPreviewCoroutine != null)
-            {
-                StopCoroutine(_bombFontPreviewCoroutine);
-                _bombFontPreviewCoroutine = null;
-            }
-        }
-
-        private void ApplyBombFontPreviewStatic()
-        {
-            if (_bombFontPreview == null)
-                return;
-
-            if (!FontBundleLoader.TryApplySelectedBombFont(_bombFontPreview))
-                return;
-
-            _bombFontPreview.text = "PreviewUsername";
-            _bombFontPreview.outlineWidth = 0.2f;
-            _bombFontPreview.outlineColor = Color.black;
-            _bombFontPreview.SetAllDirty();
-            _bombFontPreview.ForceMeshUpdate();
-        }
-
-        private IEnumerator BombFontPreviewRoutine()
-        {
-            const float cycleSeconds = 2.0f;
-
-            while (_bombFontPreview != null && _bombFontPreview.gameObject.activeInHierarchy)
-            {
-                float t = Mathf.PingPong(Time.unscaledTime / cycleSeconds, 1f);
-                Color c = Color.Lerp(
-                    Plugin.Settings?.BombGradientStart ?? Color.yellow,
-                    Plugin.Settings?.BombGradientEnd ?? Color.red,
-                    t);
-                c.a = 1f;
-                _bombFontPreview.color = c;
-                yield return null;
-            }
-
-            _bombFontPreviewCoroutine = null;
-        }
-
-
-
+        // --- Twitch Integration Section ---
 
         [UIValue("AllowEveryoneCommands")]
         public bool AllowEveryoneCommands

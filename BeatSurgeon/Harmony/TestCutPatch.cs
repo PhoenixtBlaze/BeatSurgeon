@@ -18,7 +18,6 @@ namespace BeatSurgeon.HarmonyPatches
             {
                 var gameNote = noteController as GameNoteController ?? __instance?.GetComponentInParent<GameNoteController>();
                 TryMarkAndAttach(gameNote, "init");
-                SubBurstNoteManager.Instance.TryAttachToNote(gameNote);
             }
             catch (Exception ex)
             {
@@ -61,7 +60,7 @@ namespace BeatSurgeon.HarmonyPatches
         {
             try
             {
-                if (!TestEffectManager.Instance.HasPendingEffects && !SubBurstNoteManager.Instance.HasRemainingCount)
+                if (!TestEffectManager.Instance.HasPendingEffects)
                 {
                     return;
                 }
@@ -73,7 +72,6 @@ namespace BeatSurgeon.HarmonyPatches
                 }
 
                 TestNotePatch.TryMarkAndAttach(gameNote, "start-jump");
-                SubBurstNoteManager.Instance.TryAttachToNote(gameNote);
             }
             catch (Exception ex)
             {
@@ -96,10 +94,6 @@ namespace BeatSurgeon.HarmonyPatches
                 {
                     return;
                 }
-
-                // Always clean up SubBurst regardless of TestEffect mark — avoids stale
-                // NoteController pool-reuse keys in SubBurstNoteManager._attached.
-                SubBurstNoteManager.Instance.DetachFromNote(gameNote);
 
                 if (!TestEffectManager.Instance.TryRequeueMarkedEffect(gameNote, "Missed", out int denomination))
                 {
@@ -142,9 +136,6 @@ namespace BeatSurgeon.HarmonyPatches
                 {
                     return;
                 }
-
-                // Always clean up SubBurst regardless of TestEffect mark.
-                SubBurstNoteManager.Instance.DetachFromNote(__instance);
 
                 if (!TestEffectManager.Instance.TryConsumeMarkedEffect(__instance, out int denomination, out string requesterName))
                 {

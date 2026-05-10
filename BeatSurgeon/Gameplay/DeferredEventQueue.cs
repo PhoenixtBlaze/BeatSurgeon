@@ -7,8 +7,7 @@ namespace BeatSurgeon.Gameplay
     internal enum EventKind
     {
         Follow,
-        Bits,
-        Subscription
+        Bits
     }
 
     /// <summary>
@@ -19,12 +18,9 @@ namespace BeatSurgeon.Gameplay
     {
         internal EventKind EventKind;
         internal string DisplayName;
-        internal int BitAmount;          // 0 for Follow / Subscription entries
+        internal int BitAmount;    // 0 for Follow entries
         internal DateTime QueuedAtUtc;
-        internal int RetryCount;         // starts at 0; max one retry
-        internal string TierLabel;       // e.g. "Tier 1", "Prime"  (Subscription only)
-        internal int CumulativeMonths;   // total months subbed         (Subscription only)
-        internal string EventSubKind;    // "sub" / "resub" / "giftsub" (Subscription only)
+        internal int RetryCount;   // starts at 0; max one retry
 
         internal DeferredEventEntry(EventKind eventKind, string displayName, int bitAmount, DateTime queuedAtUtc, int retryCount = 0)
         {
@@ -33,21 +29,6 @@ namespace BeatSurgeon.Gameplay
             BitAmount = bitAmount;
             QueuedAtUtc = queuedAtUtc;
             RetryCount = retryCount;
-            TierLabel = string.Empty;
-            CumulativeMonths = 0;
-            EventSubKind = string.Empty;
-        }
-
-        internal DeferredEventEntry(EventKind eventKind, string displayName, DateTime queuedAtUtc, string tierLabel, int cumulativeMonths, string eventSubKind, int retryCount = 0)
-        {
-            EventKind = eventKind;
-            DisplayName = displayName;
-            BitAmount = 0;
-            QueuedAtUtc = queuedAtUtc;
-            RetryCount = retryCount;
-            TierLabel = tierLabel ?? string.Empty;
-            CumulativeMonths = cumulativeMonths;
-            EventSubKind = eventSubKind ?? string.Empty;
         }
     }
 

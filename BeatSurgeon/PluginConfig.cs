@@ -46,7 +46,6 @@ namespace BeatSurgeon
         public virtual bool BitEffectEnabled { get; set; } = false;
         public virtual string BitEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
         public virtual bool SubEffectsEnabled { get; set; } = false;
-        public virtual string SubEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
         public virtual bool FollowEffectsEnabled { get; set; } = false;
         public virtual string FollowEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
         public virtual string BombCommandName { get; set; } = "bomb";
@@ -60,7 +59,6 @@ namespace BeatSurgeon
         public virtual bool BombEnabled { get; set; } = true;
         public virtual float BombTextHeight { get; set; } = 1.0f;
         public virtual float BombTextWidth { get; set; } = 1.0f;
-        public virtual float FlyingTextTravelSeconds { get; set; } = 4.0f;
         public virtual float BombSpawnDistance { get; set; } = 20.0f;
         public virtual string BombFontType { get; set; } = "Default";
         public virtual string BombFireworksTextureType { get; set; }
@@ -82,7 +80,6 @@ namespace BeatSurgeon
         public virtual float GhostCooldownSeconds { get; set; } = 60f;
         public virtual float BombCooldownSeconds { get; set; } = 1f;
         public virtual float GlitterCooldownSeconds { get; set; } = 10f;
-        public virtual float SmsgCooldownSeconds { get; set; } = 60f;
         public virtual float FasterCooldownSeconds { get; set; } = 60f;
         public virtual float SuperFastCooldownSeconds { get; set; } = 60f;
         public virtual float SlowerCooldownSeconds { get; set; } = 60f;
@@ -144,53 +141,51 @@ namespace BeatSurgeon
         // --- Channel Points ---
         public virtual bool CpRainbowEnabled { get; set; } = false;
         public virtual int CpRainbowCost { get; set; } = 500;
-        public virtual int CpRainbowCooldownSeconds { get; set; } = 60;
+        public virtual int CpRainbowCooldownSeconds { get; set; } = 0;
         public virtual string CpRainbowRewardId { get; set; } = string.Empty;
         public virtual Color CpRainbowBackgroundColor { get; set; } = Color.white;
 
         public virtual bool CpDisappearEnabled { get; set; } = false;
         public virtual int CpDisappearCost { get; set; } = 500;
-        public virtual int CpDisappearCooldownSeconds { get; set; } = 60;
+        public virtual int CpDisappearCooldownSeconds { get; set; } = 0;
         public virtual string CpDisappearRewardId { get; set; } = string.Empty;
         public virtual Color CpDisappearBackgroundColor { get; set; } = Color.white;
 
         public virtual bool CpGhostEnabled { get; set; } = false;
         public virtual int CpGhostCost { get; set; } = 500;
-        public virtual int CpGhostCooldownSeconds { get; set; } = 60;
+        public virtual int CpGhostCooldownSeconds { get; set; } = 0;
         public virtual string CpGhostRewardId { get; set; } = string.Empty;
         public virtual Color CpGhostBackgroundColor { get; set; } = Color.white;
 
         public virtual bool CpBombEnabled { get; set; } = false;
         public virtual int CpBombCost { get; set; } = 500;
-        public virtual int CpBombCooldownSeconds { get; set; } = 1;
+        public virtual int CpBombCooldownSeconds { get; set; } = 0;
         public virtual string CpBombRewardId { get; set; } = string.Empty;
         public virtual Color CpBombBackgroundColor { get; set; } = Color.white;
 
         public virtual bool CpFasterEnabled { get; set; } = false;
         public virtual int CpFasterCost { get; set; } = 500;
-        public virtual int CpFasterCooldownSeconds { get; set; } = 60;
+        public virtual int CpFasterCooldownSeconds { get; set; } = 0;
         public virtual string CpFasterRewardId { get; set; } = string.Empty;
         public virtual Color CpFasterBackgroundColor { get; set; } = Color.white;
 
         public virtual bool CpSuperFastEnabled { get; set; } = false;
         public virtual int CpSuperFastCost { get; set; } = 500;
-        public virtual int CpSuperFastCooldownSeconds { get; set; } = 60;
+        public virtual int CpSuperFastCooldownSeconds { get; set; } = 0;
         public virtual string CpSuperFastRewardId { get; set; } = string.Empty;
         public virtual Color CpSuperFastBackgroundColor { get; set; } = Color.white;
 
         public virtual bool CpSlowerEnabled { get; set; } = false;
         public virtual int CpSlowerCost { get; set; } = 500;
-        public virtual int CpSlowerCooldownSeconds { get; set; } = 60;
+        public virtual int CpSlowerCooldownSeconds { get; set; } = 0;
         public virtual string CpSlowerRewardId { get; set; } = string.Empty;
         public virtual Color CpSlowerBackgroundColor { get; set; } = Color.white;
 
         public virtual bool CpFlashbangEnabled { get; set; } = false;
         public virtual int CpFlashbangCost { get; set; } = 500;
-        public virtual int CpFlashbangCooldownSeconds { get; set; } = 60;
+        public virtual int CpFlashbangCooldownSeconds { get; set; } = 0;
         public virtual string CpFlashbangRewardId { get; set; } = string.Empty;
         public virtual Color CpFlashbangBackgroundColor { get; set; } = Color.white;
-
-        public virtual bool CpCooldownsMigrated { get; set; } = false;
 
         // --- PRD aliases ---
         public virtual bool ChannelPointsEnabled { get; set; } = false;

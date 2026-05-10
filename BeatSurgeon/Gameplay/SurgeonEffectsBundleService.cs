@@ -39,8 +39,6 @@ namespace BeatSurgeon.Gameplay
         private static bool _triedBitBurstLoopLoad = false;
         private static GameObject _cachedFollowerCanvasTemplate;
         private static bool _triedFollowerCanvasLoad = false;
-        private static GameObject _cachedSubBurstTemplate;
-        private static bool _triedSubBurstLoad = false;
         private static readonly Dictionary<string, Material> _cachedPreparedBurstMaterials = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
 
         public static void ResetCachedTemplate()
@@ -91,14 +89,6 @@ namespace BeatSurgeon.Gameplay
                 _cachedFollowerCanvasTemplate = null;
                 _triedFollowerCanvasLoad = false;
 
-                if (_cachedSubBurstTemplate != null)
-                {
-                    UnityEngine.Object.Destroy(_cachedSubBurstTemplate);
-                }
-
-                _cachedSubBurstTemplate = null;
-                _triedSubBurstLoad = false;
-
                 foreach (var cachedBitEmitter in _cachedBitEmitterTemplates.Values)
                 {
                     if (cachedBitEmitter == null)
@@ -119,137 +109,6 @@ namespace BeatSurgeon.Gameplay
                 _triedBitEmitterLoads.Clear();
             }
             catch { }
-        }
-
-        public static GameObject GetSubBurstTemplate()
-        {
-            if (_cachedSubBurstTemplate != null)
-            {
-                return _cachedSubBurstTemplate;
-            }
-
-            if (_triedSubBurstLoad)
-            {
-                return null;
-            }
-
-            _triedSubBurstLoad = true;
-
-            try
-            {
-                string bundlePath = Path.Combine(Environment.CurrentDirectory, "UserData", "BeatSurgeon", "Effects", "surgeoneffects");
-                if (!File.Exists(bundlePath))
-                {
-                    Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle not found at " + bundlePath);
-                    return null;
-                }
-
-                var bundle = AssetBundle.LoadFromFile(bundlePath);
-                if (bundle == null)
-                {
-                    Plugin.Log.Warn("SurgeonEffectsBundleService: failed to load asset bundle: " + bundlePath);
-                    return null;
-                }
-
-                try
-                {
-                    string[] assets = bundle.GetAllAssetNames();
-                    if (assets == null || assets.Length == 0)
-                    {
-                        Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle did not expose any assets.");
-                        return null;
-                    }
-
-                    string twitchControllerAssetName = ResolveBundleAssetName(assets, BundleRegistry.PrefabTwitchController);
-                    var twitchControllerPrefab = string.IsNullOrWhiteSpace(twitchControllerAssetName)
-                        ? null
-                        : bundle.LoadAsset<GameObject>(twitchControllerAssetName);
-                    if (twitchControllerPrefab == null)
-                    {
-                        Plugin.Log.Warn("SurgeonEffectsBundleService: could not load TwitchController prefab for sub burst path.");
-                        return null;
-                    }
-
-                    Transform burstRoot = twitchControllerPrefab.transform.Find(BundleRegistry.TwitchControllerRefs.BitsBurstRootPath)
-                        ?? FindDescendantByNormalizedName(twitchControllerPrefab.transform, BundleRegistry.TwitchControllerRefs.BitsBurstEmitterName);
-
-                    Transform subBurstAsset = burstRoot != null
-                        ? FindDescendantByNormalizedName(burstRoot, BundleRegistry.TwitchControllerRefs.SubBurstEmitterName)
-                        : null;
-                    subBurstAsset = subBurstAsset
-                        ?? FindDescendantByNormalizedName(twitchControllerPrefab.transform, BundleRegistry.TwitchControllerRefs.SubBurstEmitterName);
-
-                    if (subBurstAsset == null)
-                    {
-                        Plugin.Log.Warn(
-                            "SurgeonEffectsBundleService: '"
-                            + BundleRegistry.TwitchControllerRefs.SubBurstEmitterName
-                            + "' not found in TwitchController prefab.");
-                        return null;
-                    }
-
-                    var templateRoot = UnityEngine.Object.Instantiate(subBurstAsset.gameObject);
-                    UnityEngine.Object.DontDestroyOnLoad(templateRoot);
-                    templateRoot.transform.SetParent(null, false);
-                    templateRoot.name = "BeatSurgeonSubBurstTemplate";
-                    templateRoot.SetActive(false);
-
-                    DisableNonParticleRenderers(templateRoot);
-
-                    foreach (var ps in templateRoot.GetComponentsInChildren<ParticleSystem>(true))
-                    {
-                        try
-                        {
-                            var main = ps.main;
-                            main.loop = true;
-                            main.playOnAwake = false;
-                            if (main.startLifetime.constant <= 0f)
-                            {
-                                main.startLifetime = new ParticleSystem.MinMaxCurve(1.5f);
-                            }
-
-                            if (main.startSize.constant <= 0f)
-                            {
-                                main.startSize = new ParticleSystem.MinMaxCurve(0.15f);
-                            }
-
-                            var emission = ps.emission;
-                            emission.enabled = true;
-                            if (emission.rateOverTime.constant <= 0f && emission.rateOverDistance.constant <= 0f)
-                            {
-                                emission.rateOverTime = new ParticleSystem.MinMaxCurve(15f);
-                                Plugin.Log.Info(
-                                    "SurgeonEffectsBundleService: SubBurst PS '"
-                                    + ps.gameObject.name
-                                    + "' had zero emission rate — forced to 15/s.");
-                            }
-
-                            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                        }
-                        catch { }
-                    }
-
-                    ApplyBundleParticleMaterials(templateRoot, bundle, assets);
-
-                    _cachedSubBurstTemplate = templateRoot;
-                    LogUtils.Debug(() => "SurgeonEffectsBundleService: cached SubHyperCubeBurst template.");
-                    return _cachedSubBurstTemplate;
-                }
-                catch (Exception ex)
-                {
-                    Plugin.Log.Warn("SurgeonEffectsBundleService: error loading sub burst template: " + ex.Message);
-                }
-                finally
-                {
-                    try { bundle.Unload(false); } catch { }
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Warn("SurgeonEffectsBundleService: unexpected sub burst load error: " + ex.Message);
-            }
-
-            return null;
         }
 
         public static GameObject GetTwitchBitBurstTemplate()
@@ -325,30 +184,6 @@ namespace BeatSurgeon.Gameplay
                     {
                         try
                         {
-                            var main = particleSystem.main;
-                            main.loop = true;
-                            main.playOnAwake = false;
-                            if (main.startLifetime.constant <= 0f)
-                            {
-                                main.startLifetime = new ParticleSystem.MinMaxCurve(1.5f);
-                            }
-
-                            if (main.startSize.constant <= 0f)
-                            {
-                                main.startSize = new ParticleSystem.MinMaxCurve(0.15f);
-                            }
-
-                            var emission = particleSystem.emission;
-                            emission.enabled = true;
-                            if (emission.rateOverTime.constant <= 0f && emission.rateOverDistance.constant <= 0f)
-                            {
-                                emission.rateOverTime = new ParticleSystem.MinMaxCurve(15f);
-                                Plugin.Log.Info(
-                                    "SurgeonEffectsBundleService: BitBurst PS '"
-                                    + particleSystem.gameObject.name
-                                    + "' had zero emission rate — forced to 15/s.");
-                            }
-
                             particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                         }
                         catch { }

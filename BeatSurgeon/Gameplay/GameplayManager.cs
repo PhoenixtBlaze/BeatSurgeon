@@ -239,7 +239,6 @@ namespace BeatSurgeon.Gameplay
                     FasterSongPatch.ClearCache();
                     FollowerMessageManager.ClearForSceneExit();
                     RankedMapDetectionService.Instance.Reset();
-                    SubBurstNoteManager.Instance.Reset();
                 }
                 else if (!wasInMap && IsInMap && _deferredEventQueue != null)
                 {
@@ -305,13 +304,6 @@ namespace BeatSurgeon.Gameplay
             if (IsInMap)
             {
                 warmupSucceeded &= GlitterLoopEmitterManager.Instance.Prewarm();
-            }
-
-            yield return null;
-
-            if (IsInMap)
-            {
-                SubBurstNoteManager.Instance.Prewarm();
             }
 
             yield return null;

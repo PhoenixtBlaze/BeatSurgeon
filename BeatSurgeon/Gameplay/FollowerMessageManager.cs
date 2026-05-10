@@ -23,7 +23,7 @@ namespace BeatSurgeon.Gameplay
 
         private static readonly LogUtil _log = LogUtil.GetLogger("FollowerMessageManager");
         private const int MaxQueuedMessages = 10;
-        private const float DefaultMessageTravelSeconds = 15f;
+        private const float MessageTravelSeconds = 15f;
         private static FollowerMessageManager _instance;
         private static GameObject _go;
 
@@ -158,8 +158,6 @@ namespace BeatSurgeon.Gameplay
                 yield break;
             }
 
-            float travelSeconds = Mathf.Clamp(Plugin.Settings?.FlyingTextTravelSeconds ?? DefaultMessageTravelSeconds, 0.5f, 20f);
-
             Vector3 startingWorldPosition = _endAnchor.position;
             Vector3 endingWorldPosition = _startAnchor.position;
             messageRect.position = startingWorldPosition;
@@ -167,7 +165,7 @@ namespace BeatSurgeon.Gameplay
             messageRect.localScale = Vector3.one;
 
             float elapsed = 0f;
-            while (elapsed < travelSeconds)
+            while (elapsed < MessageTravelSeconds)
             {
                 if (!IsInMap() || messageRect == null || _activeCanvasInstance == null)
                 {
@@ -175,7 +173,7 @@ namespace BeatSurgeon.Gameplay
                 }
 
                 elapsed += Time.deltaTime;
-                float t = Mathf.Clamp01(elapsed / Mathf.Max(0.01f, travelSeconds));
+                float t = Mathf.Clamp01(elapsed / Mathf.Max(0.01f, MessageTravelSeconds));
                 messageRect.position = Vector3.Lerp(startingWorldPosition, endingWorldPosition, t);
 
                 yield return null;
