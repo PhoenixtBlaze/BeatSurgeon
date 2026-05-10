@@ -68,6 +68,11 @@ namespace BeatSurgeon.Gameplay
             public const string FollowerLinePath = "NewFollower/FollowerListCanvas/Line";
             public const string FollowerStartPath = "NewFollower/FollowerListCanvas/Start";
             public const string FollowerEndPath = "NewFollower/FollowerListCanvas/End";
+            public const string SubscriberCanvasRootName = "SubscriberListCanvas";
+            public const string SubscriberCanvasRootPath = "NewSubscriber/SubscriberListCanvas";
+            public const string SubscriberLineName = "Line";
+            public const string SubscriberStartName = "Start";
+            public const string SubscriberEndName = "End";
             public const string OneBitParticleName = "1BitParticle";
             public const string OneBitParticleSpecialName = "1BitParticleSpecial";
             public const string HundredBitParticleName = "100BitParticle";
@@ -123,6 +128,34 @@ namespace BeatSurgeon.Gameplay
                 BitsBurstEmitterName,
                 SubBurstEmitterName
             };
+        }
+
+        internal static class SurgeonExplosionRefs
+        {
+            // Emitters that existed in SurgeonExplosion before glitter work
+            public const string SparkEmitterName    = "Sparks";
+            public const string HeartEmitterName    = "Hearts";
+            public const string FlameEmitterName    = "Flame";
+
+            // New denomination-mapped glitter emitters added to SurgeonExplosion
+            public const string Glitter1EmitterName     = "Glitter1";
+            public const string Glitter100EmitterName   = "Glitter100";
+            public const string Glitter1000EmitterName  = "Glitter1000";
+            public const string Glitter5000EmitterName  = "Glitter5000";
+            public const string Glitter10000EmitterName = "Glitter10000";
+
+            /// <summary>Returns the SurgeonExplosion child emitter name that matches <paramref name="denomination"/>.</summary>
+            public static string GetGlitterEmitterName(int denomination)
+            {
+                switch (denomination)
+                {
+                    case 100:   return Glitter100EmitterName;
+                    case 1000:  return Glitter1000EmitterName;
+                    case 5000:  return Glitter5000EmitterName;
+                    case 10000: return Glitter10000EmitterName;
+                    default:    return Glitter1EmitterName;
+                }
+            }
         }
 
         // ── SHADERS, SPRITES, TEXTURES (omitted for brevity in code references)

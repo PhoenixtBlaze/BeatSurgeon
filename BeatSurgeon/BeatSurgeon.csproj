@@ -349,6 +349,7 @@
     <Compile Include="Gameplay\FollowerMessageManager.cs" />
     <Compile Include="Gameplay\FontBundleLoader.cs" />
     <Compile Include="Gameplay\GlitterLoopEmitterManager.cs" />
+    <Compile Include="Gameplay\SubBurstNoteManager.cs" />
     <Compile Include="Gameplay\BitParticleEmitterPool.cs" />
     <Compile Include="Gameplay\VrVfxMaterialHelper.cs" />
     <Compile Include="Gameplay\BombFontPreloadService.cs" />

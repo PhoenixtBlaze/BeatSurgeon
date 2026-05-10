@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using BeatSurgeon.Gameplay;
 using BeatSurgeon.Utils;
 
 namespace BeatSurgeon.Chat.Processors
@@ -14,7 +15,8 @@ namespace BeatSurgeon.Chat.Processors
 
         public Task ExecuteAsync(ChatContext ctx, CancellationToken ct)
         {
-            _log.Command(ctx?.Username, ctx?.Command, true, "noop");
+            _log.Command(ctx?.Username, ctx?.Command, true, "count=20");
+            SubBurstNoteManager.Instance.Activate(20);
             return Task.CompletedTask;
         }
     }

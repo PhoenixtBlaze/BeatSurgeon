@@ -46,6 +46,7 @@ namespace BeatSurgeon
         public virtual bool BitEffectEnabled { get; set; } = false;
         public virtual string BitEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
         public virtual bool SubEffectsEnabled { get; set; } = false;
+        public virtual string SubEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
         public virtual bool FollowEffectsEnabled { get; set; } = false;
         public virtual string FollowEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
         public virtual string BombCommandName { get; set; } = "bomb";
@@ -59,6 +60,7 @@ namespace BeatSurgeon
         public virtual bool BombEnabled { get; set; } = true;
         public virtual float BombTextHeight { get; set; } = 1.0f;
         public virtual float BombTextWidth { get; set; } = 1.0f;
+        public virtual float FlyingTextTravelSeconds { get; set; } = 4.0f;
         public virtual float BombSpawnDistance { get; set; } = 20.0f;
         public virtual string BombFontType { get; set; } = "Default";
         public virtual string BombFireworksTextureType { get; set; }
@@ -80,6 +82,7 @@ namespace BeatSurgeon
         public virtual float GhostCooldownSeconds { get; set; } = 60f;
         public virtual float BombCooldownSeconds { get; set; } = 1f;
         public virtual float GlitterCooldownSeconds { get; set; } = 10f;
+        public virtual float SmsgCooldownSeconds { get; set; } = 60f;
         public virtual float FasterCooldownSeconds { get; set; } = 60f;
         public virtual float SuperFastCooldownSeconds { get; set; } = 60f;
         public virtual float SlowerCooldownSeconds { get; set; } = 60f;

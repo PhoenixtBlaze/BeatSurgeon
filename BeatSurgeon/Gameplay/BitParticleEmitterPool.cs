@@ -343,6 +343,10 @@ namespace BeatSurgeon.Gameplay
                 ConfigureRootBurstParticleSystem(rootBurst, profile);
             }
 
+            // Deactivate all denomination PSes except the selected one so that
+            // Play(withChildren=true) does not activate all bit textures simultaneously.
+            DisableNonSelectedDenominations(emitterRoot.transform, profile.PrimaryName);
+
             Transform specialRoot = null;
             ParticleSystem special = null;
             if (!string.IsNullOrWhiteSpace(profile.SpecialName))
@@ -359,7 +363,16 @@ namespace BeatSurgeon.Gameplay
                 }
             }
 
-            TryEmitParticle(primary, 1);
+            // Prepare the primary denomination PS (but emit AFTER rootBurst.Play so the
+            // parent Play() call cannot reset the child's particle buffer).
+            {
+                var primaryMain = primary.main;
+                primaryMain.loop = false;
+                primaryMain.playOnAwake = false;
+                primaryMain.simulationSpace = ParticleSystemSimulationSpace.Local;
+                primary.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                primary.gameObject.SetActive(true);
+            }
 
             if (specialRoot != null && special != null)
             {
@@ -387,8 +400,23 @@ namespace BeatSurgeon.Gameplay
 
             if (rootBurst != null)
             {
-                TryEmitParticle(rootBurst, profile.BurstParticles);
+                // Play the root PS (BitsHyperCubeBurst, render=Stretch) so it produces
+                // the continuous cube/trail visual while moving toward the canvas.
+                // Do NOT call Emit(BurstParticles) — that added a one-shot Stretch burst
+                // on top of the trail which appeared as an "unwanted emitter" flash.
+                try
+                {
+                    rootBurst.gameObject.SetActive(true);
+                    rootBurst.Play(false);
+                }
+                catch { }
             }
+
+            // Emit the denomination sprite AFTER rootBurst.Play(false) so the parent
+            // Play() call cannot clear this particle before it renders.
+            // Do NOT call Play() on primary — that triggers the 15/s rate and produces
+            // a filmstrip of frames along the travel path.
+            primary.Emit(1);
 
             LogBurstMotionSnapshot(emitterRoot, denomination, primary, profile.SpecialName);
 
@@ -461,6 +489,37 @@ namespace BeatSurgeon.Gameplay
             SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.ThousandBitParticleSpecialName, false);
             SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleSpecialName, false);
             SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.TenThousandBitParticleSpecialName, false);
+        }
+
+        private static void DisableNonSelectedDenominations(Transform emitterRoot, string primaryName)
+        {
+            if (emitterRoot == null || string.IsNullOrWhiteSpace(primaryName))
+            {
+                return;
+            }
+
+            string normalizedPrimary = NormalizeSelectionToken(primaryName);
+
+            string[] allDenominationNames =
+            {
+                BundleRegistry.TwitchControllerRefs.OneBitParticleName,
+                BundleRegistry.TwitchControllerRefs.HundredBitParticleName,
+                BundleRegistry.TwitchControllerRefs.ThousandBitParticleName,
+                BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleName,
+                BundleRegistry.TwitchControllerRefs.TenThousandBitParticleName,
+            };
+
+            foreach (string name in allDenominationNames)
+            {
+                Transform child = FindDescendantByNormalizedName(emitterRoot, name);
+                if (child == null)
+                {
+                    continue;
+                }
+
+                bool isSelected = NormalizeSelectionToken(name) == normalizedPrimary;
+                child.gameObject.SetActive(isSelected);
+            }
         }
 
         private static void DisableRejectedBranches(GameObject root)

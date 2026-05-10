@@ -478,7 +478,9 @@ namespace BeatSurgeon.HarmonyPatches
 
         private static IEnumerator AnimateFlyingText(GameObject textGo, Vector3 startPos)
         {
-            float duration = 2.0f;
+            float duration = EntitlementsState.HasVisualsAccess
+                ? Mathf.Clamp(Plugin.Settings?.FlyingTextTravelSeconds ?? 4.0f, 0.5f, 20f)
+                : 4.0f;
             float elapsed = 0f;
 
             Vector3 initialPosition = startPos + Vector3.up * 0.5f;

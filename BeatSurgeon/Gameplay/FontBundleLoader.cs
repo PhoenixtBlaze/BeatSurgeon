@@ -75,11 +75,22 @@ namespace BeatSurgeon.Gameplay
         internal static void StartPreload()
         {
             CopyBundleFromPluginFolderIfMissing();
+            // Re-apply font when entitlements arrive — LoadAsync runs before HasVisualsAccess
+            // is set, so the first ApplySelectionFromConfig call sees HasVisualsAccess=false
+            // and falls back to Default. This hook corrects that once entitlements resolve.
+            EntitlementsState.Changed -= OnEntitlementsChanged;
+            EntitlementsState.Changed += OnEntitlementsChanged;
             Task preloadTask = EnsureLoadedAsync();
             if (!preloadTask.IsCompleted)
             {
                 BeatSurgeon.LogUtils.Debug(() => "FontBundleLoader: Startup preload scheduled");
             }
+        }
+
+        private static void OnEntitlementsChanged()
+        {
+            if (_bundle != null)
+                ApplySelectionFromConfig();
         }
 
         internal static async Task EnsureBombFontReadyAsync()
@@ -426,7 +437,7 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
-        private static void ApplySelectionFromConfig()
+        internal static void ApplySelectionFromConfig()
         {
             string selection = GetSelectedBombFontOption();
             TMP_FontAsset chosen = null;

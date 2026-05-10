@@ -151,6 +151,12 @@ namespace BeatSurgeon.Chat
             set { if (PluginConfig.Instance != null) PluginConfig.Instance.GlitterCooldownSeconds = value; }
         }
 
+        internal static float SmsgCooldownSeconds
+        {
+            get => PluginConfig.Instance?.SmsgCooldownSeconds ?? 60f;
+            set { if (PluginConfig.Instance != null) PluginConfig.Instance.SmsgCooldownSeconds = value; }
+        }
+
         internal static float FasterCooldownSeconds
         {
             get => PluginConfig.Instance?.FasterCooldownSeconds ?? 60f;

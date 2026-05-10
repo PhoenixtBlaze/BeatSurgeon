@@ -41,6 +41,18 @@ namespace BeatSurgeon.Twitch
             internal string UserName;
         }
 
+        internal sealed class SubscriberNotification
+        {
+            internal string UserId;
+            internal string UserLogin;
+            internal string UserName;
+            internal string Tier;
+            internal int CumulativeMonths;
+            internal bool IsGift;
+            internal bool IsAnonymous;
+            internal string EventSubKind;  // "sub" | "resub" | "giftsub"
+        }
+
         internal static string CurrentSessionId { get; private set; }
 
         private static TwitchEventSubClient _instance;
@@ -60,6 +72,10 @@ namespace BeatSurgeon.Twitch
         private readonly object _stateLock = new object();
         private string _followSubscriptionId = string.Empty;
         private bool _pendingFollowSubscription;
+        private string _subscribeSubId = string.Empty;
+        private string _subscribeResubId = string.Empty;
+        private string _subscribeGiftId = string.Empty;
+        private bool _pendingSubscribeSubscriptions;
 
         private CancellationTokenSource _cts;
         private Task _receiveLoop;
@@ -67,6 +83,7 @@ namespace BeatSurgeon.Twitch
 
         internal event Action<ChannelPointRedemption> OnChannelPointRedeemed;
         internal event Action<FollowNotification> OnFollowReceived;
+        internal event Action<SubscriberNotification> OnSubscriptionReceived;
 
         internal bool IsConnected => _isConnected;
 
@@ -133,6 +150,10 @@ namespace BeatSurgeon.Twitch
                 _pendingFollowSubscription = false;
                 _recentFollowEventIds.Clear();
                 _recentFollowEventIdSet.Clear();
+                _subscribeSubId = string.Empty;
+                _subscribeResubId = string.Empty;
+                _subscribeGiftId = string.Empty;
+                _pendingSubscribeSubscriptions = false;
             }
         }
 
@@ -148,11 +169,13 @@ namespace BeatSurgeon.Twitch
         internal async Task RefreshSubscriptionsAsync(CancellationToken ct = default(CancellationToken))
         {
             bool shouldFollow = ShouldSubscribeToFollowEffects();
-            bool shouldKeepAlive = HasConfiguredRewardSubscriptions() || shouldFollow;
+            bool shouldSubscriber = ShouldSubscribeToSubscriberEffects();
+            bool shouldKeepAlive = HasConfiguredRewardSubscriptions() || shouldFollow || shouldSubscriber;
 
             if (!shouldKeepAlive)
             {
                 await RemoveFollowSubscriptionAsync(ct).ConfigureAwait(false);
+                await RemoveSubscribeSubscriptionsAsync(ct).ConfigureAwait(false);
                 await StopReceiveLoopAsync().ConfigureAwait(false);
                 _log.TwitchState("SubscriptionsRefresh", "NoConfiguredSubscriptions");
                 return;
@@ -163,17 +186,35 @@ namespace BeatSurgeon.Twitch
             if (!shouldFollow)
             {
                 await RemoveFollowSubscriptionAsync(ct).ConfigureAwait(false);
-                return;
+            }
+            else
+            {
+                try
+                {
+                    string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+                    await EnsureFollowSubscriptionAsync(channelUserId, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _log.Warn("RefreshSubscriptionsAsync follow refresh failed: " + ex.Message);
+                }
             }
 
-            try
+            if (!shouldSubscriber)
             {
-                string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
-                await EnsureFollowSubscriptionAsync(channelUserId, ct).ConfigureAwait(false);
+                await RemoveSubscribeSubscriptionsAsync(ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            else
             {
-                _log.Warn("RefreshSubscriptionsAsync follow refresh failed: " + ex.Message);
+                try
+                {
+                    string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+                    await EnsureSubscribeSubscriptionsAsync(channelUserId, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _log.Warn("RefreshSubscriptionsAsync subscriber refresh failed: " + ex.Message);
+                }
             }
         }
 
@@ -471,9 +512,14 @@ namespace BeatSurgeon.Twitch
             return FollowEffectAccessController.ShouldMaintainSubscription();
         }
 
+        private static bool ShouldSubscribeToSubscriberEffects()
+        {
+            return SubscriberEffectAccessController.ShouldMaintainSubscription();
+        }
+
         private static bool ShouldKeepConnectionAlive()
         {
-            return HasConfiguredRewardSubscriptions() || ShouldSubscribeToFollowEffects();
+            return HasConfiguredRewardSubscriptions() || ShouldSubscribeToFollowEffects() || ShouldSubscribeToSubscriberEffects();
         }
 
         private async Task ProcessMessageAsync(string message, CancellationToken ct)
@@ -517,6 +563,24 @@ namespace BeatSurgeon.Twitch
             if (string.Equals(subscriptionType, "channel.follow", StringComparison.Ordinal))
             {
                 HandleFollowNotification(json);
+                return Task.CompletedTask;
+            }
+
+            if (string.Equals(subscriptionType, "channel.subscribe", StringComparison.Ordinal))
+            {
+                HandleSubscribeNotification(json);
+                return Task.CompletedTask;
+            }
+
+            if (string.Equals(subscriptionType, "channel.subscription.message", StringComparison.Ordinal))
+            {
+                HandleResubNotification(json);
+                return Task.CompletedTask;
+            }
+
+            if (string.Equals(subscriptionType, "channel.subscription.gift", StringComparison.Ordinal))
+            {
+                HandleGiftSubNotification(json);
                 return Task.CompletedTask;
             }
 
@@ -602,6 +666,113 @@ namespace BeatSurgeon.Twitch
             }
         }
 
+        private void HandleSubscribeNotification(JObject json)
+        {
+            JToken payload = json["payload"]?["event"];
+            if (payload == null)
+            {
+                return;
+            }
+
+            bool isGift = payload["is_gift"]?.Value<bool>() ?? false;
+            if (isGift)
+            {
+                // Gift subs that already trigger channel.subscription.gift; skip duplicate.
+                return;
+            }
+
+            var notification = new SubscriberNotification
+            {
+                UserId = payload["user_id"]?.ToString() ?? string.Empty,
+                UserLogin = payload["user_login"]?.ToString() ?? string.Empty,
+                UserName = payload["user_name"]?.ToString() ?? string.Empty,
+                Tier = payload["tier"]?.ToString() ?? "1000",
+                CumulativeMonths = 0,
+                IsGift = false,
+                IsAnonymous = false,
+                EventSubKind = "sub"
+            };
+
+            _log.Info("Subscribe notification received user=" + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName));
+
+            try
+            {
+                OnSubscriptionReceived?.Invoke(notification);
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "OnSubscriptionReceived invoke (sub)");
+            }
+        }
+
+        private void HandleResubNotification(JObject json)
+        {
+            JToken payload = json["payload"]?["event"];
+            if (payload == null)
+            {
+                return;
+            }
+
+            var notification = new SubscriberNotification
+            {
+                UserId = payload["user_id"]?.ToString() ?? string.Empty,
+                UserLogin = payload["user_login"]?.ToString() ?? string.Empty,
+                UserName = payload["user_name"]?.ToString() ?? string.Empty,
+                Tier = payload["tier"]?.ToString() ?? "1000",
+                CumulativeMonths = payload["cumulative_months"]?.Value<int>() ?? 0,
+                IsGift = false,
+                IsAnonymous = false,
+                EventSubKind = "resub"
+            };
+
+            _log.Info("Resub notification received user=" + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName) + " months=" + notification.CumulativeMonths);
+
+            try
+            {
+                OnSubscriptionReceived?.Invoke(notification);
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "OnSubscriptionReceived invoke (resub)");
+            }
+        }
+
+        private void HandleGiftSubNotification(JObject json)
+        {
+            JToken payload = json["payload"]?["event"];
+            if (payload == null)
+            {
+                return;
+            }
+
+            bool isAnonymous = payload["is_anonymous"]?.Value<bool>() ?? false;
+            string userName = isAnonymous ? "Anonymous" : (payload["user_name"]?.ToString() ?? string.Empty);
+            string userLogin = isAnonymous ? "Anonymous" : (payload["user_login"]?.ToString() ?? string.Empty);
+
+            var notification = new SubscriberNotification
+            {
+                UserId = payload["user_id"]?.ToString() ?? string.Empty,
+                UserLogin = userLogin,
+                UserName = userName,
+                Tier = payload["tier"]?.ToString() ?? "1000",
+                CumulativeMonths = payload["total"]?.Value<int>() ?? 1,
+                IsGift = true,
+                IsAnonymous = isAnonymous,
+                EventSubKind = "giftsub"
+            };
+
+            _log.Info("GiftSub notification received gifter=" + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName) + " total=" + notification.CumulativeMonths);
+
+            try
+            {
+                OnSubscriptionReceived?.Invoke(notification);
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "OnSubscriptionReceived invoke (giftsub)");
+            }
+        }
+
         private async Task ResubscribeAllAsync(CancellationToken ct)
         {
             var localSnapshot = new Dictionary<string, string>(_rewardSubscriptions, StringComparer.Ordinal);
@@ -611,6 +782,10 @@ namespace BeatSurgeon.Twitch
             _pendingRewardIds.Clear();
             _followSubscriptionId = string.Empty;
             _pendingFollowSubscription = false;
+            _subscribeSubId = string.Empty;
+            _subscribeResubId = string.Empty;
+            _subscribeGiftId = string.Empty;
+            _pendingSubscribeSubscriptions = false;
 
             string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
 
@@ -640,6 +815,11 @@ namespace BeatSurgeon.Twitch
             if (ShouldSubscribeToFollowEffects())
             {
                 await EnsureFollowSubscriptionAsync(channelUserId, ct).ConfigureAwait(false);
+            }
+
+            if (ShouldSubscribeToSubscriberEffects())
+            {
+                await EnsureSubscribeSubscriptionsAsync(channelUserId, ct).ConfigureAwait(false);
             }
 
             _log.Info("Resubscription complete");
@@ -758,8 +938,128 @@ namespace BeatSurgeon.Twitch
             }
         }
 
-        private bool TrackFollowEventId(string eventId)
+        private async Task EnsureSubscribeSubscriptionsAsync(string channelUserId, CancellationToken ct)
         {
+            await _subscriptionLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                if (_subscribeSubId.Length > 0 && _subscribeResubId.Length > 0 && _subscribeGiftId.Length > 0)
+                {
+                    return;
+                }
+
+                if (!ShouldSubscribeToSubscriberEffects())
+                {
+                    _pendingSubscribeSubscriptions = false;
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(CurrentSessionId))
+                {
+                    _pendingSubscribeSubscriptions = true;
+                    _log.TwitchState("SubscribeSubscriptionsDeferred", "WaitingForSessionWelcome");
+                    StartReceiveLoop();
+                    return;
+                }
+
+                var condition = new Dictionary<string, string> { { "broadcaster_user_id", channelUserId } };
+
+                if (_subscribeSubId.Length == 0)
+                {
+                    _log.TwitchState("SubscribeSubscription", "Subscribing channel.subscribe broadcasterUserId=" + channelUserId);
+                    _subscribeSubId = await _apiClient.CreateEventSubSubscriptionAsync(
+                        type: "channel.subscribe",
+                        version: "1",
+                        condition: condition,
+                        ct: ct).ConfigureAwait(false);
+                }
+
+                if (_subscribeResubId.Length == 0)
+                {
+                    _log.TwitchState("SubscribeSubscription", "Subscribing channel.subscription.message broadcasterUserId=" + channelUserId);
+                    _subscribeResubId = await _apiClient.CreateEventSubSubscriptionAsync(
+                        type: "channel.subscription.message",
+                        version: "1",
+                        condition: condition,
+                        ct: ct).ConfigureAwait(false);
+                }
+
+                if (_subscribeGiftId.Length == 0)
+                {
+                    _log.TwitchState("SubscribeSubscription", "Subscribing channel.subscription.gift broadcasterUserId=" + channelUserId);
+                    _subscribeGiftId = await _apiClient.CreateEventSubSubscriptionAsync(
+                        type: "channel.subscription.gift",
+                        version: "1",
+                        condition: condition,
+                        ct: ct).ConfigureAwait(false);
+                }
+
+                _pendingSubscribeSubscriptions = false;
+                _log.TwitchState("SubscribeSubscriptions", "Subscribed subId=" + _subscribeSubId + " resubId=" + _subscribeResubId + " giftId=" + _subscribeGiftId);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested || (_cts != null && _cts.IsCancellationRequested))
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _pendingSubscribeSubscriptions = true;
+                _log.Warn("EnsureSubscribeSubscriptionsAsync failed transiently (" + ex.GetType().Name + ") - re-queuing for next session_welcome");
+            }
+            finally
+            {
+                _subscriptionLock.Release();
+            }
+        }
+
+        private async Task RemoveSubscribeSubscriptionsAsync(CancellationToken ct)
+        {
+            await _subscriptionLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                _pendingSubscribeSubscriptions = false;
+
+                if (!string.IsNullOrWhiteSpace(CurrentSessionId))
+                {
+                    if (_subscribeSubId.Length > 0)
+                    {
+                        string id = _subscribeSubId;
+                        _subscribeSubId = string.Empty;
+                        try { await _apiClient.DeleteEventSubSubscriptionAsync(id, ct).ConfigureAwait(false); } catch { }
+                    }
+
+                    if (_subscribeResubId.Length > 0)
+                    {
+                        string id = _subscribeResubId;
+                        _subscribeResubId = string.Empty;
+                        try { await _apiClient.DeleteEventSubSubscriptionAsync(id, ct).ConfigureAwait(false); } catch { }
+                    }
+
+                    if (_subscribeGiftId.Length > 0)
+                    {
+                        string id = _subscribeGiftId;
+                        _subscribeGiftId = string.Empty;
+                        try { await _apiClient.DeleteEventSubSubscriptionAsync(id, ct).ConfigureAwait(false); } catch { }
+                    }
+                }
+                else
+                {
+                    _subscribeSubId = string.Empty;
+                    _subscribeResubId = string.Empty;
+                    _subscribeGiftId = string.Empty;
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "RemoveSubscribeSubscriptionsAsync");
+            }
+            finally
+            {
+                _subscriptionLock.Release();
+            }
+        }
+
+        private bool TrackFollowEventId(string eventId)        {
             if (string.IsNullOrWhiteSpace(eventId))
             {
                 return true;

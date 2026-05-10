@@ -36,6 +36,9 @@ namespace BeatSurgeon.Chat.Processors
             if (ctx?.TriggerSource != TriggerSource.BitEvent)
             {
                 await BitEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+                // Hard cap: chat commands cannot exceed 10000 glitter.
+                if (requestedBits > 10000)
+                    requestedBits = 10000;
             }
             _log.Command(
                 ctx.Username,

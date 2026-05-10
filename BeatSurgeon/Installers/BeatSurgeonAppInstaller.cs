@@ -55,6 +55,10 @@ namespace BeatSurgeon.Installers
                 .AsSingle()
                 .NonLazy();
 
+            Container.BindInterfacesAndSelfTo<SubscriberEventCoordinator>()
+                .AsSingle()
+                .NonLazy();
+
             Container.BindInterfacesAndSelfTo<ChannelPointCommandExecutor>()
                 .AsSingle()
                 .NonLazy();
@@ -87,6 +91,7 @@ namespace BeatSurgeon.Installers
             Container.Bind<ICommandProcessor>().To<SpeedChangeProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<FlashbangProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<FollowerMessageProcessor>().AsSingle();
+            Container.Bind<ICommandProcessor>().To<SubscriberMessageProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<GlitterProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<TestProcessor>().AsSingle();
             // Endless mode + song request command processors are intentionally disabled for now.

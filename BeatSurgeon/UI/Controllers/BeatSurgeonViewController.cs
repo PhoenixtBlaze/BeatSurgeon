@@ -843,10 +843,16 @@ namespace BeatSurgeon.UI.Controllers
             set => PluginConfig.Instance.SubEffectsEnabled = value;
         }
 
+        [UIValue("subEffectsToggleInteractable")]
+        public bool SubEffectsToggleInteractable => SubscriberEffectAccessController.IsToggleInteractable;
+
         [UIAction("OnSubEffectsChanged")]
         private void OnSubEffectsChanged(bool value)
         {
-            PluginConfig.Instance.SubEffectsEnabled = value;
+            SubscriberEffectAccessController.ApplyManualToggle(value);
+            NotifyPropertyChanged(nameof(SubEffectsEnabled));
+            NotifyPropertyChanged(nameof(SubEffectsToggleInteractable));
+            _ = TwitchEventSubClient.Instance.RefreshSubscriptionsAsync();
         }
 
         [UIValue("FollowEffectsEnabled")]
@@ -933,6 +939,12 @@ namespace BeatSurgeon.UI.Controllers
         private IEnumerator RefreshBombFontDropdownCoroutine(System.Threading.Tasks.Task task)
         {
             while (!task.IsCompleted) yield return null;
+
+            // Re-evaluate the saved font selection now that entitlements are guaranteed
+            // to be resolved. The initial load (StartPreload) runs before entitlements
+            // arrive, so ApplySelectionFromConfig() in LoadAsync sees HasVisualsAccess=false
+            // and falls back to Default. Re-calling it here fixes the stale BombUsernameFont.
+            FontBundleLoader.ApplySelectionFromConfig();
 
             NotifyPropertyChanged(nameof(BombFontOptions));
             NotifyPropertyChanged(nameof(BombFontSelected));
