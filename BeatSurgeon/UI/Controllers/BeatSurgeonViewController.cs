@@ -5,12 +5,15 @@ using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSurgeon.Chat;
 using BeatSurgeon.Twitch;
 using BeatSurgeon.UI.Settings;
+using HMUI;
 using System;
+using System.Collections;
 using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Networking;
 using UnityEngine.UI;
 
 
@@ -117,6 +120,14 @@ namespace BeatSurgeon.UI.Controllers
             LoadEmbeddedSprite("BeatSurgeon.Assets.Flashbang.png");
         private static readonly Sprite FlashbangOnSprite =
             LoadEmbeddedSprite("BeatSurgeon.Assets.FlashbangGB.png");
+
+        private const string TwitchSupportUrl = "https://www.twitch.tv/phoenixblaze0";
+        private const string PatreonSupportUrl = "https://www.patreon.com/PhoenixBlaze0";
+
+        private static readonly Sprite PatreonSupportSprite =
+            LoadEmbeddedSprite("BeatSurgeon.Assets.Patreon-Logo.png");
+        private static readonly Sprite TwitchSupportSprite =
+            LoadEmbeddedSprite("BeatSurgeon.Assets.Twitch-Logo.png");
 
         public static BeatSurgeonViewController ActiveInstance { get; private set; }
 
@@ -424,6 +435,7 @@ namespace BeatSurgeon.UI.Controllers
                 TwitchAuthManager.Instance.OnReauthRequired += HandleSupportStateChanged;
                 TwitchAuthManager.Instance.OnTokensUpdated += HandleSupportStateChanged;
                 TwitchAuthManager.Instance.OnIdentityUpdated += HandleSupportStateChanged;
+                EntitlementsState.Changed += HandleSupportStateChanged;
 
                 if (rainbowButton != null)
                 {
@@ -545,7 +557,9 @@ namespace BeatSurgeon.UI.Controllers
                     rt.anchoredPosition = Vector2.zero;
                     rt.sizeDelta = new Vector2(12f, 12f);
                 }
-                TwitchApiClient.OnSubscriberStatusChanged += HandleSupportStateChanged;
+
+                ConfigureSupportPlatformLogo(patreonSupportLogo);
+                ConfigureSupportPlatformLogo(twitchSupportLogo);
 
             }
 
@@ -559,6 +573,8 @@ namespace BeatSurgeon.UI.Controllers
             UpdateSuperFastButtonVisual();
             UpdateSlowerButtonVisual();
             UpdateFlashbangButtonVisual();
+            ApplySupportPlatformLogos();
+            BeginSupportPlatformLogoLoads();
             RefreshSupporterUiState();
             
 
@@ -573,7 +589,7 @@ namespace BeatSurgeon.UI.Controllers
                 TwitchAuthManager.Instance.OnReauthRequired -= HandleSupportStateChanged;
                 TwitchAuthManager.Instance.OnTokensUpdated -= HandleSupportStateChanged;
                 TwitchAuthManager.Instance.OnIdentityUpdated -= HandleSupportStateChanged;
-                TwitchApiClient.OnSubscriberStatusChanged -= HandleSupportStateChanged;
+                EntitlementsState.Changed -= HandleSupportStateChanged;
             }
 
             base.DidDeactivate(removedFromHierarchy, screenSystemDisabling);
@@ -623,6 +639,8 @@ namespace BeatSurgeon.UI.Controllers
         {
             RefreshTwitchStatusText();
             NotifyPropertyChanged(nameof(SupporterTabVisible));
+            NotifyPropertyChanged(nameof(SupportButtonText));
+            NotifyPropertyChanged(nameof(SupportButtonHoverHint));
             UpdateSupportUI();
             NotifyPropertyChanged(nameof(BitEffectEnabled));
             NotifyPropertyChanged(nameof(FollowEffectsEnabled));
@@ -944,10 +962,6 @@ namespace BeatSurgeon.UI.Controllers
                 return;
             }
 
-            var name = TwitchApiClient.Instance.BroadcasterName
-                       ?? Plugin.Settings.CachedBroadcasterLogin
-                       ?? "Unknown";
-
             int tier = (int)SupporterState.CurrentTier;
             if (tier <= 0)
             {
@@ -956,7 +970,7 @@ namespace BeatSurgeon.UI.Controllers
 
             if (tier > 0)
             {
-                TwitchStatusText = $"<color=#44FF44>Connected (Tier {tier})</color>";
+                TwitchStatusText = $"<color=#44FF44>Connected</color> <color=#00FF99>• Supporter Verified (Tier {tier})</color>";
                 SurgeonGameplaySetupHost.SetTwitchStatusFromBeatSurgeon(TwitchStatusText);
             }
             else
@@ -1106,6 +1120,21 @@ namespace BeatSurgeon.UI.Controllers
         [UIComponent("support-button")]
         private Button _supportButton;
 
+        [UIComponent("support-modal")]
+        private ModalView _supportModal;
+
+        [UIComponent("patreon-support-button")]
+        private Button patreonSupportButton;
+
+        [UIComponent("patreon-support-logo")]
+        private Image patreonSupportLogo;
+
+        [UIComponent("twitch-support-button")]
+        private Button twitchSupportButton;
+
+        [UIComponent("twitch-support-logo")]
+        private Image twitchSupportLogo;
+
         [UIComponent("supporter-text")]
         private TMP_Text _supporterText;
 
@@ -1113,7 +1142,13 @@ namespace BeatSurgeon.UI.Controllers
         private Tab _supporterTab;
 
         [UIValue("supporterTabVisible")]
-        public bool SupporterTabVisible => PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
+        public bool SupporterTabVisible => SupporterState.CurrentTier != SupporterTier.None;
+
+        [UIValue("supportButtonText")]
+        public string SupportButtonText => "Support this project 💙";
+
+        [UIValue("supportButtonHoverHint")]
+        public string SupportButtonHoverHint => "Show Twitch support options and verify Patreon access";
 
 
 
@@ -1132,6 +1167,52 @@ namespace BeatSurgeon.UI.Controllers
                 _supporterText.gameObject.SetActive(isSupporter);
         }
 
+        private void ConfigureSupportPlatformLogo(Image icon)
+        {
+            if (icon == null)
+            {
+                return;
+            }
+
+            var rectTransform = icon.rectTransform;
+            rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
+            rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            rectTransform.anchoredPosition = Vector2.zero;
+            rectTransform.sizeDelta = new Vector2(16f, 16f);
+        }
+
+        private void ApplySupportPlatformLogos()
+        {
+            if (patreonSupportButton != null)
+            {
+                BeatSaberUI.SetButtonText(patreonSupportButton, string.Empty);
+            }
+
+            if (twitchSupportButton != null)
+            {
+                BeatSaberUI.SetButtonText(twitchSupportButton, string.Empty);
+            }
+
+            ApplySupportPlatformLogo(patreonSupportLogo, PatreonSupportSprite);
+            ApplySupportPlatformLogo(twitchSupportLogo, TwitchSupportSprite);
+        }
+
+        private void ApplySupportPlatformLogo(Image icon, Sprite sprite)
+        {
+            if (icon != null)
+            {
+                icon.sprite = sprite;
+                icon.gameObject.SetActive(sprite != null);
+            }
+        }
+
+        private void BeginSupportPlatformLogoLoads()
+        {
+            // Sprites are pre-loaded from embedded assets at class init time; just apply them.
+            ApplySupportPlatformLogos();
+        }
+
 
 
 
@@ -1142,13 +1223,11 @@ namespace BeatSurgeon.UI.Controllers
             {
                 if (SupporterTabVisible)
                 {
-                    // Subscriber - show unlocked message in green
-                    return "<color=#00FF00>✓ Subscriber Features Unlocked ♡</color>";
+                    return "<color=#00FF00>✓ Supporter Features Unlocked ♡</color>";
                 }
                 else
                 {
-                    // Non-subscriber - show subscribe prompt in blue
-                    return "<color=#0099FF>Subscribe to Support ♡ </color>";
+                    return "<color=#0099FF>Support the Project ♡ </color>";
                 }
             }
         }
@@ -1169,9 +1248,8 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
-        // Called when Subscribe button clicked
-        [UIAction("OnSubscribeClicked")]
-        private void OnSubscribeClicked()
+        [UIAction("OnSupportButtonClicked")]
+        private void OnSupportButtonClicked()
         {
             if (SupporterTabVisible)
             {
@@ -1179,15 +1257,78 @@ namespace BeatSurgeon.UI.Controllers
                 return;
             }
 
-            LogUtils.Debug(() => "Opening Twitch channel for subscription...");
+            if (_supportModal == null)
+            {
+                Plugin.Log.Warn("Support modal was null when trying to show it.");
+                return;
+            }
+
+            _supportModal.Show(true);
+        }
+
+        [UIAction("OnSupportModalCloseClicked")]
+        private void OnSupportModalCloseClicked()
+        {
+            if (_supportModal == null)
+            {
+                return;
+            }
+
+            _supportModal.Hide(true);
+        }
+
+        [UIAction("OnSupportPatreonClicked")]
+        private void OnSupportPatreonClicked()
+        {
+            _ = ConnectPatreonAsync();
+        }
+
+        [UIAction("OnSupportTwitchClicked")]
+        private void OnSupportTwitchClicked()
+        {
+            OpenSupportUrl(TwitchSupportUrl, "Twitch");
+        }
+
+        private void OpenSupportUrl(string url, string platformName)
+        {
+            LogUtils.Debug(() => $"Opening {platformName} support page...");
             try
             {
-                // Open your Twitch channel in default browser
-                System.Diagnostics.Process.Start("https://www.twitch.tv/phoenixblaze0");
+                Application.OpenURL(url);
             }
             catch (Exception ex)
             {
-                Plugin.Log.Error($"Failed to open Twitch link: {ex.Message}");
+                Plugin.Log.Error($"Failed to open {platformName} link: {ex.Message}");
+            }
+        }
+
+        private async Task ConnectPatreonAsync()
+        {
+            try
+            {
+                if (!PatreonAuthManager.Instance.IsAuthenticated || PatreonAuthManager.Instance.IsReauthRequired)
+                {
+                    await PatreonAuthManager.Instance.InitiateLogin().ConfigureAwait(false);
+                }
+                else
+                {
+                    await PatreonAuthManager.Instance.EnsureReadyAsync().ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error("Patreon verification failed: " + ex.Message);
+            }
+            finally
+            {
+                await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+                {
+                    RefreshSupporterUiState();
+                    if (SupporterTabVisible && _supportModal != null)
+                    {
+                        _supportModal.Hide(true);
+                    }
+                });
             }
         }
 

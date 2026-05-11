@@ -147,7 +147,7 @@ namespace BeatSurgeon.UI.Controllers
 
             if (firstActivation)
             {
-                TwitchApiClient.OnSubscriberStatusChanged += HandleSubscriberStatusChanged;
+                EntitlementsState.Changed += HandleSubscriberStatusChanged;
                 // Ensure font bundle is loaded before modal opens
                 _ = FontBundleLoader.EnsureLoadedAsync();
                 //StartCoroutine(PreInitializeModal());
@@ -168,7 +168,7 @@ namespace BeatSurgeon.UI.Controllers
 
             if (removedFromHierarchy)
             {
-                TwitchApiClient.OnSubscriberStatusChanged -= HandleSubscriberStatusChanged;
+                EntitlementsState.Changed -= HandleSubscriberStatusChanged;
                 CleanupWorldSpacePreview();
             }
         }
@@ -266,7 +266,7 @@ namespace BeatSurgeon.UI.Controllers
             bool allowed = false;
             try
             {
-                allowed = await TwitchApiClient.Instance.CheckVisualsPermissionAsync().ConfigureAwait(false);
+                allowed = await PremiumVisualFeatureAccessController.RefreshVisualsPermissionAsync(System.Threading.CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -292,7 +292,7 @@ namespace BeatSurgeon.UI.Controllers
 
             try
             {
-                await TwitchApiClient.Instance.CheckVisualsPermissionAsync().ConfigureAwait(false);
+                await PremiumVisualFeatureAccessController.RefreshVisualsPermissionAsync(System.Threading.CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

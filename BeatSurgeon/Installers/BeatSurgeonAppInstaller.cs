@@ -39,7 +39,15 @@ namespace BeatSurgeon.Installers
                 .AsSingle()
                 .NonLazy();
 
+            Container.BindInterfacesAndSelfTo<PatreonAuthManager>()
+                .AsSingle()
+                .NonLazy();
+
             Container.BindInterfacesAndSelfTo<TwitchApiClient>()
+                .AsSingle()
+                .NonLazy();
+
+            Container.BindInterfacesAndSelfTo<PatreonApiClient>()
                 .AsSingle()
                 .NonLazy();
 

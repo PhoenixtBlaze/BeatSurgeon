@@ -5,6 +5,8 @@
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:schemaLocation="- https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd">
 
+		<vertical child-control-height="false">
+
 		<!-- Tab selector host -->
 		<tab-selector tab-tag="saber-surgeon-tabs" />
 
@@ -312,14 +314,84 @@
 
 			<!-- Support button -->
 			<button id="support-button"
-					text="Support this project 💙"
-					on-click="OnSubscribeClicked"
-					hover-hint="Unlock supporter-only features by subscribing and supporting this project"/>
+					text="~supportButtonText"
+					on-click="OnSupportButtonClicked"
+					hover-hint="~supportButtonHoverHint"/>
 
 			<!-- Supporter unlocked text -->
 			<text id="supporter-text"
 				  text="Supporter features unlocked 💙"
 					color="#00FF66"/>
 		</horizontal>
+
+		</vertical>
+
+		<modal id="support-modal"
+		       size-delta-x="75"
+		       size-delta-y="50"
+		       click-off-closes="true"
+		       move-to-center="true">
+
+			<!-- Header -->
+			<horizontal child-align="MiddleCenter" pad-bottom="65">
+				<text text="Support Beat Surgeon"
+				      align="Center"
+				      font-size="5"
+				      color="#FFCC44"
+				      font-style="Bold" />
+			</horizontal>
+
+			<!-- Content -->
+			<settings-scroll-view pad="2" pad-top="6" pad-bottom="10">
+				<vertical vertical-fit="PreferredSize"
+				          horizontal-fit="PreferredSize"
+				          spacing="4"
+				          pad="2"
+				          pref-width="82">
+
+					<text text="Choose a platform to support the project"
+					      align="Center"
+					      font-size="3.5"
+					      color="#BBBBBB" />
+
+					<horizontal child-align="UpperCenter" spacing="8">
+						<vertical pad-left="10" child-control-height="false" pref-width="40">
+							<button id="patreon-support-button"
+							        on-click="OnSupportPatreonClicked"
+							        pref-width="20"
+							        pref-height="14"
+							        hover-hint="Connect Patreon to verify supporter status">
+								<image id="patreon-support-logo"
+								       preserve-aspect="true"
+								       pref-width="14"
+								       pref-height="14" />
+							</button>
+						</vertical>
+
+						<vertical child-control-height="false" pref-width="40">
+							<button id="twitch-support-button"
+							        on-click="OnSupportTwitchClicked"
+							        pref-width="20"
+							        pref-height="14"
+							        hover-hint="Open Twitch in your default browser">
+								<image id="twitch-support-logo"
+								       preserve-aspect="true"
+								       pref-width="14"
+								       pref-height="14" />
+							</button>
+						</vertical>
+					</horizontal>
+				</vertical>
+			</settings-scroll-view>
+
+			<!-- Footer -->
+			<horizontal child-align="MiddleCenter" pad-top="65">
+				<button text="Close"
+				        on-click="OnSupportModalCloseClicked"
+				        pref-width="20"
+				        hover-hint="Close support dialog" />
+			</horizontal>
+		</modal>
+		
 	</vertical>
 </bg>

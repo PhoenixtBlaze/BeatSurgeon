@@ -3,6 +3,13 @@ using BeatSurgeon.Utils;
 
 namespace BeatSurgeon.Twitch
 {
+    internal enum EntitlementProvider
+    {
+        None = 0,
+        Twitch = 1,
+        Patreon = 2
+    }
+
     internal struct EntitlementsSnapshot
     {
         internal SupporterTier Tier;
@@ -18,17 +25,35 @@ namespace BeatSurgeon.Twitch
     internal static class EntitlementsState
     {
         private static readonly LogUtil _log = LogUtil.GetLogger("EntitlementsState");
-
-        internal static event Action Changed;
-
-        private static EntitlementsSnapshot _current = new EntitlementsSnapshot
+        private static readonly EntitlementsSnapshot EmptySnapshot = new EntitlementsSnapshot
         {
             Tier = SupporterTier.None,
             ExpiresAtUtc = DateTime.MinValue,
             SignedEntitlementToken = null
         };
 
+        internal static event Action Changed;
+
+        private static EntitlementsSnapshot _twitch = EmptySnapshot;
+        private static EntitlementsSnapshot _patreon = EmptySnapshot;
+        private static EntitlementsSnapshot _current = EmptySnapshot;
+        private static EntitlementProvider _currentProvider = EntitlementProvider.None;
+
         internal static EntitlementsSnapshot Current => _current;
+        internal static EntitlementProvider CurrentProvider => _currentProvider;
+
+        internal static EntitlementsSnapshot Get(EntitlementProvider provider)
+        {
+            switch (provider)
+            {
+                case EntitlementProvider.Twitch:
+                    return _twitch;
+                case EntitlementProvider.Patreon:
+                    return _patreon;
+                default:
+                    return EmptySnapshot;
+            }
+        }
 
         internal static bool HasVisualsAccess
         {
@@ -39,30 +64,88 @@ namespace BeatSurgeon.Twitch
             }
         }
 
-        internal static void Set(EntitlementsSnapshot snapshot)
+        internal static bool HasVisualsAccessFor(EntitlementProvider provider)
         {
-            bool changed = _current.Tier != snapshot.Tier ||
-                           _current.ExpiresAtUtc != snapshot.ExpiresAtUtc ||
-                           !string.Equals(_current.SignedEntitlementToken, snapshot.SignedEntitlementToken, StringComparison.Ordinal);
+            EntitlementsSnapshot snapshot = Get(provider);
+            return snapshot.IsValid && snapshot.Tier >= SupporterTier.Tier1;
+        }
 
-            _current = snapshot;
-            SupporterState.CurrentTier = snapshot.Tier;
+        internal static void Set(EntitlementProvider provider, EntitlementsSnapshot snapshot)
+        {
+            switch (provider)
+            {
+                case EntitlementProvider.Twitch:
+                    _twitch = snapshot;
+                    break;
+                case EntitlementProvider.Patreon:
+                    _patreon = snapshot;
+                    break;
+                default:
+                    return;
+            }
+
+            RecomputeEffectiveState();
+        }
+
+        internal static void Clear(EntitlementProvider provider)
+        {
+            Set(provider, EmptySnapshot);
+        }
+
+        internal static void ClearAll()
+        {
+            _twitch = EmptySnapshot;
+            _patreon = EmptySnapshot;
+            RecomputeEffectiveState();
+        }
+
+        private static void RecomputeEffectiveState()
+        {
+            EntitlementProvider effectiveProvider = EntitlementProvider.None;
+            EntitlementsSnapshot effectiveSnapshot = EmptySnapshot;
+
+            ChooseEffectiveSnapshot(ref effectiveProvider, ref effectiveSnapshot, EntitlementProvider.Twitch, _twitch);
+            ChooseEffectiveSnapshot(ref effectiveProvider, ref effectiveSnapshot, EntitlementProvider.Patreon, _patreon);
+
+            bool changed = _currentProvider != effectiveProvider ||
+                           _current.Tier != effectiveSnapshot.Tier ||
+                           _current.ExpiresAtUtc != effectiveSnapshot.ExpiresAtUtc ||
+                           !string.Equals(_current.SignedEntitlementToken, effectiveSnapshot.SignedEntitlementToken, StringComparison.Ordinal);
+
+            _currentProvider = effectiveProvider;
+            _current = effectiveSnapshot;
+            SupporterState.CurrentTier = effectiveSnapshot.Tier;
+
+            if (PluginConfig.Instance != null)
+            {
+                PluginConfig.Instance.CachedSupporterTier = (int)effectiveSnapshot.Tier;
+            }
 
             if (changed)
             {
-                _log.Info("EntitlementsState changed -> Tier=" + snapshot.Tier + " ExpiresAt=" + snapshot.ExpiresAtUtc.ToString("u"));
+                _log.Info("EntitlementsState changed -> Provider=" + effectiveProvider + " Tier=" + effectiveSnapshot.Tier + " ExpiresAt=" + effectiveSnapshot.ExpiresAtUtc.ToString("u"));
                 Changed?.Invoke();
             }
         }
 
-        internal static void Clear()
+        private static void ChooseEffectiveSnapshot(
+            ref EntitlementProvider effectiveProvider,
+            ref EntitlementsSnapshot effectiveSnapshot,
+            EntitlementProvider candidateProvider,
+            EntitlementsSnapshot candidateSnapshot)
         {
-            Set(new EntitlementsSnapshot
+            if (!candidateSnapshot.IsValid)
             {
-                Tier = SupporterTier.None,
-                ExpiresAtUtc = DateTime.MinValue,
-                SignedEntitlementToken = null
-            });
+                return;
+            }
+
+            if (!effectiveSnapshot.IsValid ||
+                candidateSnapshot.Tier > effectiveSnapshot.Tier ||
+                (candidateSnapshot.Tier == effectiveSnapshot.Tier && candidateSnapshot.ExpiresAtUtc > effectiveSnapshot.ExpiresAtUtc))
+            {
+                effectiveProvider = candidateProvider;
+                effectiveSnapshot = candidateSnapshot;
+            }
         }
     }
 }

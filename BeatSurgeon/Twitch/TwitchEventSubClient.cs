@@ -104,7 +104,7 @@ namespace BeatSurgeon.Twitch
             _authManager.OnTokensUpdated += HandleAuthStateChanged;
             _authManager.OnIdentityUpdated += HandleAuthStateChanged;
             _authManager.OnReauthRequired += HandleAuthStateChanged;
-            TwitchApiClient.OnSubscriberStatusChanged += HandleSupporterStateChanged;
+            EntitlementsState.Changed += HandleSupporterStateChanged;
 
             if (PluginConfig.Instance != null && PluginConfig.Instance.HasValidToken)
             {
@@ -130,7 +130,7 @@ namespace BeatSurgeon.Twitch
             _authManager.OnTokensUpdated -= HandleAuthStateChanged;
             _authManager.OnIdentityUpdated -= HandleAuthStateChanged;
             _authManager.OnReauthRequired -= HandleAuthStateChanged;
-            TwitchApiClient.OnSubscriberStatusChanged -= HandleSupporterStateChanged;
+            EntitlementsState.Changed -= HandleSupporterStateChanged;
 
             try
             {

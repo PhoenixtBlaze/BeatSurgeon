@@ -477,8 +477,8 @@ namespace BeatSurgeon.Twitch
                             return;
                         }
 
-                        EntitlementsState.Set(snapshot);
-                        PluginConfig.Instance.CachedSupporterTier = (int)snapshot.Tier;
+                        EntitlementsState.Set(EntitlementProvider.Twitch, snapshot);
+                        PluginConfig.Instance.CachedSupporterTier = (int)EntitlementsState.Current.Tier;
                         PremiumVisualFeatureAccessController.SyncAllConfigEnabledStates();
                         OnSubscriberStatusChanged?.Invoke();
                     }
@@ -494,10 +494,10 @@ namespace BeatSurgeon.Twitch
 
         private static void InvalidateSupporterState()
         {
-            EntitlementsState.Clear();
+            EntitlementsState.Clear(EntitlementProvider.Twitch);
             if (PluginConfig.Instance != null)
             {
-                PluginConfig.Instance.CachedSupporterTier = 0;
+                PluginConfig.Instance.CachedSupporterTier = (int)EntitlementsState.Current.Tier;
             }
 
             PremiumVisualFeatureAccessController.SyncAllConfigEnabledStates();
@@ -634,40 +634,11 @@ namespace BeatSurgeon.Twitch
 
         private static bool TryVerifyAndParseEntitlement(string signedToken, out EntitlementsSnapshot snapshot)
         {
-            snapshot = default(EntitlementsSnapshot);
-            if (!JwtEd25519.TryVerify(signedToken, out JwtEd25519.VerifiedJwt verified))
-            {
-                return false;
-            }
-
-            JObject payload = verified.Payload;
-            long exp = payload["exp"]?.Value<long>() ?? 0;
-            string sub = payload["sub"]?.ToString();
-            if (exp <= 0 || string.IsNullOrWhiteSpace(sub))
-            {
-                return false;
-            }
-
-            string expectedUserId = TwitchAuthManager.Instance?.BroadcasterId;
-            if (!string.IsNullOrWhiteSpace(expectedUserId) &&
-                !string.Equals(sub, expectedUserId, StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            int tierInt = payload["tier"]?.Value<int>() ?? 0;
-            if (tierInt < 0 || tierInt > 3)
-            {
-                return false;
-            }
-
-            snapshot = new EntitlementsSnapshot
-            {
-                Tier = (SupporterTier)tierInt,
-                ExpiresAtUtc = DateTimeOffset.FromUnixTimeSeconds(exp).UtcDateTime,
-                SignedEntitlementToken = signedToken
-            };
-            return true;
+            return EntitlementTokenValidator.TryVerifyAndParse(
+                signedToken,
+                TwitchAuthManager.Instance?.BroadcasterId,
+                EntitlementProvider.Twitch,
+                out snapshot);
         }
     }
 }

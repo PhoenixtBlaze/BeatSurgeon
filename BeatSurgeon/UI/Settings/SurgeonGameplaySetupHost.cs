@@ -1919,9 +1919,14 @@ namespace BeatSurgeon.UI.Settings
                 return;
             }
 
-            int tier = Plugin.Settings?.CachedSupporterTier ?? 0;
+            int tier = (int)SupporterState.CurrentTier;
+            if (tier <= 0)
+            {
+                tier = Plugin.Settings?.CachedSupporterTier ?? 0;
+            }
+
             TwitchStatusText = tier > 0
-                ? $"<color=#44FF44>Connected (Tier {tier})</color>"
+                ? $"<color=#44FF44>Connected</color> <color=#00FF99>• Supporter Verified (Tier {tier})</color>"
                 : "<color=#44FF44>Connected</color>";
         }
 
@@ -1934,12 +1939,17 @@ namespace BeatSurgeon.UI.Settings
 
             TwitchAuthManager.Instance.OnReauthRequired += OnTwitchStatusEvent;
             TwitchAuthManager.Instance.OnTokensUpdated += OnTwitchStatusEvent;
+            EntitlementsState.Changed += OnTwitchStatusEvent;
             _twitchStatusEventsHooked = true;
         }
 
         private void OnTwitchStatusEvent()
         {
-            _ = UnityMainThreadTaskScheduler.Factory.StartNew(RefreshTwitchStatusText);
+            _ = UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+            {
+                RefreshTwitchStatusText();
+                UpdateSupporterUi();
+            });
         }
 
         // --- Supporter UI ---

@@ -9,6 +9,7 @@ namespace BeatSurgeon
     {
         private static readonly LogUtil _log = LogUtil.GetLogger("PluginConfig");
         private long _tokenExpiryTicks;
+        private long _patreonTokenExpiryTicks;
 
         public static PluginConfig Instance { get; set; }
 
@@ -25,6 +26,14 @@ namespace BeatSurgeon
             set => _tokenExpiryTicks = value;
         }
 
+        public virtual string PatreonAccessToken { get; set; } = string.Empty;
+        public virtual string PatreonRefreshToken { get; set; } = string.Empty;
+        public virtual long PatreonTokenExpiryTicks
+        {
+            get => _patreonTokenExpiryTicks;
+            set => _patreonTokenExpiryTicks = value;
+        }
+
         [Ignore]
         public System.DateTime TokenExpiry
         {
@@ -37,10 +46,27 @@ namespace BeatSurgeon
         }
 
         [Ignore]
+        public System.DateTime PatreonTokenExpiry
+        {
+            get => _patreonTokenExpiryTicks > 0
+                ? new System.DateTime(_patreonTokenExpiryTicks, System.DateTimeKind.Utc)
+                : System.DateTime.MinValue;
+            set => _patreonTokenExpiryTicks = value == System.DateTime.MinValue
+                ? 0
+                : value.ToUniversalTime().Ticks;
+        }
+
+        [Ignore]
         public bool HasValidToken =>
             (!string.IsNullOrEmpty(EncryptedAccessToken) ||
              (!string.IsNullOrEmpty(AccessToken) && string.IsNullOrEmpty(EncryptedAccessToken))) &&
             TokenExpiry > System.DateTime.UtcNow.AddMinutes(1);
+
+        [Ignore]
+        public bool HasValidPatreonToken =>
+            (!string.IsNullOrEmpty(PatreonEncryptedAccessToken) ||
+             (!string.IsNullOrEmpty(PatreonAccessToken) && string.IsNullOrEmpty(PatreonEncryptedAccessToken))) &&
+            PatreonTokenExpiry > System.DateTime.UtcNow.AddMinutes(1);
 
         // --- Commands / Toggles --- 
         public virtual bool BitEffectEnabled { get; set; } = false;
@@ -80,28 +106,36 @@ namespace BeatSurgeon
         public virtual float GhostCooldownSeconds { get; set; } = 60f;
         public virtual float BombCooldownSeconds { get; set; } = 1f;
         public virtual float GlitterCooldownSeconds { get; set; } = 10f;
+        public virtual float SmsgCooldownSeconds { get; set; } = 60f;
         public virtual float FasterCooldownSeconds { get; set; } = 60f;
         public virtual float SuperFastCooldownSeconds { get; set; } = 60f;
         public virtual float SlowerCooldownSeconds { get; set; } = 60f;
         public virtual float FlashbangCooldownSeconds { get; set; } = 60f;
 
         public virtual bool SpeedExclusiveEnabled { get; set; } = true;
+        public virtual bool CpCooldownsMigrated { get; set; } = false;
 
         // --- Encrypted auth storage ---
         public virtual string EncryptedAccessToken { get; set; } = string.Empty;
         public virtual string EncryptedRefreshToken { get; set; } = string.Empty;
+        public virtual string PatreonEncryptedAccessToken { get; set; } = string.Empty;
+        public virtual string PatreonEncryptedRefreshToken { get; set; } = string.Empty;
 
         // --- Twitch / backend settings ---
         public virtual string CachedBroadcasterId { get; set; } = string.Empty;
         public virtual string CachedBroadcasterLogin { get; set; } = string.Empty;
+        public virtual string CachedPatreonUserId { get; set; } = string.Empty;
+        public virtual string CachedPatreonUserName { get; set; } = string.Empty;
         public virtual int CachedSupporterTier { get; set; } = 0;
         public virtual bool PreferNativeTwitchBackend { get; set; } = true;
         public virtual bool AllowChatPlexFallback { get; set; } = true;
         public virtual string BackendStatus { get; set; } = string.Empty;
+        public virtual string PatreonBackendStatus { get; set; } = string.Empty;
         public virtual string CachedBotUserId { get; set; } = string.Empty;
         public virtual string CachedBotUserLogin { get; set; } = string.Empty;
         public virtual bool AutoConnectTwitch { get; set; } = true;
         public virtual bool TwitchReauthRequired { get; set; } = false;
+        public virtual bool PatreonReauthRequired { get; set; } = false;
         public virtual bool AllowEveryoneCommands { get; set; } = true;
         public virtual bool AllowVIPCommands { get; set; } = false;
         public virtual bool AllowSubscriberCommands { get; set; } = false;

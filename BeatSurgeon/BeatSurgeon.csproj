@@ -367,6 +367,7 @@
     <Compile Include="Gameplay\BundleRegistry.cs" />
     <Compile Include="Gameplay\SurgeonEffectsBundleService.cs" />
     <Compile Include="Gameplay\OutlineEmitterManager.cs" />
+    <Compile Include="Gameplay\SubBurstNoteManager.cs" />
     <Compile Include="Harmony\BombNotePatch.cs" />
     <Compile Include="Harmony\DisappearingArrowsPatch.cs" />
     <Compile Include="Harmony\EndlessHarmonyPatch.cs" />
@@ -387,9 +388,13 @@
     <Compile Include="Twitch\ChannelPointCommandExecutor.cs" />
     <Compile Include="Twitch\ChannelPointRouter.cs" />
     <Compile Include="Twitch\BitEffectAccessController.cs" />
+    <Compile Include="Twitch\EntitlementTokenValidator.cs" />
     <Compile Include="Twitch\EntitlementsState.cs" />
     <Compile Include="Twitch\FollowEffectAccessController.cs" />
     <Compile Include="Twitch\FollowEventCoordinator.cs" />
+    <Compile Include="Twitch\PatreonApiClient.cs" />
+    <Compile Include="Twitch\PatreonAuthManager.cs" />
+    <Compile Include="Twitch\SubscriberEffectAccessController.cs" />
     <Compile Include="Twitch\JwtEd25519.cs" />
     <Compile Include="Twitch\PremiumVisualFeatureAccessController.cs" />
     <Compile Include="Twitch\TwitchChannelPointsManager.cs" />
@@ -466,6 +471,8 @@
   <ItemGroup>
     <EmbeddedResource Include="Assets\Endless.png" />
     <EmbeddedResource Include="libs\Chaos.NaCl.dll" />
+    <EmbeddedResource Include="Assets\Twitch-Logo.png" />
+    <EmbeddedResource Include="Assets\Patreon-Logo.png" />
     <Content Include="server.js" />
   </ItemGroup>
   <ItemGroup />
