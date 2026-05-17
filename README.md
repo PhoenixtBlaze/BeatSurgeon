@@ -380,8 +380,8 @@ Once verified on either platform:
 
 4. Click the **Patreon** button in the modal.
 6. A browser window will open, login and authorize the mod with your Patreon account to verify your pledge status.
-<img width="742" height="745" alt="image" src="https://github.com/user-attachments/assets/06728bac-230e-4f8c-a795-e0a926334d55" />
-<img width="441" height="752" alt="image" src="https://github.com/user-attachments/assets/1a0c4430-e300-43c7-ba33-01613325b7e5" />
+<img width="500" height="500" alt="image" src="https://github.com/user-attachments/assets/06728bac-230e-4f8c-a795-e0a926334d55" />
+<img width="500" height="500" alt="image" src="https://github.com/user-attachments/assets/1a0c4430-e300-43c7-ba33-01613325b7e5" />
 
 7. Once authorization completes, the modal will close automatically and the **Supporter Tab** will unlock in the settings.
 
