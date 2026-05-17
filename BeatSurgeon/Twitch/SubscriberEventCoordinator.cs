@@ -46,9 +46,7 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
-            string displayName = string.IsNullOrWhiteSpace(notification.UserName)
-                ? (string.IsNullOrWhiteSpace(notification.UserLogin) ? "Someone" : notification.UserLogin)
-                : notification.UserName;
+            string displayName = GetDisplayName(notification);
 
             string tierLabel = TierToLabel(notification.Tier);
 
@@ -60,6 +58,7 @@ namespace BeatSurgeon.Twitch
                     DateTime.UtcNow,
                     tierLabel,
                     notification.CumulativeMonths,
+                    notification.GiftCount,
                     notification.EventSubKind));
                 _log.Debug("Subscription event deferred for " + displayName + " — not in gameplay.");
                 return;
@@ -75,7 +74,7 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
-            string displayText = BuildDisplayText(displayName, tierLabel, notification.CumulativeMonths, notification.EventSubKind);
+            string displayText = BuildDisplayText(tierLabel, notification.CumulativeMonths, notification.GiftCount, notification.EventSubKind);
 
             var ctx = new ChatContext
             {
@@ -87,7 +86,12 @@ namespace BeatSurgeon.Twitch
 
             try
             {
-                await _gameplayManager.ApplySubscriberMessageAsync(ctx, displayText, CancellationToken.None).ConfigureAwait(false);
+                await _gameplayManager.ApplySubscriberMessageAsync(
+                    ctx,
+                    displayText,
+                    CancellationToken.None,
+                    GetTrailCubeCount(notification.CumulativeMonths, notification.EventSubKind))
+                    .ConfigureAwait(false);
                 _log.Info("Applied subscription-triggered subscriber message for user=" + displayName);
             }
             catch (Exception ex)
@@ -96,16 +100,74 @@ namespace BeatSurgeon.Twitch
             }
         }
 
-        internal static string BuildDisplayText(string displayName, string tierLabel, int cumulativeMonths, string eventSubKind)
+        internal static string GetDisplayName(TwitchEventSubClient.SubscriberNotification notification)
+        {
+            if (notification == null)
+            {
+                return "Someone";
+            }
+
+            if (!string.IsNullOrWhiteSpace(notification.UserName))
+            {
+                return notification.UserName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(notification.UserLogin))
+            {
+                return notification.UserLogin;
+            }
+
+            return notification.IsAnonymous ? "Anonymous" : "Someone";
+        }
+
+        internal static string BuildDisplayText(string tierLabel, int cumulativeMonths, int giftCount, string eventSubKind)
+        {
+            string normalizedTierLabel = string.IsNullOrWhiteSpace(tierLabel) ? "Tier 1" : tierLabel;
+
+            switch (eventSubKind)
+            {
+                case "resub":
+                    return string.Equals(normalizedTierLabel, "Prime", StringComparison.OrdinalIgnoreCase)
+                        ? "Resubscribed With Prime" + FormatMonthsClause(cumulativeMonths) + "!"
+                        : "Resubscribed at " + normalizedTierLabel + FormatMonthsClause(cumulativeMonths) + "!";
+                case "giftsub":
+                {
+                    int normalizedGiftCount = giftCount > 0 ? giftCount : 1;
+                    return normalizedGiftCount == 1
+                        ? "Gifted a " + normalizedTierLabel + " Sub!"
+                        : "Gifted " + normalizedGiftCount + " " + normalizedTierLabel + " Subs!";
+                }
+                case "subend":
+                    return string.Equals(normalizedTierLabel, "Prime", StringComparison.OrdinalIgnoreCase)
+                        ? "Prime Subscription Ended."
+                        : normalizedTierLabel + " Subscription Ended.";
+                default:
+                    return string.Equals(normalizedTierLabel, "Prime", StringComparison.OrdinalIgnoreCase)
+                        ? "Subscribed With Prime!"
+                        : "Subscribed at " + normalizedTierLabel + "!";
+            }
+        }
+
+        private static string FormatMonthsClause(int cumulativeMonths)
+        {
+            if (cumulativeMonths <= 0)
+            {
+                return string.Empty;
+            }
+
+            return " for " + cumulativeMonths + " " + (cumulativeMonths == 1 ? "Month" : "Months");
+        }
+
+        internal static int GetTrailCubeCount(int cumulativeMonths, string eventSubKind)
         {
             switch (eventSubKind)
             {
                 case "resub":
-                    return displayName + " resubscribed for " + cumulativeMonths + " months at " + tierLabel + "!";
-                case "giftsub":
-                    return displayName + " gifted a sub at " + tierLabel + "!";
+                    return 5 * Math.Max(1, cumulativeMonths);
+                case "sub":
+                    return 5;
                 default:
-                    return displayName + " just subscribed at " + tierLabel + "!";
+                    return 0;
             }
         }
 

@@ -270,6 +270,8 @@ namespace BeatSurgeon.Twitch
                     return config.BitEffectManualDisabledBroadcasterId ?? string.Empty;
                 case PremiumVisualFeature.FollowEffect:
                     return config.FollowEffectManualDisabledBroadcasterId ?? string.Empty;
+                case PremiumVisualFeature.SubscriberEffect:
+                    return config.SubEffectManualDisabledBroadcasterId ?? string.Empty;
                 default:
                     return string.Empty;
             }
@@ -285,7 +287,9 @@ namespace BeatSurgeon.Twitch
                 case PremiumVisualFeature.FollowEffect:
                     config.FollowEffectManualDisabledBroadcasterId = broadcasterId ?? string.Empty;
                     break;
-                // SubscriberEffect has no per-broadcaster manual-disable storage; subscriptions are account-wide
+                case PremiumVisualFeature.SubscriberEffect:
+                    config.SubEffectManualDisabledBroadcasterId = broadcasterId ?? string.Empty;
+                    break;
             }
         }
     }

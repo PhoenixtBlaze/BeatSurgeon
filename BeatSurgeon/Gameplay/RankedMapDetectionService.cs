@@ -12,7 +12,7 @@ using SongCore;
 namespace BeatSurgeon.Gameplay
 {
     /// <summary>
-    /// Queries BeatLeader and ScoreSaber APIs to detect whether the currently-selected
+    /// Queries BeatLeader, ScoreSaber, and AccSaber Reloaded APIs to detect whether the currently-selected
     /// beatmap difficulty is ranked, and exposes a gate flag used by the command and
     /// channel-point subsystems to block all effects on ranked play.
     /// </summary>
@@ -30,15 +30,19 @@ namespace BeatSurgeon.Gameplay
         private static readonly Regex _ssRankedRegex =
             new Regex("\"ranked\"\\s*:\\s*true", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        // Persistent cross-session cache: lowercase hash → is ranked
+        // In-memory cache: hash+diff+mode+provider-toggle state → is ranked
         private readonly ConcurrentDictionary<string, bool> _cache =
             new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
 
         private volatile bool _isChecking;
         private volatile bool _isRanked;
         private bool _isInGameplay;
+        private volatile bool _suppressCurrentGameplayRankedNotification;
+        private volatile bool _suppressNextGameplayRankedNotification;
         private string _lastCheckedHash;
         private CancellationTokenSource _checkCts;
+        private BeatmapKey _currentBeatmapKey;
+        private bool _hasCurrentBeatmapKey;
 
         private static RankedMapDetectionService _instance;
 
@@ -56,11 +60,15 @@ namespace BeatSurgeon.Gameplay
         /// Always returns false when DisableOnRanked is off in config.
         /// </summary>
         internal bool IsCurrentMapRankedOrChecking =>
-            PluginConfig.Instance?.DisableOnRanked == true && (_isRanked || _isChecking);
+            PluginConfig.Instance?.DisableOnRanked == true && HasEnabledRankedProvider() && (_isRanked || _isChecking);
 
         /// <summary>Called from the menu Harmony patch (HandleDidChangeDifficultyBeatmap) for early pre-check.</summary>
         internal void StartPreCheck(BeatmapKey beatmapKey)
         {
+            _suppressNextGameplayRankedNotification = false;
+            _currentBeatmapKey = beatmapKey;
+            _hasCurrentBeatmapKey = true;
+
             if (PluginConfig.Instance?.DisableOnRanked != true) return;
             BeginCheck(beatmapKey);
         }
@@ -70,7 +78,40 @@ namespace BeatSurgeon.Gameplay
         {
             // Always call regardless of config so state is correct if the toggle is flipped mid-session.
             _isInGameplay = true;
+            _currentBeatmapKey = beatmapKey;
+            _hasCurrentBeatmapKey = true;
+            _suppressCurrentGameplayRankedNotification = _suppressNextGameplayRankedNotification;
+            _suppressNextGameplayRankedNotification = false;
             BeginCheck(beatmapKey);
+        }
+
+        /// <summary>Called when ranked auto-disable settings change so the current map gate can be recomputed immediately.</summary>
+        internal void OnSettingsChanged()
+        {
+            if (PluginConfig.Instance?.DisableOnRanked != true || !HasEnabledRankedProvider())
+            {
+                _log.Info("RankedMapDetectionService: ranked provider toggles disabled - clearing current gate state.");
+                _checkCts?.Cancel();
+                _isChecking = false;
+                _isRanked = false;
+                _lastCheckedHash = null;
+                return;
+            }
+
+            if (!_hasCurrentBeatmapKey)
+            {
+                _log.Debug("RankedMapDetectionService: settings changed but no current beatmap key is available yet.");
+                return;
+            }
+
+            _log.Info("RankedMapDetectionService: ranked settings changed - refreshing current map gate state.");
+            BeginCheck(_currentBeatmapKey);
+        }
+
+        /// <summary>Called when Beat Saber restarts the current map via scene replacement.</summary>
+        internal void MarkRestartPending()
+        {
+            _suppressNextGameplayRankedNotification = true;
         }
 
         /// <summary>Call when leaving a GameCore scene to reset per-song state.</summary>
@@ -81,7 +122,9 @@ namespace BeatSurgeon.Gameplay
             _isChecking = false;
             _isRanked = false;
             _isInGameplay = false;
+            _suppressCurrentGameplayRankedNotification = false;
             _lastCheckedHash = null;
+            _hasCurrentBeatmapKey = false;
         }
 
         public void Dispose()
@@ -94,6 +137,16 @@ namespace BeatSurgeon.Gameplay
 
         private void BeginCheck(BeatmapKey beatmapKey)
         {
+            if (PluginConfig.Instance?.DisableOnRanked != true || !HasEnabledRankedProvider())
+            {
+                _log.Debug("Ranked check skipped because ranked auto-disable or all provider toggles are disabled.");
+                _checkCts?.Cancel();
+                _isRanked = false;
+                _isChecking = false;
+                _lastCheckedHash = null;
+                return;
+            }
+
             string levelId = beatmapKey.levelId ?? string.Empty;
 
             // OST / DLC levels never appear on ranked leaderboards — skip the API call.
@@ -120,7 +173,7 @@ namespace BeatSurgeon.Gameplay
             // Compute difficulty/mode first so the cache key is diff-aware.
             int diffNum = DifficultyToApiNumber(beatmapKey.difficulty);
             string modeStr = beatmapKey.beatmapCharacteristic?.serializedName ?? "Standard";
-            string cacheKey = hash + "|" + diffNum + "|" + modeStr;
+            string cacheKey = hash + "|" + diffNum + "|" + modeStr + "|" + BuildProviderCacheKeySuffix();
 
             // Cache hit → use immediately without another network round-trip.
             if (_cache.TryGetValue(cacheKey, out bool cached))
@@ -169,7 +222,7 @@ namespace BeatSurgeon.Gameplay
                     ? CheckScoreSaberAsync(hash, diffNum, modeStr, ct)
                     : Task.FromResult(false);
                 Task<bool> accSaberTask = (PluginConfig.Instance?.DisableOnRankedAccSaber == true)
-                    ? CheckAccSaberAsync(hash, diffNum, ct)
+                    ? CheckAccSaberAsync(hash, diffNum, modeStr, ct)
                     : Task.FromResult(false);
 
                 await Task.WhenAll(blTask, ssTask, accSaberTask).ConfigureAwait(false);
@@ -196,22 +249,20 @@ namespace BeatSurgeon.Gameplay
             if (ranked) NotifyIfRanked();
         }
 
-        private static Task<bool> CheckAccSaberAsync(string hash, int diffNum, CancellationToken ct)
+        private static async Task<bool> CheckAccSaberAsync(string hash, int diffNum, string modeStr, CancellationToken ct)
         {
-            // IsRanked reads from a volatile in-memory set — no network I/O needed.
-            // AccSaber hash is uppercase; RankedMapDetectionService works with lowercase hash.
-            if (ct.IsCancellationRequested) return Task.FromResult(false);
+            if (ct.IsCancellationRequested) return false;
 
             var client = Integrations.AccSaberClient.Instance;
-            if (client == null) return Task.FromResult(false);
+            if (client == null) return false;
 
             string diffLabel = DifficultyNumberToBeatLeaderName(diffNum); // e.g. "ExpertPlus"
-            bool ranked = client.IsRanked(hash, diffLabel);
+            bool ranked = await client.IsRankedAsync(hash, diffLabel, modeStr, ct).ConfigureAwait(false);
 
             if (ranked)
                 _log.Debug("[BeatSurgeon][AccSaber] Map is AccSaber ranked (" + diffLabel + ") — sabotage suppressed.");
 
-            return Task.FromResult(ranked);
+            return ranked;
         }
 
         private static async Task<bool> CheckBeatLeaderAsync(string hash, int diffNum, string modeStr, CancellationToken ct)
@@ -305,6 +356,12 @@ namespace BeatSurgeon.Gameplay
             try
             {
                 if (!_instance?._isInGameplay == true) return;
+                if (_instance?._suppressCurrentGameplayRankedNotification == true)
+                {
+                    _log.Debug("Suppressing ranked-map notification for restarted gameplay.");
+                    return;
+                }
+
                 if (PluginConfig.Instance?.NotifyOnRankedDisable == true)
                 {
                     ChatManager.GetInstance()?.SendMutedChatMessage(
@@ -338,6 +395,27 @@ namespace BeatSurgeon.Gameplay
                 case 9: return "ExpertPlus";
                 default: return "Easy";
             }
+        }
+
+        private static bool HasEnabledRankedProvider()
+        {
+            PluginConfig config = PluginConfig.Instance;
+            return config?.DisableOnRankedBL == true
+                || config?.DisableOnRankedSS == true
+                || config?.DisableOnRankedAccSaber == true;
+        }
+
+        private static string BuildProviderCacheKeySuffix()
+        {
+            PluginConfig config = PluginConfig.Instance;
+            return "bl=" + BoolToCacheFlag(config?.DisableOnRankedBL == true)
+                + "|ss=" + BoolToCacheFlag(config?.DisableOnRankedSS == true)
+                + "|acc=" + BoolToCacheFlag(config?.DisableOnRankedAccSaber == true);
+        }
+
+        private static int BoolToCacheFlag(bool value)
+        {
+            return value ? 1 : 0;
         }
     }
 }

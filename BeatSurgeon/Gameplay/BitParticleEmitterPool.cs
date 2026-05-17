@@ -12,7 +12,9 @@ namespace BeatSurgeon.Gameplay
     {
         private static readonly LogUtil _log = LogUtil.GetLogger("BitParticleEmitterPool");
         private static readonly int[] SupportedWarmupDenominations = { 10000, 5000, 1000, 100, 1 };
+        private static readonly Vector3 WarmActivationOffset = new Vector3(0f, -2048f, 0f);
         private const int MaxPoolPerDenomination = 16;
+        internal const int RecommendedWarmPoolSizePerDenomination = 12;
         private const float MaxReturnTravelDistance = 12f;
         private const float ReturnMotionUnitsPerSecond = 5f;
         private const float MinReturnMotionDuration = 0.55f;
@@ -70,6 +72,34 @@ namespace BeatSurgeon.Gameplay
 
         internal static IReadOnlyList<int> WarmupDenominations => SupportedWarmupDenominations;
 
+        internal bool EnsureWarmPoolSize(int denomination, int desiredPoolSize)
+        {
+            desiredPoolSize = Mathf.Clamp(desiredPoolSize, 0, MaxPoolPerDenomination);
+            if (desiredPoolSize <= 0)
+            {
+                return true;
+            }
+
+            if (!TryEnsureTemplateRoot(denomination, out GameObject templateRoot))
+            {
+                return false;
+            }
+
+            Queue<GameObject> pool = GetPool(denomination);
+            while (pool.Count < desiredPoolSize)
+            {
+                GameObject emitterRoot = CreatePreparedInstance(templateRoot, denomination, warmActivate: true);
+                if (emitterRoot == null)
+                {
+                    return false;
+                }
+
+                pool.Enqueue(emitterRoot);
+            }
+
+            return true;
+        }
+
         internal bool PrewarmDenomination(int denomination)
         {
             if (!TryEnsureTemplateRoot(denomination, out GameObject templateRoot))
@@ -77,13 +107,12 @@ namespace BeatSurgeon.Gameplay
                 return false;
             }
 
-            GameObject emitterRoot = GetOrCreateInstance(denomination, templateRoot);
+            GameObject emitterRoot = CreatePreparedInstance(templateRoot, denomination, warmActivate: true);
             if (emitterRoot == null)
             {
                 return false;
             }
 
-            PrepareEmitterInstance(emitterRoot);
             emitterRoot.transform.SetParent(null, false);
             emitterRoot.SetActive(false);
 
@@ -254,10 +283,7 @@ namespace BeatSurgeon.Gameplay
                 }
             }
 
-            var instance = Instantiate(templateRoot);
-            instance.SetActive(false);
-            PrepareEmitterInstance(instance);
-            return instance;
+            return CreatePreparedInstance(templateRoot, denomination, warmActivate: false);
         }
 
         private Queue<GameObject> GetPool(int denomination)
@@ -269,6 +295,92 @@ namespace BeatSurgeon.Gameplay
             }
 
             return pool;
+        }
+
+        private GameObject CreatePreparedInstance(GameObject templateRoot, int denomination, bool warmActivate)
+        {
+            if (templateRoot == null)
+            {
+                return null;
+            }
+
+            GameObject instance = Instantiate(templateRoot);
+            instance.SetActive(false);
+            PrepareEmitterInstance(instance);
+
+            if (warmActivate)
+            {
+                WarmActivateInstance(instance, denomination);
+            }
+
+            return instance;
+        }
+
+        private void WarmActivateInstance(GameObject emitterRoot, int denomination)
+        {
+            if (emitterRoot == null)
+            {
+                return;
+            }
+
+            try
+            {
+                ResetBurstState(emitterRoot);
+                emitterRoot.transform.SetParent(null, false);
+                emitterRoot.transform.rotation = Quaternion.identity;
+                emitterRoot.transform.localScale = Vector3.one;
+                Vector3 warmPosition = GetWarmActivationPosition();
+                Vector3 spawnAnchorOffset = ResolveEmissionAnchorLocalOffset(emitterRoot, denomination);
+                emitterRoot.transform.position = warmPosition - spawnAnchorOffset;
+                SyncToGameplayVfxLayer(emitterRoot);
+                ConfigureBurstMotion(emitterRoot, warmPosition, warmPosition, EstimateEmitterLifetime(emitterRoot));
+                emitterRoot.SetActive(true);
+
+                if (TriggerBitBurst(emitterRoot, denomination))
+                {
+                    SimulateWarmFrame(emitterRoot);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("BitParticleEmitterPool: warm activation failed for denomination=" + denomination + ": " + ex.Message);
+            }
+            finally
+            {
+                ResetBurstState(emitterRoot);
+                emitterRoot.SetActive(false);
+                emitterRoot.transform.SetParent(null, false);
+            }
+        }
+
+        private static void SimulateWarmFrame(GameObject emitterRoot)
+        {
+            if (emitterRoot == null)
+            {
+                return;
+            }
+
+            foreach (ParticleSystem particleSystem in emitterRoot.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (particleSystem == null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    particleSystem.Simulate(0.05f, false, false, true);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private Vector3 GetWarmActivationPosition()
+        {
+            Transform anchor = GetGameplayVfxAnchor();
+            return anchor != null ? anchor.position + WarmActivationOffset : WarmActivationOffset;
         }
 
         private void PrepareEmitterInstance(GameObject emitterRoot)
@@ -330,7 +442,6 @@ namespace BeatSurgeon.Gameplay
             }
 
             BitBurstProfile profile = GetBurstProfile(denomination);
-            ParticleSystem rootBurst = ResolveRootBurstParticleSystem(emitterRoot);
             ParticleSystem primary = FindParticleSystemByName(emitterRoot.transform, profile.PrimaryName);
             if (primary == null)
             {
@@ -338,59 +449,24 @@ namespace BeatSurgeon.Gameplay
                 return false;
             }
 
-            if (rootBurst != null)
+            // Deactivate all denomination PSes except the selected one so that
+            // Play(withChildren=true) does not activate all bit textures simultaneously.
+            DisableNonSelectedDenominations(emitterRoot.transform, profile.PrimaryName);
+
+            // Glitter cut should only emit the selected denomination particle branch.
+            // Do not play BitsHyperCubeBurst, SubHyperCubeBurst, or any special branch.
             {
-                ConfigureRootBurstParticleSystem(rootBurst, profile);
+                var primaryMain = primary.main;
+                primaryMain.loop = false;
+                primaryMain.playOnAwake = false;
+                primaryMain.simulationSpace = ParticleSystemSimulationSpace.Local;
+                primary.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                primary.gameObject.SetActive(true);
             }
 
-            Transform specialRoot = null;
-            ParticleSystem special = null;
-            if (!string.IsNullOrWhiteSpace(profile.SpecialName))
-            {
-                specialRoot = FindDescendantByNormalizedName(emitterRoot.transform, profile.SpecialName)
-                    ?? FindDescendantByHintTokens(emitterRoot.transform, denomination.ToString(), "special");
-                special = specialRoot != null
-                    ? specialRoot.GetComponent<ParticleSystem>() ?? specialRoot.GetComponentInChildren<ParticleSystem>(true)
-                    : null;
+            primary.Emit(1);
 
-                if (special == null)
-                {
-                    LogMissingSpecialBranchOnce(emitterRoot, denomination, profile.SpecialName);
-                }
-            }
-
-            TryEmitParticle(primary, 1);
-
-            if (specialRoot != null && special != null)
-            {
-                if (profile.SpecialUsesPlay)
-                {
-                    specialRoot.gameObject.SetActive(true);
-                    foreach (var childParticle in specialRoot.GetComponentsInChildren<ParticleSystem>(true))
-                    {
-                        try
-                        {
-                            ConfigureAuxiliaryBurstParticleSystem(childParticle, profile);
-                            childParticle.gameObject.SetActive(true);
-                            childParticle.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                            childParticle.Play(true);
-                        }
-                        catch { }
-                    }
-                }
-                else if (profile.SpecialEmitCount > 0)
-                {
-                    ConfigureAuxiliaryBurstParticleSystem(special, profile);
-                    TryEmitParticle(special, profile.SpecialEmitCount);
-                }
-            }
-
-            if (rootBurst != null)
-            {
-                TryEmitParticle(rootBurst, profile.BurstParticles);
-            }
-
-            LogBurstMotionSnapshot(emitterRoot, denomination, primary, profile.SpecialName);
+            LogBurstMotionSnapshot(emitterRoot, denomination, primary, string.Empty);
 
             return true;
         }
@@ -461,6 +537,28 @@ namespace BeatSurgeon.Gameplay
             SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.ThousandBitParticleSpecialName, false);
             SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleSpecialName, false);
             SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.TenThousandBitParticleSpecialName, false);
+        }
+
+        private static void DisableNonSelectedDenominations(Transform emitterRoot, string primaryName)
+        {
+            if (emitterRoot == null || string.IsNullOrWhiteSpace(primaryName))
+                return;
+            string normalizedPrimary = NormalizeSelectionToken(primaryName);
+            string[] allDenominationNames =
+            {
+                BundleRegistry.TwitchControllerRefs.OneBitParticleName,
+                BundleRegistry.TwitchControllerRefs.HundredBitParticleName,
+                BundleRegistry.TwitchControllerRefs.ThousandBitParticleName,
+                BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleName,
+                BundleRegistry.TwitchControllerRefs.TenThousandBitParticleName,
+            };
+            foreach (string name in allDenominationNames)
+            {
+                Transform child = FindDescendantByNormalizedName(emitterRoot, name);
+                if (child == null) continue;
+                bool isSelected = NormalizeSelectionToken(name) == normalizedPrimary;
+                child.gameObject.SetActive(isSelected);
+            }
         }
 
         private static void DisableRejectedBranches(GameObject root)

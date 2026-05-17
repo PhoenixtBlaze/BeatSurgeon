@@ -1,6 +1,7 @@
 using BeatSaberMarkupLanguage;
 using BeatSaberMarkupLanguage.Attributes;
 using BeatSaberMarkupLanguage.Components;
+using BeatSaberMarkupLanguage.Components.Settings;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSurgeon.Chat;
 using BeatSurgeon.Twitch;
@@ -8,6 +9,7 @@ using BeatSurgeon.UI.Settings;
 using HMUI;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -342,6 +344,7 @@ namespace BeatSurgeon.UI.Controllers
             {
                 if (Plugin.Settings != null)
                     Plugin.Settings.DisableOnRanked = value;
+                Gameplay.RankedMapDetectionService.Instance.OnSettingsChanged();
                 NotifyPropertyChanged(nameof(RankedAutoDisable));
                 LogUtils.Debug(() => $"BeatSurgeon: Auto-disable on ranked = {value}");
             }
@@ -355,6 +358,7 @@ namespace BeatSurgeon.UI.Controllers
             {
                 if (Plugin.Settings != null)
                     Plugin.Settings.DisableOnRankedSS = value;
+                Gameplay.RankedMapDetectionService.Instance.OnSettingsChanged();
                 NotifyPropertyChanged(nameof(RankedSS));
             }
         }
@@ -367,7 +371,40 @@ namespace BeatSurgeon.UI.Controllers
             {
                 if (Plugin.Settings != null)
                     Plugin.Settings.DisableOnRankedBL = value;
+                Gameplay.RankedMapDetectionService.Instance.OnSettingsChanged();
                 NotifyPropertyChanged(nameof(RankedBL));
+            }
+        }
+
+        [UIValue("AccSaberAutoDisable")]
+        public bool RankedAccSaber
+        {
+            get => Plugin.Settings?.DisableOnRankedAccSaber ?? true;
+            set
+            {
+                if (Plugin.Settings != null)
+                    Plugin.Settings.DisableOnRankedAccSaber = value;
+                Gameplay.RankedMapDetectionService.Instance.OnSettingsChanged();
+                NotifyPropertyChanged(nameof(RankedAccSaber));
+            }
+        }
+
+        // === Bomb Font Dropdown ===
+
+        private List<object> _bombFontOptionsList = new List<object> { Gameplay.FontBundleLoader.DefaultSelectionValue };
+
+        [UIValue("bomb_font_options")]
+        public List<object> BombFontOptions => _bombFontOptionsList;
+
+        [UIValue("bomb_font_selected")]
+        public string BombFontSelected
+        {
+            get => Gameplay.FontBundleLoader.GetSelectedBombFontOption();
+            set
+            {
+                Gameplay.FontBundleLoader.SetSelectedBombFontOption(value);
+                NotifyPropertyChanged(nameof(BombFontSelected));
+                UpdateFontPreview();
             }
         }
 
@@ -409,6 +446,12 @@ namespace BeatSurgeon.UI.Controllers
 
         private Image flashbangButtonImage;
 
+        [UIComponent("bomb-font-dropdown")]
+        private DropDownListSetting _bombFontDropdown;
+
+        [UIComponent("bomb-font-preview")]
+        private TextMeshProUGUI _bombFontPreviewText;
+
 
 
         // === UI components from BSML ===
@@ -428,6 +471,7 @@ namespace BeatSurgeon.UI.Controllers
             ActiveInstance = this;
 
             RefreshSupporterUiState();
+            _ = RefreshFontDropdownAsync();
 
             // Subscribe to auth events for reauth notification display
             if (firstActivation)
@@ -643,6 +687,8 @@ namespace BeatSurgeon.UI.Controllers
             NotifyPropertyChanged(nameof(SupportButtonHoverHint));
             UpdateSupportUI();
             NotifyPropertyChanged(nameof(BitEffectEnabled));
+            NotifyPropertyChanged(nameof(SubEffectsEnabled));
+            NotifyPropertyChanged(nameof(SubEffectsToggleInteractable));
             NotifyPropertyChanged(nameof(FollowEffectsEnabled));
             NotifyPropertyChanged(nameof(FollowEffectsToggleInteractable));
             NotifyPropertyChanged(nameof(SubscribeButtonText));
@@ -661,6 +707,41 @@ namespace BeatSurgeon.UI.Controllers
 
             if (flashbangButtonImage != null)
                 flashbangButtonImage.color = FlashbangEnabled ? onColor : offColor;
+        }
+
+        private void UpdateFontPreview()
+        {
+            if (_bombFontPreviewText == null) return;
+            var font = Gameplay.FontBundleLoader.BombUsernameFont;
+            if (font != null)
+            {
+                _bombFontPreviewText.font = font;
+                _bombFontPreviewText.fontMaterial = font.material;
+                _bombFontPreviewText.SetAllDirty();
+                _bombFontPreviewText.ForceMeshUpdate(true);
+            }
+        }
+
+        private async Task RefreshFontDropdownAsync()
+        {
+            await Gameplay.FontBundleLoader.EnsureLoadedAsync();
+            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(() =>
+            {
+                var options = Gameplay.FontBundleLoader.GetBombFontOptions();
+                _bombFontOptionsList.Clear();
+                foreach (string opt in options)
+                    _bombFontOptionsList.Add(opt);
+
+                if (_bombFontDropdown != null)
+                {
+                    _bombFontDropdown.Values = _bombFontOptionsList;
+                    _bombFontDropdown.UpdateChoices();
+                    _bombFontDropdown.Value = Gameplay.FontBundleLoader.GetSelectedBombFontOption();
+                }
+
+                NotifyPropertyChanged(nameof(BombFontSelected));
+                UpdateFontPreview();
+            });
         }
 
         [UIAction("OnFlashbangButtonClicked")]
@@ -842,10 +923,16 @@ namespace BeatSurgeon.UI.Controllers
             set => PluginConfig.Instance.SubEffectsEnabled = value;
         }
 
+        [UIValue("subEffectsToggleInteractable")]
+        public bool SubEffectsToggleInteractable => SubscriberEffectAccessController.IsToggleInteractable;
+
         [UIAction("OnSubEffectsChanged")]
         private void OnSubEffectsChanged(bool value)
         {
-            PluginConfig.Instance.SubEffectsEnabled = value;
+            SubscriberEffectAccessController.ApplyManualToggle(value);
+            NotifyPropertyChanged(nameof(SubEffectsEnabled));
+            NotifyPropertyChanged(nameof(SubEffectsToggleInteractable));
+            _ = TwitchEventSubClient.Instance.RefreshSubscriptionsAsync();
         }
 
         [UIValue("FollowEffectsEnabled")]

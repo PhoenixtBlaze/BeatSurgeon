@@ -92,7 +92,16 @@ namespace BeatSurgeon.HarmonyPatches
                 ? TryGetNoteColor(visuals, noteData.colorType)
                 : Color.magenta;
 
-            CacheAndDisableNoteCube(gameNote, out var cubeMr, out var circleMr, out var cubeWasEnabled, out var circleWasEnabled);
+            CacheAndDisableNoteCube(
+                gameNote,
+                out var cubeMr,
+                out var circleMr,
+                out var arrowMr,
+                out var arrowGlowMr,
+                out var cubeWasEnabled,
+                out var circleWasEnabled,
+                out var arrowWasEnabled,
+                out var arrowGlowWasEnabled);
 
             // Rent pooled bomb visual and cache the exact instance
             int noteLayer = gameNote.gameObject.layer;
@@ -115,8 +124,12 @@ namespace BeatSurgeon.HarmonyPatches
                 visualInst,
                 cubeMr,
                 circleMr,
+                arrowMr,
+                arrowGlowMr,
                 cubeWasEnabled,
-                circleWasEnabled
+                circleWasEnabled,
+                arrowWasEnabled,
+                arrowGlowWasEnabled
             );
 
             return true;
@@ -187,13 +200,21 @@ namespace BeatSurgeon.HarmonyPatches
             GameNoteController gameNote,
             out MeshRenderer cubeMr,
             out MeshRenderer circleMr,
+            out MeshRenderer arrowMr,
+            out MeshRenderer arrowGlowMr,
             out bool cubeWasEnabled,
-            out bool circleWasEnabled)
+            out bool circleWasEnabled,
+            out bool arrowWasEnabled,
+            out bool arrowGlowWasEnabled)
         {
             cubeMr = null;
             circleMr = null;
+            arrowMr = null;
+            arrowGlowMr = null;
             cubeWasEnabled = false;
             circleWasEnabled = false;
+            arrowWasEnabled = false;
+            arrowGlowWasEnabled = false;
 
             var noteCube = gameNote.GetComponentsInChildren<Transform>(true)
                 .FirstOrDefault(t => t.name == "NoteCube");
@@ -224,6 +245,32 @@ namespace BeatSurgeon.HarmonyPatches
             {
                 circleWasEnabled = circleMr.enabled;
                 circleMr.enabled = false;
+            }
+
+            var arrowT = gameNote.GetComponentsInChildren<Transform>(true)
+                .FirstOrDefault(t => t.name == "NoteArrow");
+
+            arrowMr = arrowT != null
+                ? (arrowT.GetComponent<MeshRenderer>() ?? arrowT.GetComponentInChildren<MeshRenderer>(true))
+                : null;
+
+            if (arrowMr != null)
+            {
+                arrowWasEnabled = arrowMr.enabled;
+                arrowMr.enabled = false;
+            }
+
+            var arrowGlowT = gameNote.GetComponentsInChildren<Transform>(true)
+                .FirstOrDefault(t => t.name == "NoteArrowGlow");
+
+            arrowGlowMr = arrowGlowT != null
+                ? (arrowGlowT.GetComponent<MeshRenderer>() ?? arrowGlowT.GetComponentInChildren<MeshRenderer>(true))
+                : null;
+
+            if (arrowGlowMr != null)
+            {
+                arrowGlowWasEnabled = arrowGlowMr.enabled;
+                arrowGlowMr.enabled = false;
             }
         }
 
@@ -321,7 +368,7 @@ namespace BeatSurgeon.HarmonyPatches
 
                 SpawnFlyingText(displayText, cutPoint);
 
-                BombManager.Instance.ClearBombVisuals();
+                BombManager.Instance.ClearBombVisuals(restoreOriginalRenderers: false);
             }
             catch (Exception ex)
             {
@@ -478,7 +525,9 @@ namespace BeatSurgeon.HarmonyPatches
 
         private static IEnumerator AnimateFlyingText(GameObject textGo, Vector3 startPos)
         {
-            float duration = 2.0f;
+            float duration = EntitlementsState.HasVisualsAccess
+                ? Mathf.Clamp(Plugin.Settings?.FlyingTextTravelSeconds ?? 4.0f, 0.5f, 20f)
+                : 4.0f;
             float elapsed = 0f;
 
             Vector3 initialPosition = startPos + Vector3.up * 0.5f;

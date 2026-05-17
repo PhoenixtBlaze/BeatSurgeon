@@ -68,11 +68,13 @@ namespace BeatSurgeon.Gameplay
             public const string FollowerLinePath = "NewFollower/FollowerListCanvas/Line";
             public const string FollowerStartPath = "NewFollower/FollowerListCanvas/Start";
             public const string FollowerEndPath = "NewFollower/FollowerListCanvas/End";
-            public const string SubscriberCanvasRootName = "SubscriberListCanvas";
-            public const string SubscriberCanvasRootPath = "NewSubscriber/SubscriberListCanvas";
+            public const string SubscriberCanvasRootName = "SubscriberCanvas";
+            public const string SubscriberCanvasRootPath = "Subscriber/SubscriberCanvas";
             public const string SubscriberLineName = "Line";
             public const string SubscriberStartName = "Start";
             public const string SubscriberEndName = "End";
+            public const string SubscriberUserNameTextName = "UserName";
+            public const string SubscriberMessageTextName = "Message";
             public const string OneBitParticleName = "1BitParticle";
             public const string OneBitParticleSpecialName = "1BitParticleSpecial";
             public const string HundredBitParticleName = "100BitParticle";

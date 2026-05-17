@@ -38,4 +38,31 @@ namespace BeatSurgeon.HarmonyPatches
             }
         }
     }
+
+    /// <summary>
+    /// Beat Saber distinguishes a true level start from a restart at the transition helper.
+    /// Carry that signal forward so RankedMapDetectionService can suppress restart-only chat.
+    /// </summary>
+    [HarmonyPatch(typeof(MenuTransitionsHelper), "HandleMainGameSceneDidFinish")]
+    internal static class MenuTransitionsHelperRestartPatch
+    {
+        private static readonly LogUtil _log = LogUtil.GetLogger("MenuTransitionsHelperRestartPatch");
+
+        static void Prefix(StandardLevelScenesTransitionSetupDataSO standardLevelScenesTransitionSetupData, LevelCompletionResults levelCompletionResults)
+        {
+            try
+            {
+                if (levelCompletionResults?.levelEndAction != LevelCompletionResults.LevelEndAction.Restart)
+                {
+                    return;
+                }
+
+                RankedMapDetectionService.Instance.MarkRestartPending();
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "Prefix");
+            }
+        }
+    }
 }

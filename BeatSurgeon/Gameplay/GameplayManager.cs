@@ -285,6 +285,7 @@ namespace BeatSurgeon.Gameplay
         private IEnumerator WarmGlitterEffectsCoroutine()
         {
             _log.Debug("Scheduling glitter effects warmup for current gameplay scene.");
+            const int MaxFontWarmupWaitFrames = 60;
 
             FontBundleLoader.StartPreload();
             BombCutPatch.PrewarmFlyingTextResources();
@@ -298,8 +299,7 @@ namespace BeatSurgeon.Gameplay
                 yield break;
             }
 
-            bool warmupSucceeded = SurgeonEffectsBundleService.GetFollowerCanvasTemplate() != null;
-            yield return null;
+            bool warmupSucceeded = true;
 
             if (IsInMap)
             {
@@ -309,7 +309,73 @@ namespace BeatSurgeon.Gameplay
             yield return null;
 
             IReadOnlyList<int> denominations = BitParticleEmitterPool.WarmupDenominations;
-            for (int index = 0; index < denominations.Count; index++)
+            int targetBitPoolSize = BitParticleEmitterPool.RecommendedWarmPoolSizePerDenomination;
+            int targetGlitterPoolSize = GlitterExplosionPool.RecommendedWarmPoolSizePerDenomination;
+            int maxTargetPoolSize = Mathf.Max(targetBitPoolSize, targetGlitterPoolSize);
+            for (int targetCount = 1; targetCount <= maxTargetPoolSize; targetCount++)
+            {
+                for (int index = 0; index < denominations.Count; index++)
+                {
+                    if (!IsInMap)
+                    {
+                        _glitterWarmupRoutine = null;
+                        yield break;
+                    }
+
+                    int denomination = denominations[index];
+                    if (targetCount <= targetBitPoolSize)
+                    {
+                        warmupSucceeded &= BitParticleEmitterPool.Instance.EnsureWarmPoolSize(denomination, targetCount);
+                    }
+
+                    if (targetCount <= targetGlitterPoolSize)
+                    {
+                        warmupSucceeded &= GlitterExplosionPool.Instance.EnsureWarmPoolSize(denomination, targetCount);
+                    }
+
+                    yield return null;
+                }
+            }
+
+            if (IsInMap)
+            {
+                warmupSucceeded &= FireworksExplosionPool.Instance.Prewarm();
+            }
+
+            int fontWarmupFrames = 0;
+            while (IsInMap && !FontBundleLoader.IsBombFontReady && fontWarmupFrames < MaxFontWarmupWaitFrames)
+            {
+                fontWarmupFrames++;
+                yield return null;
+            }
+
+            if (!IsInMap)
+            {
+                _glitterWarmupRoutine = null;
+                yield break;
+            }
+
+            if (IsInMap)
+            {
+                warmupSucceeded &= FollowerMessageManager.Instance.Prewarm();
+            }
+
+            yield return null;
+
+            if (!IsInMap)
+            {
+                _glitterWarmupRoutine = null;
+                yield break;
+            }
+
+            if (IsInMap)
+            {
+                warmupSucceeded &= SubscriberMessageManager.Instance.Prewarm();
+            }
+
+            yield return null;
+
+            for (int targetCount = 1; targetCount <= SubscriberTrailCubeManager.RecommendedWarmPoolSize; targetCount++)
             {
                 if (!IsInMap)
                 {
@@ -317,13 +383,8 @@ namespace BeatSurgeon.Gameplay
                     yield break;
                 }
 
-                warmupSucceeded &= BitParticleEmitterPool.Instance.PrewarmDenomination(denominations[index]);
+                warmupSucceeded &= SubscriberTrailCubeManager.Instance.EnsureWarmPoolSize(targetCount);
                 yield return null;
-            }
-
-            if (IsInMap)
-            {
-                warmupSucceeded &= FireworksExplosionPool.Instance.Prewarm();
             }
 
             _glitterWarmupCompletedForScene = warmupSucceeded;
@@ -393,6 +454,26 @@ namespace BeatSurgeon.Gameplay
                         _log.Info("[BeatSurgeon] Deferred Bits effect fired for " + entry.DisplayName + " bits=" + entry.BitAmount);
                         break;
                     }
+                    case EventKind.Subscription:
+                    {
+                        await SubscriberEffectAccessController.EnsureAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
+                        string displayText = SubscriberEventCoordinator.BuildDisplayText(entry.TierLabel, entry.CumulativeMonths, entry.GiftCount, entry.EventSubKind);
+                        var ctx = new ChatContext
+                        {
+                            SenderName = entry.DisplayName,
+                            MessageText = "!smsg " + displayText,
+                            Source = ChatSource.NativeTwitch,
+                            TriggerSource = TriggerSource.Chat
+                        };
+                        await ApplySubscriberMessageAsync(
+                            ctx,
+                            displayText,
+                            CancellationToken.None,
+                            SubscriberEventCoordinator.GetTrailCubeCount(entry.CumulativeMonths, entry.EventSubKind))
+                            .ConfigureAwait(false);
+                        _log.Info("[BeatSurgeon] Deferred Subscription effect fired for " + entry.DisplayName + " kind=" + entry.EventSubKind);
+                        break;
+                    }
                 }
             }
             catch (Exception ex)
@@ -400,7 +481,22 @@ namespace BeatSurgeon.Gameplay
                 if (entry.RetryCount == 0)
                 {
                     _log.Warn("[BeatSurgeon] Deferred " + entry.EventKind + " for " + entry.DisplayName + " failed (will retry next scene): " + ex.Message);
-                    _deferredEventQueue.Enqueue(new DeferredEventEntry(entry.EventKind, entry.DisplayName, entry.BitAmount, entry.QueuedAtUtc, 1));
+                    if (entry.EventKind == EventKind.Subscription)
+                    {
+                        _deferredEventQueue.Enqueue(new DeferredEventEntry(
+                            entry.EventKind,
+                            entry.DisplayName,
+                            entry.QueuedAtUtc,
+                            entry.TierLabel,
+                            entry.CumulativeMonths,
+                            entry.GiftCount,
+                            entry.EventSubKind,
+                            1));
+                    }
+                    else
+                    {
+                        _deferredEventQueue.Enqueue(new DeferredEventEntry(entry.EventKind, entry.DisplayName, entry.BitAmount, entry.QueuedAtUtc, 1));
+                    }
                 }
                 else
                 {
@@ -1083,6 +1179,41 @@ namespace BeatSurgeon.Gameplay
                 : "requestedBy=" + requestedBy + " displayText=" + displayText;
             _log.Effect("FollowerMessage", started, detail);
             if (!started) throw new InvalidOperationException("Follower message could not be started (not in map, queue full, or follower canvas unavailable).");
+        }
+
+        internal async Task ApplySubscriberMessageAsync(ChatContext ctx, string displayText, CancellationToken ct, int trailCubeCount = 5)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            await FontBundleLoader.EnsureBombFontReadyAsync().ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+
+            if (!FontBundleLoader.IsBombFontReady)
+            {
+                throw new InvalidOperationException("Bomb font bundle could not be loaded.");
+            }
+
+            bool started = false;
+            bool queuedTrailCubes = false;
+            int normalizedTrailCubeCount = Mathf.Max(0, trailCubeCount);
+            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                .StartNew(() =>
+                {
+                    started = SubscriberMessageManager.Instance.EnqueueMessage(ctx?.Username, displayText);
+                    if (normalizedTrailCubeCount > 0)
+                    {
+                        queuedTrailCubes = SubscriberTrailCubeManager.Instance.QueueNotes(normalizedTrailCubeCount, ctx?.Username);
+                    }
+                })
+                .ConfigureAwait(false);
+
+            string requestedBy = ctx?.Username ?? "Unknown";
+            string detail = string.IsNullOrWhiteSpace(displayText)
+                ? "requestedBy=" + requestedBy
+                : "requestedBy=" + requestedBy + " displayText=" + displayText;
+            detail += " trailCubeCount=" + normalizedTrailCubeCount + " trailQueued=" + queuedTrailCubes;
+            _log.Effect("SubscriberMessage", started, detail);
+            if (!started) throw new InvalidOperationException("Subscriber message could not be started (not in map, queue full, or subscriber canvas unavailable).");
         }
 
         internal Task ApplySpeedAsync(string effectKey, ChatContext ctx, CancellationToken ct)

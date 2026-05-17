@@ -7,7 +7,8 @@ namespace BeatSurgeon.Gameplay
     internal enum EventKind
     {
         Follow,
-        Bits
+        Bits,
+        Subscription
     }
 
     /// <summary>
@@ -18,9 +19,13 @@ namespace BeatSurgeon.Gameplay
     {
         internal EventKind EventKind;
         internal string DisplayName;
-        internal int BitAmount;    // 0 for Follow entries
+        internal int BitAmount;          // 0 for Follow / Subscription entries
         internal DateTime QueuedAtUtc;
-        internal int RetryCount;   // starts at 0; max one retry
+        internal int RetryCount;         // starts at 0; max one retry
+        internal string TierLabel;       // e.g. "Tier 1", "Prime"  (Subscription only)
+        internal int CumulativeMonths;   // total months subbed         (Subscription only)
+        internal int GiftCount;          // gifted subscription count   (Subscription only)
+        internal string EventSubKind;    // "sub" / "resub" / "giftsub" / "subend" (Subscription only)
 
         internal DeferredEventEntry(EventKind eventKind, string displayName, int bitAmount, DateTime queuedAtUtc, int retryCount = 0)
         {
@@ -29,6 +34,23 @@ namespace BeatSurgeon.Gameplay
             BitAmount = bitAmount;
             QueuedAtUtc = queuedAtUtc;
             RetryCount = retryCount;
+            TierLabel = string.Empty;
+            CumulativeMonths = 0;
+            GiftCount = 0;
+            EventSubKind = string.Empty;
+        }
+
+        internal DeferredEventEntry(EventKind eventKind, string displayName, DateTime queuedAtUtc, string tierLabel, int cumulativeMonths, int giftCount, string eventSubKind, int retryCount = 0)
+        {
+            EventKind = eventKind;
+            DisplayName = displayName;
+            BitAmount = 0;
+            QueuedAtUtc = queuedAtUtc;
+            RetryCount = retryCount;
+            TierLabel = tierLabel ?? string.Empty;
+            CumulativeMonths = cumulativeMonths;
+            GiftCount = giftCount;
+            EventSubKind = eventSubKind ?? string.Empty;
         }
     }
 

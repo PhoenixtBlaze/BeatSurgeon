@@ -39,7 +39,13 @@ namespace BeatSurgeon.Gameplay
         private static bool _triedBitBurstLoopLoad = false;
         private static GameObject _cachedFollowerCanvasTemplate;
         private static bool _triedFollowerCanvasLoad = false;
+        private static GameObject _cachedSubscriberCanvasTemplate;
+        private static bool _triedSubscriberCanvasLoad = false;
+        private static GameObject _cachedTrailCubeTemplate;
+        private static bool _triedTrailCubeLoad = false;
         private static readonly Dictionary<string, Material> _cachedPreparedBurstMaterials = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<int, GameObject> _cachedGlitterTemplates = new Dictionary<int, GameObject>();
+        private static readonly HashSet<int> _triedGlitterLoads = new HashSet<int>();
 
         public static void ResetCachedTemplate()
         {
@@ -89,6 +95,22 @@ namespace BeatSurgeon.Gameplay
                 _cachedFollowerCanvasTemplate = null;
                 _triedFollowerCanvasLoad = false;
 
+                if (_cachedSubscriberCanvasTemplate != null)
+                {
+                    UnityEngine.Object.Destroy(_cachedSubscriberCanvasTemplate);
+                }
+
+                _cachedSubscriberCanvasTemplate = null;
+                _triedSubscriberCanvasLoad = false;
+
+                if (_cachedTrailCubeTemplate != null)
+                {
+                    UnityEngine.Object.Destroy(_cachedTrailCubeTemplate);
+                }
+
+                _cachedTrailCubeTemplate = null;
+                _triedTrailCubeLoad = false;
+
                 foreach (var cachedBitEmitter in _cachedBitEmitterTemplates.Values)
                 {
                     if (cachedBitEmitter == null)
@@ -107,6 +129,17 @@ namespace BeatSurgeon.Gameplay
 
                 _cachedBitEmitterTemplates.Clear();
                 _triedBitEmitterLoads.Clear();
+
+                foreach (var glitterTemplate in _cachedGlitterTemplates.Values)
+                {
+                    if (glitterTemplate != null)
+                    {
+                        UnityEngine.Object.Destroy(glitterTemplate);
+                    }
+                }
+
+                _cachedGlitterTemplates.Clear();
+                _triedGlitterLoads.Clear();
             }
             catch { }
         }
@@ -436,6 +469,112 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
+        private static void DisableNonTrailCubeRenderers(GameObject templateRoot)
+        {
+            if (templateRoot == null)
+            {
+                return;
+            }
+
+            foreach (var renderer in templateRoot.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null)
+                {
+                    continue;
+                }
+
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+                renderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+                bool keepRenderer = renderer is MeshRenderer || renderer is TrailRenderer;
+                renderer.forceRenderingOff = !keepRenderer;
+                renderer.enabled = keepRenderer;
+
+                if (keepRenderer)
+                {
+                    HardenTrailCubeStereo(renderer);
+                }
+            }
+        }
+
+        private static void HardenTrailCubeStereo(Renderer renderer)
+        {
+            if (renderer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                renderer.enabled = true;
+                renderer.forceRenderingOff = false;
+                renderer.allowOcclusionWhenDynamic = false;
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+                renderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+                renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+                Bounds localBounds = renderer.localBounds;
+                MeshRenderer meshRenderer = renderer as MeshRenderer;
+                if (meshRenderer != null)
+                {
+                    MeshFilter meshFilter = meshRenderer.GetComponent<MeshFilter>();
+                    if (meshFilter != null && meshFilter.sharedMesh != null)
+                    {
+                        localBounds = meshFilter.sharedMesh.bounds;
+                    }
+                }
+
+                if (localBounds.size.sqrMagnitude <= 0.0001f)
+                {
+                    localBounds = new Bounds(Vector3.zero, Vector3.one * 12f);
+                }
+
+                Vector3 expandedSize = new Vector3(
+                    Mathf.Max(localBounds.size.x, 12f),
+                    Mathf.Max(localBounds.size.y, 12f),
+                    Mathf.Max(localBounds.size.z, 12f));
+                renderer.localBounds = new Bounds(localBounds.center, expandedSize);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("SurgeonEffectsBundleService: Failed to harden TrailCube stereo culling for '" + renderer.name + "': " + ex.Message);
+            }
+        }
+
+        private static void DisableParticleSystemsInHierarchy(GameObject root)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            foreach (var particleSystem in root.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (particleSystem == null)
+                {
+                    continue;
+                }
+
+                var particleRenderer = particleSystem.GetComponent<ParticleSystemRenderer>();
+                if (particleRenderer != null)
+                {
+                    particleRenderer.forceRenderingOff = true;
+                    particleRenderer.enabled = false;
+                }
+
+                try
+                {
+                    particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                }
+                catch { }
+
+                particleSystem.gameObject.SetActive(false);
+            }
+        }
+
         public static ParticleSystem GetOutlineParticlesTemplate()
         {
             if (_cachedOutlineTemplate != null) return _cachedOutlineTemplate;
@@ -688,6 +827,191 @@ namespace BeatSurgeon.Gameplay
             return _cachedFollowerCanvasTemplate;
         }
 
+        public static GameObject GetSubscriberCanvasTemplate()
+        {
+            if (_cachedSubscriberCanvasTemplate != null)
+            {
+                return _cachedSubscriberCanvasTemplate;
+            }
+
+            if (_triedSubscriberCanvasLoad)
+            {
+                return null;
+            }
+
+            _triedSubscriberCanvasLoad = true;
+
+            try
+            {
+                string bundlePath = Path.Combine(Environment.CurrentDirectory, "UserData", "BeatSurgeon", "Effects", "surgeoneffects");
+                if (!File.Exists(bundlePath))
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle not found at " + bundlePath);
+                    return null;
+                }
+
+                var bundle = AssetBundle.LoadFromFile(bundlePath);
+                if (bundle == null)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: failed to load asset bundle: " + bundlePath);
+                    return null;
+                }
+
+                try
+                {
+                    string[] assets = bundle.GetAllAssetNames();
+                    if (assets == null || assets.Length == 0)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle did not expose any assets.");
+                        return null;
+                    }
+
+                    string twitchControllerAssetName = ResolveBundleAssetName(assets, BundleRegistry.PrefabTwitchController);
+                    var twitchControllerPrefab = string.IsNullOrWhiteSpace(twitchControllerAssetName)
+                        ? null
+                        : bundle.LoadAsset<GameObject>(twitchControllerAssetName);
+                    if (twitchControllerPrefab == null)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: could not load TwitchController prefab for subscriber canvas path.");
+                        return null;
+                    }
+
+                    Transform subscriberCanvas = twitchControllerPrefab.transform.Find(BundleRegistry.TwitchControllerRefs.SubscriberCanvasRootPath);
+                    if (subscriberCanvas == null)
+                    {
+                        Plugin.Log.Warn(
+                            "SurgeonEffectsBundleService: subscriber canvas '"
+                            + BundleRegistry.TwitchControllerRefs.SubscriberCanvasRootPath
+                            + "' was not found on the loaded TwitchController prefab asset.");
+                        return null;
+                    }
+
+                    _cachedSubscriberCanvasTemplate = CreateSubscriberCanvasTemplateFromAsset(subscriberCanvas);
+                    if (_cachedSubscriberCanvasTemplate == null)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: failed to build subscriber canvas template from prefab asset.");
+                        return null;
+                    }
+
+                    UnityEngine.Object.DontDestroyOnLoad(_cachedSubscriberCanvasTemplate);
+                    _cachedSubscriberCanvasTemplate.name = "BeatSurgeonSubscriberCanvasTemplate";
+                    _cachedSubscriberCanvasTemplate.SetActive(false);
+
+                    LogUtils.Debug(() =>
+                        "SurgeonEffectsBundleService: cached subscriber canvas template path='"
+                        + DisplayRelativePath(GetRelativePath(twitchControllerPrefab.transform, subscriberCanvas))
+                        + "'.");
+
+                    return _cachedSubscriberCanvasTemplate;
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: error loading subscriber canvas template: " + ex.Message);
+                }
+                finally
+                {
+                    try { bundle.Unload(false); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("SurgeonEffectsBundleService: unexpected subscriber canvas load error: " + ex.Message);
+            }
+
+            return _cachedSubscriberCanvasTemplate;
+        }
+
+        public static GameObject GetSubscriberTrailCubeTemplate()
+        {
+            if (_cachedTrailCubeTemplate != null)
+            {
+                return _cachedTrailCubeTemplate;
+            }
+
+            if (_triedTrailCubeLoad)
+            {
+                return null;
+            }
+
+            _triedTrailCubeLoad = true;
+
+            try
+            {
+                string bundlePath = Path.Combine(Environment.CurrentDirectory, "UserData", "BeatSurgeon", "Effects", "surgeoneffects");
+                if (!File.Exists(bundlePath))
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle not found at " + bundlePath);
+                    return null;
+                }
+
+                var bundle = AssetBundle.LoadFromFile(bundlePath);
+                if (bundle == null)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: failed to load asset bundle: " + bundlePath);
+                    return null;
+                }
+
+                try
+                {
+                    string[] assets = bundle.GetAllAssetNames();
+                    if (assets == null || assets.Length == 0)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle did not expose any assets.");
+                        return null;
+                    }
+
+                    string twitchControllerAssetName = ResolveBundleAssetName(assets, BundleRegistry.PrefabTwitchController);
+                    var twitchControllerPrefab = string.IsNullOrWhiteSpace(twitchControllerAssetName)
+                        ? null
+                        : bundle.LoadAsset<GameObject>(twitchControllerAssetName);
+                    if (twitchControllerPrefab == null)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: could not load TwitchController prefab for TrailCube path.");
+                        return null;
+                    }
+
+                    Transform trailCube = FindDescendantByNormalizedName(twitchControllerPrefab.transform, BundleRegistry.TwitchControllerRefs.TrailNodeName);
+                    if (trailCube == null)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: TrailCube was not found on the loaded TwitchController prefab asset.");
+                        return null;
+                    }
+
+                    _cachedTrailCubeTemplate = CreateTrailCubeTemplateFromAsset(trailCube, bundle, assets);
+                    if (_cachedTrailCubeTemplate == null)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: failed to build TrailCube template from prefab asset.");
+                        return null;
+                    }
+
+                    UnityEngine.Object.DontDestroyOnLoad(_cachedTrailCubeTemplate);
+                    _cachedTrailCubeTemplate.name = "BeatSurgeonSubscriberTrailCubeTemplate";
+                    _cachedTrailCubeTemplate.SetActive(false);
+
+                    LogUtils.Debug(() =>
+                        "SurgeonEffectsBundleService: cached TrailCube template path='"
+                        + DisplayRelativePath(GetRelativePath(twitchControllerPrefab.transform, trailCube))
+                        + "'.");
+
+                    return _cachedTrailCubeTemplate;
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: error loading TrailCube template: " + ex.Message);
+                }
+                finally
+                {
+                    try { bundle.Unload(false); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("SurgeonEffectsBundleService: unexpected TrailCube load error: " + ex.Message);
+            }
+
+            return _cachedTrailCubeTemplate;
+        }
+
         public static bool TryResolveFollowerCanvasStartWorldPosition(out Vector3 position)
         {
             position = Vector3.zero;
@@ -797,6 +1121,205 @@ namespace BeatSurgeon.Gameplay
             return templateRoot;
         }
 
+        private static GameObject CreateSubscriberCanvasTemplateFromAsset(Transform subscriberCanvasAsset)
+        {
+            if (subscriberCanvasAsset == null)
+            {
+                return null;
+            }
+
+            GameObject templateRoot = new GameObject("BeatSurgeonSubscriberCanvasTemplate", typeof(RectTransform), typeof(Canvas));
+            templateRoot.layer = subscriberCanvasAsset.gameObject.layer;
+
+            RectTransform targetRect = templateRoot.GetComponent<RectTransform>();
+            Canvas targetCanvas = templateRoot.GetComponent<Canvas>();
+            Canvas sourceCanvas = subscriberCanvasAsset.GetComponent<Canvas>();
+            if (sourceCanvas != null)
+            {
+                targetCanvas.renderMode = sourceCanvas.renderMode;
+                targetCanvas.overrideSorting = sourceCanvas.overrideSorting;
+                targetCanvas.sortingOrder = sourceCanvas.sortingOrder;
+                targetCanvas.additionalShaderChannels = sourceCanvas.additionalShaderChannels;
+                targetCanvas.planeDistance = sourceCanvas.planeDistance;
+            }
+
+            RectTransform sourceRect = subscriberCanvasAsset as RectTransform;
+            if (sourceRect != null)
+            {
+                CopyRectTransformSettings(sourceRect, targetRect);
+            }
+
+            templateRoot.transform.position = subscriberCanvasAsset.position;
+            templateRoot.transform.rotation = subscriberCanvasAsset.rotation;
+            templateRoot.transform.localScale = subscriberCanvasAsset.lossyScale;
+            return templateRoot;
+        }
+
+        private static GameObject CreateTrailCubeTemplateFromAsset(Transform trailCubeAsset, AssetBundle bundle, string[] assetNames)
+        {
+            if (trailCubeAsset == null)
+            {
+                return null;
+            }
+
+            int rendererCount = 0;
+            GameObject templateRoot = CloneTrailCubeHierarchy(trailCubeAsset, null, bundle, assetNames, ref rendererCount);
+            if (templateRoot == null)
+            {
+                return null;
+            }
+
+            if (rendererCount <= 0)
+            {
+                UnityEngine.Object.Destroy(templateRoot);
+                return null;
+            }
+
+            DisableParticleSystemsInHierarchy(templateRoot);
+            DisableNonTrailCubeRenderers(templateRoot);
+            return templateRoot;
+        }
+
+        private static GameObject CloneTrailCubeHierarchy(Transform source, Transform parent, AssetBundle bundle, string[] assetNames, ref int rendererCount)
+        {
+            if (source == null)
+            {
+                return null;
+            }
+
+            GameObject clone = new GameObject(source.name);
+            clone.layer = source.gameObject.layer;
+
+            Transform cloneTransform = clone.transform;
+            cloneTransform.SetParent(parent, false);
+            cloneTransform.localPosition = source.localPosition;
+            cloneTransform.localRotation = source.localRotation;
+            cloneTransform.localScale = source.localScale;
+
+            CopyTrailCubeComponents(source, clone, bundle, assetNames, ref rendererCount);
+
+            foreach (Transform child in source)
+            {
+                CloneTrailCubeHierarchy(child, cloneTransform, bundle, assetNames, ref rendererCount);
+            }
+
+            return clone;
+        }
+
+        private static void CopyTrailCubeComponents(Transform source, GameObject destination, AssetBundle bundle, string[] assetNames, ref int rendererCount)
+        {
+            if (source == null || destination == null)
+            {
+                return;
+            }
+
+            MeshFilter sourceMeshFilter = source.GetComponent<MeshFilter>();
+            if (sourceMeshFilter != null)
+            {
+                MeshFilter destinationMeshFilter = destination.AddComponent<MeshFilter>();
+                destinationMeshFilter.sharedMesh = sourceMeshFilter.sharedMesh;
+            }
+
+            MeshRenderer sourceMeshRenderer = source.GetComponent<MeshRenderer>();
+            if (sourceMeshRenderer != null)
+            {
+                MeshRenderer destinationMeshRenderer = destination.AddComponent<MeshRenderer>();
+                CopyCommonRendererSettings(sourceMeshRenderer, destinationMeshRenderer);
+                destinationMeshRenderer.sharedMaterials = PrepareVisualMaterials(sourceMeshRenderer.sharedMaterials, bundle, assetNames, source.name + ".mesh");
+                rendererCount++;
+            }
+
+            TrailRenderer sourceTrailRenderer = source.GetComponent<TrailRenderer>();
+            if (sourceTrailRenderer != null)
+            {
+                TrailRenderer destinationTrailRenderer = destination.AddComponent<TrailRenderer>();
+                CopyCommonRendererSettings(sourceTrailRenderer, destinationTrailRenderer);
+                CopyTrailRendererSettings(sourceTrailRenderer, destinationTrailRenderer, bundle, assetNames, source.name + ".trail");
+                rendererCount++;
+            }
+        }
+
+        private static void CopyCommonRendererSettings(Renderer source, Renderer destination)
+        {
+            if (source == null || destination == null)
+            {
+                return;
+            }
+
+            destination.enabled = source.enabled;
+            destination.shadowCastingMode = source.shadowCastingMode;
+            destination.receiveShadows = source.receiveShadows;
+            destination.lightProbeUsage = source.lightProbeUsage;
+            destination.reflectionProbeUsage = source.reflectionProbeUsage;
+            destination.allowOcclusionWhenDynamic = source.allowOcclusionWhenDynamic;
+            destination.sortingLayerID = source.sortingLayerID;
+            destination.sortingOrder = source.sortingOrder;
+        }
+
+        private static void CopyTrailRendererSettings(TrailRenderer source, TrailRenderer destination, AssetBundle bundle, string[] assetNames, string contextName)
+        {
+            if (source == null || destination == null)
+            {
+                return;
+            }
+
+            destination.time = source.time;
+            destination.startWidth = source.startWidth;
+            destination.endWidth = source.endWidth;
+            destination.widthMultiplier = source.widthMultiplier;
+            destination.autodestruct = source.autodestruct;
+            destination.emitting = source.emitting;
+            destination.shadowBias = source.shadowBias;
+            destination.generateLightingData = source.generateLightingData;
+            destination.numCapVertices = source.numCapVertices;
+            destination.numCornerVertices = source.numCornerVertices;
+            destination.alignment = source.alignment;
+            destination.textureMode = source.textureMode;
+            destination.minVertexDistance = source.minVertexDistance;
+            destination.widthCurve = source.widthCurve;
+            destination.colorGradient = source.colorGradient;
+
+            Material preparedMaterial = PrepareVisualMaterialClone(source.sharedMaterial, bundle, assetNames, contextName);
+            if (preparedMaterial != null)
+            {
+                destination.sharedMaterial = preparedMaterial;
+            }
+        }
+
+        private static Material[] PrepareVisualMaterials(Material[] sourceMaterials, AssetBundle bundle, string[] assetNames, string contextName)
+        {
+            if (sourceMaterials == null || sourceMaterials.Length == 0)
+            {
+                return Array.Empty<Material>();
+            }
+
+            Material[] preparedMaterials = new Material[sourceMaterials.Length];
+            for (int index = 0; index < sourceMaterials.Length; index++)
+            {
+                preparedMaterials[index] = PrepareVisualMaterialClone(sourceMaterials[index], bundle, assetNames, contextName + "[" + index + "]")
+                    ?? sourceMaterials[index];
+            }
+
+            return preparedMaterials;
+        }
+
+        private static Material PrepareVisualMaterialClone(Material currentMaterial, AssetBundle bundle, string[] assetNames, string contextName)
+        {
+            if (currentMaterial == null)
+            {
+                return null;
+            }
+
+            Material bundleMaterial = TryLoadMaterialByDisplayName(bundle, assetNames, currentMaterial.name) ?? currentMaterial;
+            Texture fallbackTexture = VrVfxMaterialHelper.GetBestAvailableTexture(bundleMaterial)
+                ?? VrVfxMaterialHelper.GetBestAvailableTexture(currentMaterial);
+
+            return VrVfxMaterialHelper.CreatePreparedVisualMaterial(
+                bundleMaterial,
+                "SurgeonEffectsBundleService visual renderer '" + contextName + "'",
+                fallbackTexture);
+        }
+
         private static void CreateFollowerCanvasAnchor(Transform parent, Transform sourceAnchor, string name, bool active)
         {
             if (parent == null || sourceAnchor == null)
@@ -836,6 +1359,100 @@ namespace BeatSurgeon.Gameplay
             target.anchoredPosition3D = source.anchoredPosition3D;
             target.localRotation = source.localRotation;
             target.localScale = source.localScale;
+        }
+
+        public static GameObject GetGlitterTemplate(int denomination)
+        {
+            if (_cachedGlitterTemplates.TryGetValue(denomination, out var cached) && cached != null)
+            {
+                return cached;
+            }
+
+            if (_triedGlitterLoads.Contains(denomination))
+            {
+                return null;
+            }
+
+            _triedGlitterLoads.Add(denomination);
+
+            try
+            {
+                string bundlePath = Path.Combine(Environment.CurrentDirectory, "UserData", "BeatSurgeon", "Effects", "surgeoneffects");
+                if (!File.Exists(bundlePath))
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle not found at " + bundlePath);
+                    return null;
+                }
+
+                var bundle = AssetBundle.LoadFromFile(bundlePath);
+                if (bundle == null)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: failed to load asset bundle for glitter template: " + bundlePath);
+                    return null;
+                }
+
+                try
+                {
+                    string[] assets = bundle.GetAllAssetNames();
+                    if (assets == null || assets.Length == 0)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle did not expose any assets.");
+                        return null;
+                    }
+
+                    string surgeonExplosionAssetName = ResolveBundleAssetName(assets, BundleRegistry.PrefabSurgeonExplosion);
+                    if (string.IsNullOrWhiteSpace(surgeonExplosionAssetName))
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: SurgeonExplosion prefab not found in bundle for glitter denomination=" + denomination);
+                        return null;
+                    }
+
+                    var surgeonExplosionPrefab = bundle.LoadAsset<GameObject>(surgeonExplosionAssetName);
+                    if (surgeonExplosionPrefab == null)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: could not load SurgeonExplosion prefab for glitter denomination=" + denomination);
+                        return null;
+                    }
+
+                    string emitterName = BundleRegistry.SurgeonExplosionRefs.GetGlitterEmitterName(denomination);
+                    Transform emitterChild = FindDescendantByNormalizedName(surgeonExplosionPrefab.transform, emitterName)
+                        ?? surgeonExplosionPrefab.transform.Find(emitterName);
+
+                    if (emitterChild == null)
+                    {
+                        Plugin.Log.Warn(
+                            "SurgeonEffectsBundleService: glitter emitter '" + emitterName
+                            + "' not found in SurgeonExplosion for denomination=" + denomination);
+                        return null;
+                    }
+
+                    var template = UnityEngine.Object.Instantiate(emitterChild.gameObject);
+                    UnityEngine.Object.DontDestroyOnLoad(template);
+                    template.transform.SetParent(null, false);
+                    template.name = "BeatSurgeonGlitterTemplate_" + denomination;
+                    template.SetActive(false);
+
+                    _cachedGlitterTemplates[denomination] = template;
+                    LogUtils.Debug(() =>
+                        "SurgeonEffectsBundleService: cached glitter template '" + emitterName
+                        + "' for denomination=" + denomination);
+                    return template;
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: error loading glitter template denomination=" + denomination + ": " + ex.Message);
+                }
+                finally
+                {
+                    try { bundle.Unload(false); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("SurgeonEffectsBundleService: unexpected glitter template load error: " + ex.Message);
+            }
+
+            return null;
         }
 
         public static ParticleSystem GetTwitchBitEmitterTemplate(int denomination)

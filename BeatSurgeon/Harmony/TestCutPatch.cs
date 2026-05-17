@@ -33,23 +33,35 @@ namespace BeatSurgeon.HarmonyPatches
             }
 
             var noteData = gameNote.noteData;
-            if (!TestEffectManager.Instance.TryMarkNextEffect(gameNote, noteData, out int denomination))
+            bool attachedAny = false;
+
+            if (TestEffectManager.Instance.TryMarkNextEffect(gameNote, noteData, out int denomination))
             {
-                return false;
+                bool outlineAttached = OutlineEmitterManager.Instance.TryAttachToNote(gameNote);
+                LogUtils.Debug(() =>
+                    "TestNotePatch: Marked note via "
+                    + trigger
+                    + " time="
+                    + noteData.time.ToString("F3")
+                    + " denomination="
+                    + denomination
+                    + " outlineAttached="
+                    + outlineAttached
+                    + " cutBurstDeferred=true");
+                return true;
             }
 
-            bool outlineAttached = OutlineEmitterManager.Instance.TryAttachToNote(gameNote);
-            LogUtils.Debug(() =>
-                "TestNotePatch: Marked note via "
-                + trigger
-                + " time="
-                + noteData.time.ToString("F3")
-                + " denomination="
-                + denomination
-                + " outlineAttached="
-                + outlineAttached
-                + " cutBurstDeferred=true");
-            return true;
+            if (SubscriberTrailCubeManager.Instance.TryMarkAndAttach(gameNote))
+            {
+                LogUtils.Debug(() =>
+                    "TestNotePatch: Attached subscriber TrailCube via "
+                    + trigger
+                    + " time="
+                    + noteData.time.ToString("F3"));
+                attachedAny = true;
+            }
+
+            return attachedAny;
         }
     }
 
@@ -60,7 +72,7 @@ namespace BeatSurgeon.HarmonyPatches
         {
             try
             {
-                if (!TestEffectManager.Instance.HasPendingEffects)
+                if (!TestEffectManager.Instance.HasPendingEffects && !SubscriberTrailCubeManager.Instance.HasPendingNotes)
                 {
                     return;
                 }
@@ -95,18 +107,29 @@ namespace BeatSurgeon.HarmonyPatches
                     return;
                 }
 
-                if (!TestEffectManager.Instance.TryRequeueMarkedEffect(gameNote, "Missed", out int denomination))
+                bool requeuedAny = false;
+
+                if (TestEffectManager.Instance.TryRequeueMarkedEffect(gameNote, "Missed", out int denomination))
+                {
+                    OutlineEmitterManager.Instance.DetachFromNote(gameNote);
+                    GlitterLoopEmitterManager.Instance.DetachFromNote(gameNote);
+                    LogUtils.Debug(() =>
+                        "TestMissPatch: Requeued missed test note time="
+                        + (gameNote.noteData != null ? gameNote.noteData.time.ToString("F3") : "<unknown>")
+                        + " denomination="
+                        + denomination);
+                    requeuedAny = true;
+                }
+
+                if (SubscriberTrailCubeManager.Instance.TryRequeueMarkedNote(gameNote, "Missed"))
+                {
+                    requeuedAny = true;
+                }
+
+                if (!requeuedAny)
                 {
                     return;
                 }
-
-                OutlineEmitterManager.Instance.DetachFromNote(gameNote);
-                GlitterLoopEmitterManager.Instance.DetachFromNote(gameNote);
-                LogUtils.Debug(() =>
-                    "TestMissPatch: Requeued missed test note time="
-                    + (gameNote.noteData != null ? gameNote.noteData.time.ToString("F3") : "<unknown>")
-                    + " denomination="
-                    + denomination);
             }
             catch (Exception ex)
             {
@@ -137,21 +160,39 @@ namespace BeatSurgeon.HarmonyPatches
                     return;
                 }
 
-                if (!TestEffectManager.Instance.TryConsumeMarkedEffect(__instance, out int denomination, out string requesterName))
+                bool consumedAny = false;
+
+                if (TestEffectManager.Instance.TryConsumeMarkedEffect(__instance, out int denomination, out string requesterName))
                 {
+                    OutlineEmitterManager.Instance.DetachFromNote(__instance);
+                    GlitterLoopEmitterManager.Instance.DetachFromNote(__instance);
+
+                    if (!GlitterExplosionPool.Instance.Spawn(denomination, cutPoint))
+                    {
+                        Plugin.Log.Warn("TestCutPatch: Failed to spawn glitter emitter for denomination=" + denomination);
+                    }
+
+                    Vector3 returnTarget = BitParticleEmitterPool.ResolveReturnTarget(__instance, cutPoint);
+                    if (!BitParticleEmitterPool.Instance.Spawn(denomination, cutPoint, returnTarget))
+                    {
+                        Plugin.Log.Warn("TestCutPatch: Failed to spawn bit particle emitter for denomination=" + denomination);
+                    }
+
+                    BombCutPatch.SpawnFlyingText(requesterName, cutPoint);
+                    SubscriberTrailCubeManager.Instance.TryConsumeMarkedNote(__instance, out _);
                     return;
                 }
 
-                OutlineEmitterManager.Instance.DetachFromNote(__instance);
-                GlitterLoopEmitterManager.Instance.DetachFromNote(__instance);
-
-                Vector3 returnTarget = BitParticleEmitterPool.ResolveReturnTarget(__instance, cutPoint);
-                if (!BitParticleEmitterPool.Instance.Spawn(denomination, cutPoint, returnTarget))
+                if (SubscriberTrailCubeManager.Instance.TryConsumeMarkedNote(__instance, out string subscriberRequesterName))
                 {
-                    Plugin.Log.Warn("TestCutPatch: Failed to spawn bit emitter for denomination=" + denomination);
+                    BombCutPatch.SpawnFlyingText(subscriberRequesterName, cutPoint);
+                    consumedAny = true;
                 }
 
-                BombCutPatch.SpawnFlyingText(requesterName, cutPoint);
+                if (!consumedAny)
+                {
+                    return;
+                }
             }
             catch (Exception ex)
             {

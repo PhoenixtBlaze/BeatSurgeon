@@ -337,6 +337,7 @@
     <Compile Include="Chat\Processors\RainbowNotesProcessor.cs" />
     <Compile Include="Chat\Processors\SongRequestProcessor.cs" />
     <Compile Include="Chat\Processors\SpeedChangeProcessor.cs" />
+    <Compile Include="Chat\Processors\SubscriberMessageProcessor.cs" />
     <Compile Include="Gameplay\DeferredEventQueue.cs" />
     <Compile Include="Gameplay\BombManager.cs" />
     <Compile Include="Gameplay\BombVisualPool.cs" />
@@ -348,6 +349,7 @@
     <Compile Include="Gameplay\FlashbangManager.cs" />
     <Compile Include="Gameplay\FollowerMessageManager.cs" />
     <Compile Include="Gameplay\FontBundleLoader.cs" />
+    <Compile Include="Gameplay\GlitterExplosionPool.cs" />
     <Compile Include="Gameplay\GlitterLoopEmitterManager.cs" />
     <Compile Include="Gameplay\BitParticleEmitterPool.cs" />
     <Compile Include="Gameplay\VrVfxMaterialHelper.cs" />
@@ -363,6 +365,8 @@
     <Compile Include="Gameplay\RendererWatchdog.cs" />
     <Compile Include="Gameplay\BeatSurgeonTextMover.cs" />
     <Compile Include="Gameplay\SongRequest.cs" />
+    <Compile Include="Gameplay\SubscriberMessageManager.cs" />
+    <Compile Include="Gameplay\SubscriberTrailCubeManager.cs" />
     <Compile Include="Gameplay\TestEffectManager.cs" />
     <Compile Include="Gameplay\BundleRegistry.cs" />
     <Compile Include="Gameplay\SurgeonEffectsBundleService.cs" />
@@ -395,6 +399,7 @@
     <Compile Include="Twitch\PatreonApiClient.cs" />
     <Compile Include="Twitch\PatreonAuthManager.cs" />
     <Compile Include="Twitch\SubscriberEffectAccessController.cs" />
+    <Compile Include="Twitch\SubscriberEventCoordinator.cs" />
     <Compile Include="Twitch\JwtEd25519.cs" />
     <Compile Include="Twitch\PremiumVisualFeatureAccessController.cs" />
     <Compile Include="Twitch\TwitchChannelPointsManager.cs" />

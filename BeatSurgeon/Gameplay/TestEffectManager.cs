@@ -321,9 +321,36 @@ namespace BeatSurgeon.Gameplay
                 return 0;
             }
 
-            // New glitter scaling rule: cube count grows in 10-bit steps while the emitter tier
-            // still follows the selected visual denomination bucket.
-            return Mathf.Max(1, Mathf.CeilToInt(totalBits / 10f));
+            if (totalBits >= 10000)
+            {
+                return Mathf.CeilToInt(totalBits / 100f);
+            }
+
+            if (totalBits >= 1000)
+            {
+                return MapEmitterCount(totalBits, 1000, 9999, 10, 90);
+            }
+
+            if (totalBits >= 100)
+            {
+                return MapEmitterCount(totalBits, 100, 999, 4, 9);
+            }
+
+            return MapEmitterCount(totalBits, 1, 99, 1, 4);
+        }
+
+        private static int MapEmitterCount(int value, int minValue, int maxValue, int minCount, int maxCount)
+        {
+            if (maxValue <= minValue)
+            {
+                return Mathf.Clamp(minCount, minCount, maxCount);
+            }
+
+            int clampedValue = Mathf.Clamp(value, minValue, maxValue);
+            int valueRange = (maxValue - minValue) + 1;
+            int countRange = (maxCount - minCount) + 1;
+            int bucket = ((clampedValue - minValue) * countRange) / valueRange;
+            return Mathf.Clamp(minCount + bucket, minCount, maxCount);
         }
 
         private static string BuildBreakdown(IReadOnlyList<int> emitters)

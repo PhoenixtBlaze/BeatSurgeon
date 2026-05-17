@@ -23,7 +23,8 @@ namespace BeatSurgeon.Gameplay
 
         private static readonly LogUtil _log = LogUtil.GetLogger("FollowerMessageManager");
         private const int MaxQueuedMessages = 10;
-        private const float MessageTravelSeconds = 15f;
+        private const float DefaultMessageTravelSeconds = 15f;
+        private const float FollowerTravelSecondsMultiplier = 1.5f;
         private static FollowerMessageManager _instance;
         private static GameObject _go;
 
@@ -57,6 +58,28 @@ namespace BeatSurgeon.Gameplay
             {
                 _instance.ClearTransientGameplayState();
             }
+        }
+
+        internal bool Prewarm()
+        {
+            if (!EnsureCanvasInstance())
+            {
+                return false;
+            }
+
+            TextMeshProUGUI warmupText = CreateMessageText("Warmup");
+            if (warmupText == null)
+            {
+                return false;
+            }
+
+            UnityEngine.Object.Destroy(warmupText.gameObject);
+            if (_activeCanvasInstance != null)
+            {
+                _activeCanvasInstance.SetActive(false);
+            }
+
+            return true;
         }
 
         internal bool EnqueueMessage(string requesterName, string displayText)
@@ -164,8 +187,10 @@ namespace BeatSurgeon.Gameplay
             messageRect.localRotation = Quaternion.identity;
             messageRect.localScale = Vector3.one;
 
+            float baseTravelSeconds = Mathf.Clamp(Plugin.Settings?.FlyingTextTravelSeconds ?? DefaultMessageTravelSeconds, 0.5f, 20f);
+            float travelSeconds = Mathf.Clamp(baseTravelSeconds * FollowerTravelSecondsMultiplier, 0.5f, 20f);
             float elapsed = 0f;
-            while (elapsed < MessageTravelSeconds)
+            while (elapsed < travelSeconds)
             {
                 if (!IsInMap() || messageRect == null || _activeCanvasInstance == null)
                 {
@@ -173,7 +198,7 @@ namespace BeatSurgeon.Gameplay
                 }
 
                 elapsed += Time.deltaTime;
-                float t = Mathf.Clamp01(elapsed / Mathf.Max(0.01f, MessageTravelSeconds));
+                float t = Mathf.Clamp01(elapsed / Mathf.Max(0.01f, travelSeconds));
                 messageRect.position = Vector3.Lerp(startingWorldPosition, endingWorldPosition, t);
 
                 yield return null;

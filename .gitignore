@@ -358,7 +358,7 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
-
+*.py
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 .vscode
@@ -372,3 +372,7 @@ tmpclaude*
 /BeatSurgeon/Chat/Processors/SongRequestProcessor.cs
 /BSDC/
 .github/agents/BeatSurgeon Dev Agent.agent.md
+accsaber_home.html
+rocket-loader.min.js
+scripts_list.txt
+web_results.txt

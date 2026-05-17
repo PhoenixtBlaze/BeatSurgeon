@@ -16,6 +16,14 @@ namespace BeatSurgeon.Gameplay
             "Sprites/Default"
         };
 
+        private static readonly string[] DeterministicTransparentVisualShaders =
+        {
+            "Unlit/Transparent",
+            "Sprites/Default",
+            "Legacy Shaders/Transparent/Diffuse",
+            "Unlit/Texture"
+        };
+
         private static readonly string[] RejectedFallbackShaderTokens =
         {
             "screendisplacement",
@@ -48,7 +56,7 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
-        internal static void RepairShader(Material material, string context)
+        internal static void RepairShader(Material material, string context, string[] suppressedMissingShaderNames = null)
         {
             if (material == null)
             {
@@ -58,9 +66,14 @@ namespace BeatSurgeon.Gameplay
             try
             {
                 var result = ShaderRepair.FixShaderOnMaterial(material);
-                if (!result.AllShadersReplaced && result.MissingShaderNames.Count > 0)
+                string[] missingShaderNames = result.MissingShaderNames
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                if (!result.AllShadersReplaced
+                    && missingShaderNames.Length > 0
+                    && !ShouldSuppressRepairWarning(missingShaderNames, suppressedMissingShaderNames))
                 {
-                    Plugin.Log.Warn(context + ": shader repair missing replacements for " + string.Join(", ", result.MissingShaderNames.Distinct()));
+                    Plugin.Log.Warn(context + ": shader repair missing replacements for " + string.Join(", ", missingShaderNames));
                 }
             }
             catch (Exception ex)
@@ -96,6 +109,49 @@ namespace BeatSurgeon.Gameplay
             catch { }
 
             return CreateSafeParticleMaterial(sourceMaterial, resolvedFallbackTexture);
+        }
+
+        internal static Material CreatePreparedVisualMaterial(Material sourceMaterial, string context, Texture fallbackTexture = null)
+        {
+            if (sourceMaterial == null)
+            {
+                return CreateSafeVisualMaterial(null, fallbackTexture);
+            }
+
+            Texture resolvedFallbackTexture = fallbackTexture ?? GetBestAvailableTexture(sourceMaterial);
+            Material repairedClone = new Material(sourceMaterial)
+            {
+                name = sourceMaterial.name + "_BeatSurgeonPreparedVisual"
+            };
+
+            RepairShader(repairedClone, context, new[] { "Unlit/TrailShader" });
+            if (CanPreserveSourceMaterial(repairedClone))
+            {
+                ApplySharedVisualDefaults(repairedClone, resolvedFallbackTexture);
+                return repairedClone;
+            }
+
+            try
+            {
+                UnityEngine.Object.Destroy(repairedClone);
+            }
+            catch { }
+
+            Material safeMaterial = CreateSafeVisualMaterial(sourceMaterial, resolvedFallbackTexture);
+            if (safeMaterial != null)
+            {
+                Plugin.Log.Info(
+                    context
+                    + ": using visual-safe fallback material '"
+                    + safeMaterial.name
+                    + "' shader='"
+                    + (safeMaterial.shader != null ? safeMaterial.shader.name : "<missing>")
+                    + "' texture='"
+                    + (GetBestAvailableTexture(safeMaterial) != null ? GetBestAvailableTexture(safeMaterial).name : "<missing>")
+                    + "'.");
+            }
+
+            return safeMaterial;
         }
 
         internal static Material CreateForcedSafeParticleMaterial(Material sourceMaterial, Texture fallbackTexture = null)
@@ -176,6 +232,38 @@ namespace BeatSurgeon.Gameplay
             return material;
         }
 
+        internal static Material CreateSafeVisualMaterial(Material sourceMaterial, Texture fallbackTexture = null)
+        {
+            Texture resolvedFallbackTexture = fallbackTexture ?? GetBestAvailableTexture(sourceMaterial);
+            Shader shader = FindDeterministicTransparentVisualShader();
+            Material material = null;
+
+            if (shader != null)
+            {
+                material = new Material(shader)
+                {
+                    name = sourceMaterial != null
+                        ? sourceMaterial.name + "_BeatSurgeonVrSafeVisual"
+                        : "BeatSurgeonVrSafeVisual"
+                };
+
+                if (sourceMaterial != null)
+                {
+                    CopyCommonVisualProperties(sourceMaterial, material);
+                }
+            }
+            else if (sourceMaterial != null)
+            {
+                material = new Material(sourceMaterial)
+                {
+                    name = sourceMaterial.name + "_BeatSurgeonVrSafeVisualFallback"
+                };
+            }
+
+            ApplySharedVisualDefaults(material, resolvedFallbackTexture);
+            return material;
+        }
+
         internal static bool HasUsableShader(Material sourceMaterial)
         {
             return CanPreserveSourceMaterial(sourceMaterial);
@@ -245,6 +333,7 @@ namespace BeatSurgeon.Gameplay
         {
             return sourceMaterial != null
                 && sourceMaterial.shader != null
+                && sourceMaterial.shader.isSupported
                 && !string.IsNullOrWhiteSpace(sourceMaterial.shader.name)
                 && !string.Equals(sourceMaterial.shader.name, InvalidShaderName, StringComparison.OrdinalIgnoreCase);
         }
@@ -270,6 +359,42 @@ namespace BeatSurgeon.Gameplay
             {
                 TryAssignTexture(destinationMaterial, bestTexture);
             }
+
+            TryCopyTextureScaleAndOffset(sourceMaterial, destinationMaterial, "_MainTex");
+            TryCopyTextureScaleAndOffset(sourceMaterial, destinationMaterial, "_BaseMap");
+        }
+
+        private static void CopyCommonVisualProperties(Material sourceMaterial, Material destinationMaterial)
+        {
+            if (sourceMaterial == null || destinationMaterial == null)
+            {
+                return;
+            }
+
+            CopyCommonParticleProperties(sourceMaterial, destinationMaterial);
+            TryCopyTexture(sourceMaterial, destinationMaterial, "_EmissionMap");
+            TryCopyTexture(sourceMaterial, destinationMaterial, "_MaskTex");
+            TryCopyTexture(sourceMaterial, destinationMaterial, "_DetailAlbedoMap");
+            TryCopyColor(sourceMaterial, destinationMaterial, "_EmissionColor");
+            TryCopyFloat(sourceMaterial, destinationMaterial, "_Cutoff");
+            CopyPreferredVisibleColor(sourceMaterial, destinationMaterial);
+        }
+
+        private static void CopyPreferredVisibleColor(Material sourceMaterial, Material destinationMaterial)
+        {
+            if (sourceMaterial == null || destinationMaterial == null)
+            {
+                return;
+            }
+
+            if (!TryGetPreferredVisibleColor(sourceMaterial, out Color preferredColor))
+            {
+                return;
+            }
+
+            TrySetColorIfDefault(destinationMaterial, "_TintColor", preferredColor);
+            TrySetColorIfDefault(destinationMaterial, "_Color", preferredColor);
+            TrySetColorIfDefault(destinationMaterial, "_BaseColor", preferredColor);
         }
 
         private static void ApplySharedParticleDefaults(Material material, Texture fallbackTexture, bool preserveTint)
@@ -324,6 +449,47 @@ namespace BeatSurgeon.Gameplay
             catch (Exception ex)
             {
                 Plugin.Log.Warn("VrVfxMaterialHelper: Failed to apply shared particle defaults: " + ex.Message);
+            }
+        }
+
+        private static void ApplySharedVisualDefaults(Material material, Texture fallbackTexture)
+        {
+            if (material == null)
+            {
+                return;
+            }
+
+            if (fallbackTexture == null)
+            {
+                fallbackTexture = GetBestAvailableTexture(material);
+            }
+
+            if (material.mainTexture == null && fallbackTexture != null)
+            {
+                material.mainTexture = fallbackTexture;
+            }
+
+            TryAssignTexture(material, fallbackTexture);
+
+            try
+            {
+                if (material.HasProperty("_ZWrite"))
+                {
+                    material.SetFloat("_ZWrite", 0f);
+                }
+
+                NormalizeVisibleColor(material, "_TintColor");
+                NormalizeVisibleColor(material, "_Color");
+                NormalizeVisibleColor(material, "_BaseColor");
+
+                if (material.renderQueue < 3000)
+                {
+                    material.renderQueue = 3100;
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("VrVfxMaterialHelper: Failed to apply shared visual defaults: " + ex.Message);
             }
         }
 
@@ -471,6 +637,20 @@ namespace BeatSurgeon.Gameplay
             return material;
         }
 
+        private static Shader FindDeterministicTransparentVisualShader()
+        {
+            foreach (string shaderName in DeterministicTransparentVisualShaders)
+            {
+                Shader shader = Shader.Find(shaderName);
+                if (shader != null)
+                {
+                    return shader;
+                }
+            }
+
+            return null;
+        }
+
         private static Shader FindDeterministicTransparentParticleShader()
         {
             foreach (string shaderName in DeterministicTransparentParticleShaders)
@@ -579,6 +759,96 @@ namespace BeatSurgeon.Gameplay
                 }
             }
             catch { }
+        }
+
+        private static void TryCopyTextureScaleAndOffset(Material sourceMaterial, Material destinationMaterial, string propertyName)
+        {
+            if (!sourceMaterial.HasProperty(propertyName) || !destinationMaterial.HasProperty(propertyName))
+            {
+                return;
+            }
+
+            try
+            {
+                destinationMaterial.SetTextureScale(propertyName, sourceMaterial.GetTextureScale(propertyName));
+                destinationMaterial.SetTextureOffset(propertyName, sourceMaterial.GetTextureOffset(propertyName));
+            }
+            catch { }
+        }
+
+        private static bool TryGetPreferredVisibleColor(Material material, out Color color)
+        {
+            string[] propertyNames =
+            {
+                "_TintColor",
+                "_BaseColor",
+                "_Color",
+                "_EmissionColor"
+            };
+
+            foreach (string propertyName in propertyNames)
+            {
+                if (material == null || !material.HasProperty(propertyName))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    Color candidate = material.GetColor(propertyName);
+                    if (!LooksLikeUnsetVisibleColor(candidate))
+                    {
+                        color = candidate;
+                        return true;
+                    }
+                }
+                catch { }
+            }
+
+            color = default;
+            return false;
+        }
+
+        private static void TrySetColorIfDefault(Material material, string propertyName, Color color)
+        {
+            if (material == null || !material.HasProperty(propertyName))
+            {
+                return;
+            }
+
+            try
+            {
+                if (LooksLikeUnsetVisibleColor(material.GetColor(propertyName)))
+                {
+                    material.SetColor(propertyName, color);
+                }
+            }
+            catch { }
+        }
+
+        private static bool LooksLikeUnsetVisibleColor(Color color)
+        {
+            const float epsilon = 0.01f;
+
+            bool isTransparentOrBlack = color.maxColorComponent <= epsilon || color.a <= epsilon;
+            bool isOpaqueWhite = Mathf.Abs(color.r - 1f) <= epsilon
+                && Mathf.Abs(color.g - 1f) <= epsilon
+                && Mathf.Abs(color.b - 1f) <= epsilon
+                && Mathf.Abs(color.a - 1f) <= epsilon;
+
+            return isTransparentOrBlack || isOpaqueWhite;
+        }
+
+        private static bool ShouldSuppressRepairWarning(string[] missingShaderNames, string[] suppressedMissingShaderNames)
+        {
+            if (missingShaderNames == null || missingShaderNames.Length == 0 || suppressedMissingShaderNames == null || suppressedMissingShaderNames.Length == 0)
+            {
+                return false;
+            }
+
+            return missingShaderNames.All(missingShaderName =>
+                suppressedMissingShaderNames.Any(suppressedName =>
+                    string.Equals(missingShaderName, suppressedName, StringComparison.OrdinalIgnoreCase)));
         }
 
         private static void TryCopyColor(Material sourceMaterial, Material destinationMaterial, string propertyName)

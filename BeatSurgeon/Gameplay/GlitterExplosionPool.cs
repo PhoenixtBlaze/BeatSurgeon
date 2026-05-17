@@ -16,8 +16,10 @@ namespace BeatSurgeon.Gameplay
     internal sealed class GlitterExplosionPool : MonoBehaviour
     {
         private static readonly LogUtil _log = LogUtil.GetLogger("GlitterExplosionPool");
+        private static readonly Vector3 WarmActivationOffset = new Vector3(0f, -2048f, 0f);
 
         private const int MaxPoolPerDenomination = 16;
+        internal const int RecommendedWarmPoolSizePerDenomination = 12;
 
         private static GlitterExplosionPool _instance;
         private static GameObject _go;
@@ -47,13 +49,36 @@ namespace BeatSurgeon.Gameplay
 
         internal bool Prewarm(int denomination)
         {
-            GameObject instance = GetOrCreateInstance(denomination);
+            GameObject instance = CreatePreparedInstance(denomination, warmActivate: true);
             if (instance == null)
             {
                 return false;
             }
 
             ReturnToPool(denomination, instance);
+            return true;
+        }
+
+        internal bool EnsureWarmPoolSize(int denomination, int desiredPoolSize)
+        {
+            desiredPoolSize = Mathf.Clamp(desiredPoolSize, 0, MaxPoolPerDenomination);
+            if (desiredPoolSize <= 0)
+            {
+                return true;
+            }
+
+            Queue<GameObject> pool = GetPool(denomination);
+            while (pool.Count < desiredPoolSize)
+            {
+                GameObject instance = CreatePreparedInstance(denomination, warmActivate: true);
+                if (instance == null)
+                {
+                    return false;
+                }
+
+                pool.Enqueue(instance);
+            }
+
             return true;
         }
 
@@ -83,7 +108,6 @@ namespace BeatSurgeon.Gameplay
             emitterRoot.transform.localScale = Vector3.one;
 
             SyncLayer(emitterRoot);
-            PrepareRenderers(emitterRoot);
 
             emitterRoot.SetActive(true);
 
@@ -118,16 +142,7 @@ namespace BeatSurgeon.Gameplay
                 }
             }
 
-            // Ask SurgeonEffectsBundleService for the template (cached after first load)
-            GameObject template = SurgeonEffectsBundleService.GetGlitterTemplate(denomination);
-            if (template == null)
-            {
-                return null;
-            }
-
-            var instance = Instantiate(template);
-            instance.SetActive(false);
-            return instance;
+            return CreatePreparedInstance(denomination, warmActivate: false);
         }
 
         private Queue<GameObject> GetPool(int denomination)
@@ -139,6 +154,86 @@ namespace BeatSurgeon.Gameplay
             }
 
             return pool;
+        }
+
+        private GameObject CreatePreparedInstance(int denomination, bool warmActivate)
+        {
+            GameObject template = SurgeonEffectsBundleService.GetGlitterTemplate(denomination);
+            if (template == null)
+            {
+                return null;
+            }
+
+            GameObject instance = Instantiate(template);
+            instance.SetActive(false);
+            PrepareEmitterInstance(instance);
+
+            if (warmActivate)
+            {
+                WarmActivateInstance(instance);
+            }
+
+            return instance;
+        }
+
+        private void WarmActivateInstance(GameObject emitterRoot)
+        {
+            if (emitterRoot == null)
+            {
+                return;
+            }
+
+            try
+            {
+                ResetParticleSystems(emitterRoot);
+
+                Transform anchor = GetGameplayVfxAnchor();
+                if (anchor != null && emitterRoot.transform.parent != anchor)
+                {
+                    emitterRoot.transform.SetParent(anchor, false);
+                }
+
+                emitterRoot.transform.position = GetWarmActivationPosition();
+                emitterRoot.transform.rotation = Quaternion.identity;
+                emitterRoot.transform.localScale = Vector3.one;
+                SyncLayer(emitterRoot);
+                emitterRoot.SetActive(true);
+
+                foreach (ParticleSystem particleSystem in emitterRoot.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    if (particleSystem == null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        particleSystem.gameObject.SetActive(true);
+                        particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        particleSystem.Play(true);
+                        particleSystem.Simulate(0.05f, false, false, true);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("GlitterExplosionPool: warm activation failed: " + ex.Message);
+            }
+            finally
+            {
+                ResetParticleSystems(emitterRoot);
+                emitterRoot.transform.SetParent(null, false);
+                emitterRoot.SetActive(false);
+            }
+        }
+
+        private Vector3 GetWarmActivationPosition()
+        {
+            Transform anchor = GetGameplayVfxAnchor();
+            return anchor != null ? anchor.position + WarmActivationOffset : WarmActivationOffset;
         }
 
         private void ReturnToPool(int denomination, GameObject instance)
@@ -239,6 +334,8 @@ namespace BeatSurgeon.Gameplay
                 return;
             }
 
+            VrVfxMaterialHelper.RepairShaders(root, "GlitterExplosionPool instance");
+
             ParticleSystemRenderer reference = GetReferenceBombRenderer();
             foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
             {
@@ -249,8 +346,19 @@ namespace BeatSurgeon.Gameplay
                 {
                     RebindShader(psr, reference);
                     SyncStereo(psr, reference);
+                    HardenStereoCulling(psr);
                 }
             }
+        }
+
+        private void PrepareEmitterInstance(GameObject root)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            PrepareRenderers(root);
         }
 
         private static void RebindShader(ParticleSystemRenderer psr, ParticleSystemRenderer reference)
@@ -308,6 +416,34 @@ namespace BeatSurgeon.Gameplay
 
             try
             {
+                psr.alignment = reference.alignment;
+                psr.normalDirection = reference.normalDirection;
+                psr.allowRoll = reference.allowRoll;
+                psr.maskInteraction = reference.maskInteraction;
+                psr.enableGPUInstancing = reference.enableGPUInstancing;
+                psr.sortingFudge = reference.sortingFudge;
+                psr.renderingLayerMask = reference.renderingLayerMask;
+                psr.lightProbeUsage = reference.lightProbeUsage;
+                psr.reflectionProbeUsage = reference.reflectionProbeUsage;
+                psr.motionVectorGenerationMode = reference.motionVectorGenerationMode;
+
+                var activeVertexStreams = new List<ParticleSystemVertexStream>(reference.activeVertexStreamsCount);
+                reference.GetActiveVertexStreams(activeVertexStreams);
+                if (activeVertexStreams.Count > 0)
+                {
+                    psr.SetActiveVertexStreams(activeVertexStreams);
+                }
+
+                if (psr.trailMaterial != null)
+                {
+                    var activeTrailVertexStreams = new List<ParticleSystemVertexStream>(reference.activeTrailVertexStreamsCount);
+                    reference.GetActiveTrailVertexStreams(activeTrailVertexStreams);
+                    if (activeTrailVertexStreams.Count > 0)
+                    {
+                        psr.SetActiveTrailVertexStreams(activeTrailVertexStreams);
+                    }
+                }
+
                 psr.allowOcclusionWhenDynamic = false;
             }
             catch { }
@@ -318,6 +454,69 @@ namespace BeatSurgeon.Gameplay
                 psr.receiveShadows    = false;
             }
             catch { }
+        }
+
+        private static void HardenStereoCulling(ParticleSystemRenderer particleRenderer)
+        {
+            if (particleRenderer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                particleRenderer.enabled = true;
+                particleRenderer.forceRenderingOff = false;
+                particleRenderer.allowOcclusionWhenDynamic = false;
+                particleRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                particleRenderer.receiveShadows = false;
+
+                var localBounds = particleRenderer.localBounds;
+                float minimumBoundsSize = EstimateMinimumBoundsSize(particleRenderer.GetComponent<ParticleSystem>());
+                Vector3 expandedSize = new Vector3(
+                    Mathf.Max(localBounds.size.x, minimumBoundsSize),
+                    Mathf.Max(localBounds.size.y, minimumBoundsSize),
+                    Mathf.Max(localBounds.size.z, minimumBoundsSize));
+                particleRenderer.localBounds = new Bounds(localBounds.center, expandedSize);
+
+                var particleSystem = particleRenderer.GetComponent<ParticleSystem>();
+                if (particleSystem != null)
+                {
+                    var main = particleSystem.main;
+                    main.cullingMode = ParticleSystemCullingMode.AlwaysSimulate;
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("GlitterExplosionPool: Failed to harden stereo culling for '" + particleRenderer.name + "': " + ex.Message);
+            }
+        }
+
+        private static float EstimateMinimumBoundsSize(ParticleSystem particleSystem)
+        {
+            if (particleSystem == null)
+            {
+                return 12f;
+            }
+
+            try
+            {
+                var main = particleSystem.main;
+                float lifetime = GetCurveMax(main.startLifetime, 1f);
+                float speed = GetCurveMax(main.startSpeed, 2f);
+                float size = main.startSize3D
+                    ? Mathf.Max(
+                        GetCurveMax(main.startSizeX, 0.5f),
+                        GetCurveMax(main.startSizeY, 0.5f),
+                        GetCurveMax(main.startSizeZ, 0.5f))
+                    : GetCurveMax(main.startSize, 0.5f);
+
+                return Mathf.Clamp(size + (speed * Mathf.Max(0.5f, lifetime)), 12f, 64f);
+            }
+            catch
+            {
+                return 12f;
+            }
         }
 
         private void SyncLayer(GameObject root)
@@ -379,10 +578,92 @@ namespace BeatSurgeon.Gameplay
 
             _referenceBombParticleRenderer = bombEffect
                 .GetComponentsInChildren<ParticleSystemRenderer>(true)
-                .Where(r => r != null && r.renderMode != ParticleSystemRenderMode.Mesh)
-                .FirstOrDefault();
+                .Where(r => GetReferenceRendererScore(r) > 0)
+                .OrderByDescending(GetReferenceRendererScore)
+                .FirstOrDefault()
+                ?? bombEffect.GetComponentsInChildren<ParticleSystemRenderer>(true)
+                    .FirstOrDefault(r => r != null && r.renderMode != ParticleSystemRenderMode.Mesh)
+                ?? bombEffect.GetComponentsInChildren<ParticleSystemRenderer>(true)
+                    .FirstOrDefault();
 
             return _referenceBombParticleRenderer;
+        }
+
+        private static int GetReferenceRendererScore(ParticleSystemRenderer renderer)
+        {
+            if (renderer == null)
+            {
+                return int.MinValue;
+            }
+
+            string path = GetTransformPath(renderer.transform).ToLowerInvariant();
+            string transformName = renderer.transform != null ? renderer.transform.name : string.Empty;
+            string shaderName = renderer.sharedMaterial != null && renderer.sharedMaterial.shader != null
+                ? renderer.sharedMaterial.shader.name
+                : string.Empty;
+            string materialName = renderer.sharedMaterial != null ? renderer.sharedMaterial.name : string.Empty;
+
+            int score = 0;
+
+            if (shaderName.IndexOf("Custom/CustomParticles", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 2000;
+            }
+
+            if (transformName.IndexOf("ExplosionSparkles", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 1600;
+            }
+
+            if (transformName.IndexOf("Sparkle", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 1000;
+            }
+
+            if (materialName.IndexOf("Sparkle", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 750;
+            }
+
+            if (renderer.renderMode == ParticleSystemRenderMode.Stretch)
+            {
+                score += 500;
+            }
+
+            if (renderer.renderMode == ParticleSystemRenderMode.Mesh)
+            {
+                score -= 1000;
+            }
+
+            if (transformName.IndexOf("Debris", StringComparison.OrdinalIgnoreCase) >= 0 || path.EndsWith("/debrisps", StringComparison.OrdinalIgnoreCase))
+            {
+                score -= 1200;
+            }
+
+            if (shaderName.IndexOf("NoteHD", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score -= 1200;
+            }
+
+            return score;
+        }
+
+        private static string GetTransformPath(Transform transform)
+        {
+            if (transform == null)
+            {
+                return "<null>";
+            }
+
+            var names = new Stack<string>();
+            Transform current = transform;
+            while (current != null)
+            {
+                names.Push(current.name);
+                current = current.parent;
+            }
+
+            return string.Join("/", names.ToArray());
         }
     }
 }

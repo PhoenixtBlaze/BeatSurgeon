@@ -23,6 +23,9 @@ namespace BeatSurgeon.Gameplay
         private static readonly LogUtil _log = LogUtil.GetLogger("SubscriberMessageManager");
         private const int MaxQueuedMessages = 10;
         private const float MessageDisplaySeconds = 10f;
+        private static readonly Vector3 SubscriberCanvasWorldPosition = new Vector3(0f, 3.2f, 6.556407f);
+        private static readonly Vector3 SubscriberCanvasWorldEuler = new Vector3(-21.616f, 0f, 0f);
+        private static readonly Vector3 SubscriberCanvasWorldScale = new Vector3(0.01f, 0.01f, 0.01f);
         private static SubscriberMessageManager _instance;
         private static GameObject _go;
 
@@ -54,6 +57,21 @@ namespace BeatSurgeon.Gameplay
             {
                 _instance.ClearTransientGameplayState();
             }
+        }
+
+        internal bool Prewarm()
+        {
+            if (!EnsureCanvasInstance())
+            {
+                return false;
+            }
+
+            if (_activeCanvasInstance != null)
+            {
+                _activeCanvasInstance.SetActive(false);
+            }
+
+            return true;
         }
 
         internal bool EnqueueMessage(string requesterName, string displayText)
@@ -213,6 +231,26 @@ namespace BeatSurgeon.Gameplay
                 return;
             }
 
+            // Activate briefly so TMP components on newly created children can fully initialize
+            // their internal material state (m_sharedMaterial) before we set outline properties.
+            // SetActive(false) is called at the end of this method.
+            _activeCanvasInstance.SetActive(true);
+
+            _activeCanvasInstance.transform.SetPositionAndRotation(
+                SubscriberCanvasWorldPosition,
+                Quaternion.Euler(SubscriberCanvasWorldEuler));
+            _activeCanvasInstance.transform.localScale = SubscriberCanvasWorldScale;
+
+            _log.Info("SubscriberCanvas runtime pos=" + _activeCanvasInstance.transform.position
+                + " euler=" + _activeCanvasInstance.transform.eulerAngles);
+
+            // Ensure the canvas rect is large enough to contain the text fields we create below.
+            RectTransform canvasRect = _activeCanvasInstance.GetComponent<RectTransform>();
+            if (canvasRect != null && (canvasRect.sizeDelta.x < 400f || canvasRect.sizeDelta.y < 200f))
+            {
+                canvasRect.sizeDelta = new Vector2(800f, 450f);
+            }
+
             foreach (TextMeshProUGUI tmp in _activeCanvasInstance.GetComponentsInChildren<TextMeshProUGUI>(true))
             {
                 if (tmp.name == BundleRegistry.TwitchControllerRefs.SubscriberUserNameTextName)
@@ -233,7 +271,76 @@ namespace BeatSurgeon.Gameplay
                 canvas.worldCamera = Camera.main;
             }
 
+            // The prefab SubscriberCanvas has no pre-built TMP children; create them dynamically.
+            if (_userNameText == null)
+            {
+                _userNameText = CreateTextField(
+                    BundleRegistry.TwitchControllerRefs.SubscriberUserNameTextName,
+                    anchoredPos: new Vector2(0f, 100f),
+                    sizeDelta: new Vector2(740f, 80f),
+                    maxFontSize: 80f,
+                    bold: true);
+            }
+
+            if (_messageText == null)
+            {
+                _messageText = CreateTextField(
+                    BundleRegistry.TwitchControllerRefs.SubscriberMessageTextName,
+                    anchoredPos: new Vector2(0f, -40f),
+                    sizeDelta: new Vector2(740f, 200f),
+                    maxFontSize: 150f,
+                    bold: false);
+            }
+
             _activeCanvasInstance.SetActive(false);
+        }
+
+        private TextMeshProUGUI CreateTextField(string childName, Vector2 anchoredPos, Vector2 sizeDelta, float maxFontSize, bool bold)
+        {
+            if (_activeCanvasInstance == null)
+            {
+                return null;
+            }
+
+            var go = new GameObject(childName, typeof(RectTransform));
+            go.transform.SetParent(_activeCanvasInstance.transform, false);
+
+            var rect = go.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = sizeDelta;
+            rect.anchoredPosition = anchoredPos;
+            rect.localScale = Vector3.one;
+            rect.localRotation = Quaternion.identity;
+
+            go.AddComponent<CanvasRenderer>();
+            var text = go.AddComponent<TextMeshProUGUI>();
+            text.raycastTarget = false;
+            text.alignment = TextAlignmentOptions.Center;
+            text.enableWordWrapping = true;
+            text.overflowMode = TextOverflowModes.Overflow;
+            text.enableAutoSizing = true;
+            text.margin = new Vector4(10f, 4f, 10f, 4f);
+            text.fontSizeMin = 10f;
+            text.fontSizeMax = maxFontSize;
+            text.fontSize = maxFontSize;
+            text.color = Color.white;
+            if (bold)
+            {
+                text.fontStyle = FontStyles.Bold;
+            }
+
+            // Apply font before setting outline — TMP needs a non-null material to clone for the outline instance.
+            FontBundleLoader.TryApplySelectedBombFont(text, null, cloneMaterial: true);
+
+            if (text.font != null)
+            {
+                text.outlineWidth = 0.2f;
+                text.outlineColor = Color.black;
+            }
+
+            return text;
         }
 
         private void ClearTransientGameplayState()
