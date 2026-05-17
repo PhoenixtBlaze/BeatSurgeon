@@ -15,7 +15,7 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 >
 > I am developing and supporting **Beat Surgeon** full-time to bring more fun, interactive features to the Beat Saber community. 
 >
-> Please be aware that I am still learning the intricacies of Beat Saber modding. The current version has been tested to make all these new and old effects work reliably and without causing any performance issues or conflicts with other mods, I plan to refine all that it does and plan for better features in future updates. 
+> Please be aware that I am still learning the intricacies of Beat Saber modding. The current version has been tested to make all these new and old effects work reliably and without causing any performance issues or conflicts with other mods, I plan to refine all that it does and plan for better features in future updates. So if you encounter any conflicts or bugs along with any issues, please feel free to reach out to me and tell me about it. 
 >
 > As this is one of my full-time focuses so, **any support to help me keep going is highly appreciated!** Your feedback and support allow me to continue tuning the mod and adding new features.
 
