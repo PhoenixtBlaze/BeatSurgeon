@@ -14,6 +14,11 @@ namespace BeatSurgeon.Gameplay
     /// </summary>
     public class OutlineEmitterManager : MonoBehaviour
     {
+        private sealed class OutlineEmitterInstanceData : MonoBehaviour
+        {
+            internal ParticleSystem[] CachedParticleSystems;
+        }
+
         private static OutlineEmitterManager _instance;
         private static GameObject _go;
 
@@ -22,6 +27,7 @@ namespace BeatSurgeon.Gameplay
         private readonly Dictionary<NoteController, GameObject> _attached = new Dictionary<NoteController, GameObject>();
         private readonly Queue<GameObject> _pool = new Queue<GameObject>();
         private const int MaxPoolSize = 64;
+        internal const int RecommendedWarmPoolSize = 24;
         private Coroutine _stopCoroutine;
 
         public static OutlineEmitterManager Instance
@@ -81,13 +87,7 @@ namespace BeatSurgeon.Gameplay
 
         private IEnumerator StopAfterSecondsCoroutine(float seconds)
         {
-            float elapsed = 0f;
-            while (elapsed < seconds)
-            {
-                elapsed += Time.deltaTime;
-                yield return null;
-            }
-
+            yield return new WaitForSeconds(seconds);
             StopOutlineEffect();
         }
 
@@ -197,6 +197,33 @@ namespace BeatSurgeon.Gameplay
             return TryAttachEmitter(noteController);
         }
 
+        internal bool EnsureWarmPoolSize(int desiredPoolSize)
+        {
+            desiredPoolSize = Mathf.Clamp(desiredPoolSize, 0, MaxPoolSize);
+            if (desiredPoolSize <= 0)
+            {
+                return true;
+            }
+
+            if (!EnsureTemplate())
+            {
+                return false;
+            }
+
+            while (_pool.Count < desiredPoolSize)
+            {
+                GameObject instance = CreatePooledInstance(warmActivate: true);
+                if (instance == null)
+                {
+                    return false;
+                }
+
+                _pool.Enqueue(instance);
+            }
+
+            return true;
+        }
+
         public void DetachFromNote(NoteController noteController)
         {
             CleanupFor(noteController);
@@ -248,6 +275,11 @@ namespace BeatSurgeon.Gameplay
                 if (_attached.ContainsKey(noteController)) return true;
 
                 var go = GetOrCreatePooledInstance();
+                OutlineEmitterInstanceData instanceData = GetInstanceData(go);
+                if (instanceData == null)
+                {
+                    return false;
+                }
 
                 // Parent to the note transform if available
                 Transform parent = noteController.noteTransform != null ? noteController.noteTransform : noteController.transform;
@@ -257,13 +289,18 @@ namespace BeatSurgeon.Gameplay
                 go.transform.localRotation = Quaternion.identity;
                 go.transform.localScale = Vector3.one;
                 go.SetActive(true);
-                foreach (var ps in go.GetComponentsInChildren<ParticleSystem>(true))
+                foreach (ParticleSystem particleSystem in instanceData.CachedParticleSystems)
                 {
+                    if (particleSystem == null)
+                    {
+                        continue;
+                    }
+
                     try
                     {
-                        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                        ps.Simulate(0.35f, true, true, true);
-                        ps.Play(true);
+                        particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        particleSystem.Simulate(0.35f, true, true, true);
+                        particleSystem.Play(true);
                     }
                     catch { }
                 }
@@ -317,13 +354,22 @@ namespace BeatSurgeon.Gameplay
                 {
                     if (go != null)
                     {
-                        foreach (var ps in go.GetComponentsInChildren<ParticleSystem>(true))
+                        OutlineEmitterInstanceData instanceData = GetInstanceData(go);
+                        if (instanceData != null)
                         {
-                            try
+                            foreach (ParticleSystem particleSystem in instanceData.CachedParticleSystems)
                             {
-                                ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                                if (particleSystem == null)
+                                {
+                                    continue;
+                                }
+
+                                try
+                                {
+                                    particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                                }
+                                catch { }
                             }
-                            catch { }
                         }
                         go.SetActive(false);
                         go.transform.SetParent(null);
@@ -349,6 +395,11 @@ namespace BeatSurgeon.Gameplay
                 }
             }
 
+            return CreatePooledInstance(warmActivate: false);
+        }
+
+        private GameObject CreatePooledInstance(bool warmActivate)
+        {
             var templateRoot = _templateParticleSystem.transform.root != null
                 ? _templateParticleSystem.transform.root.gameObject
                 : _templateParticleSystem.gameObject;
@@ -373,7 +424,81 @@ namespace BeatSurgeon.Gameplay
                 VrVfxMaterialHelper.RepairShaders(newObj, "OutlineEmitterManager instance");
             }
 
+            OutlineEmitterInstanceData instanceData = GetInstanceData(newObj);
+            if (warmActivate)
+            {
+                WarmActivateInstance(newObj, instanceData);
+            }
+
             return newObj;
+        }
+
+        private static void WarmActivateInstance(GameObject instanceRoot, OutlineEmitterInstanceData instanceData)
+        {
+            if (instanceRoot == null || instanceData == null)
+            {
+                return;
+            }
+
+            try
+            {
+                instanceRoot.SetActive(true);
+                foreach (ParticleSystem particleSystem in instanceData.CachedParticleSystems)
+                {
+                    if (particleSystem == null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        particleSystem.Simulate(0.35f, true, true, true);
+                        particleSystem.Play(true);
+                    }
+                    catch { }
+                }
+            }
+            finally
+            {
+                foreach (ParticleSystem particleSystem in instanceData.CachedParticleSystems)
+                {
+                    if (particleSystem == null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    }
+                    catch { }
+                }
+
+                instanceRoot.SetActive(false);
+                instanceRoot.transform.SetParent(null, false);
+            }
+        }
+
+        private static OutlineEmitterInstanceData GetInstanceData(GameObject root)
+        {
+            if (root == null)
+            {
+                return null;
+            }
+
+            OutlineEmitterInstanceData instanceData = root.GetComponent<OutlineEmitterInstanceData>();
+            if (instanceData == null)
+            {
+                instanceData = root.AddComponent<OutlineEmitterInstanceData>();
+            }
+
+            if (instanceData.CachedParticleSystems == null || instanceData.CachedParticleSystems.Length == 0)
+            {
+                instanceData.CachedParticleSystems = root.GetComponentsInChildren<ParticleSystem>(true);
+            }
+
+            return instanceData;
         }
 
         private static string GetRelativePath(Transform root, Transform child)
@@ -432,6 +557,8 @@ namespace BeatSurgeon.Gameplay
             {
                 emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 24) });
             }
+
+
             catch
             {
             }

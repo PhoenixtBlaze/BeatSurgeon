@@ -23,7 +23,7 @@ namespace BeatSurgeon.Gameplay
         private static readonly LogUtil _log = LogUtil.GetLogger("SubscriberMessageManager");
         private const int MaxQueuedMessages = 10;
         private const float MessageDisplaySeconds = 10f;
-        private static readonly Vector3 SubscriberCanvasWorldPosition = new Vector3(0f, 3.2f, 6.556407f);
+        private static readonly Vector3 SubscriberCanvasWorldPosition = new Vector3(0f, 2.2f, 6.556407f);
         private static readonly Vector3 SubscriberCanvasWorldEuler = new Vector3(-21.616f, 0f, 0f);
         private static readonly Vector3 SubscriberCanvasWorldScale = new Vector3(0.01f, 0.01f, 0.01f);
         private static SubscriberMessageManager _instance;
@@ -64,6 +64,17 @@ namespace BeatSurgeon.Gameplay
             if (!EnsureCanvasInstance())
             {
                 return false;
+            }
+
+            ShowMessage("Warmup", "Warmup");
+            if (_userNameText != null)
+            {
+                _userNameText.ForceMeshUpdate();
+            }
+
+            if (_messageText != null)
+            {
+                _messageText.ForceMeshUpdate();
             }
 
             if (_activeCanvasInstance != null)
@@ -334,7 +345,8 @@ namespace BeatSurgeon.Gameplay
             // Apply font before setting outline — TMP needs a non-null material to clone for the outline instance.
             FontBundleLoader.TryApplySelectedBombFont(text, null, cloneMaterial: true);
 
-            if (text.font != null)
+            var _mat = text.fontSharedMaterial ?? text.fontMaterial;
+            if (text.font != null && _mat != null)
             {
                 text.outlineWidth = 0.2f;
                 text.outlineColor = Color.black;

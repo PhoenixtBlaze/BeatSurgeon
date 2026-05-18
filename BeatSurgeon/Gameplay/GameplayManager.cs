@@ -44,6 +44,9 @@ namespace BeatSurgeon.Gameplay
 
         private bool _isInMap;
         private bool _sceneEventsHooked;
+        private bool _deferredQueueFlushCompletedForCurrentScene;
+        private bool _deferredQueueFlushInProgress;
+        private int _deferredQueueSceneVersion;
 
         public bool IsInMap
         {
@@ -230,6 +233,13 @@ namespace BeatSurgeon.Gameplay
             using (SceneChangeProfiler.Auto())
             {
                 bool wasInMap = IsInMap;
+                unchecked
+                {
+                    _deferredQueueSceneVersion++;
+                }
+
+                _deferredQueueFlushCompletedForCurrentScene = false;
+                _deferredQueueFlushInProgress = false;
                 UpdateSceneState(next, true);
 
                 if (wasInMap && !IsInMap)
@@ -243,8 +253,9 @@ namespace BeatSurgeon.Gameplay
                 else if (!wasInMap && IsInMap && _deferredEventQueue != null)
                 {
                     // InLevelQueueProcessor owns song-switch timing only and has no
-                    // "process pending effects at level start" phase, so the drain lives here.
-                    _ = FlushDeferredQueueAsync();
+                    // "process pending effects at level start" phase, so the safe drain lives here
+                    // and will retry later in the same scene once ranked detection clears.
+                    _ = FlushDeferredQueueAsync(_deferredQueueSceneVersion);
                 }
             }
         }
@@ -303,7 +314,7 @@ namespace BeatSurgeon.Gameplay
 
             if (IsInMap)
             {
-                warmupSucceeded &= GlitterLoopEmitterManager.Instance.Prewarm();
+                warmupSucceeded &= OutlineEmitterManager.Instance.EnsureWarmPoolSize(OutlineEmitterManager.RecommendedWarmPoolSize);
             }
 
             yield return null;
@@ -355,6 +366,28 @@ namespace BeatSurgeon.Gameplay
                 yield break;
             }
 
+            BombCutPatch.PrewarmFlyingTextResources();
+
+            yield return null;
+
+            for (int targetCount = 1; targetCount <= SubscriberTrailCubeManager.RecommendedWarmPoolSize; targetCount++)
+            {
+                if (!IsInMap)
+                {
+                    _glitterWarmupRoutine = null;
+                    yield break;
+                }
+
+                warmupSucceeded &= SubscriberTrailCubeManager.Instance.EnsureWarmPoolSize(targetCount);
+                yield return null;
+            }
+
+            if (!IsInMap)
+            {
+                _glitterWarmupRoutine = null;
+                yield break;
+            }
+
             if (IsInMap)
             {
                 warmupSucceeded &= FollowerMessageManager.Instance.Prewarm();
@@ -375,18 +408,6 @@ namespace BeatSurgeon.Gameplay
 
             yield return null;
 
-            for (int targetCount = 1; targetCount <= SubscriberTrailCubeManager.RecommendedWarmPoolSize; targetCount++)
-            {
-                if (!IsInMap)
-                {
-                    _glitterWarmupRoutine = null;
-                    yield break;
-                }
-
-                warmupSucceeded &= SubscriberTrailCubeManager.Instance.EnsureWarmPoolSize(targetCount);
-                yield return null;
-            }
-
             _glitterWarmupCompletedForScene = warmupSucceeded;
             _glitterWarmupRoutine = null;
 
@@ -400,22 +421,77 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
-        private async Task FlushDeferredQueueAsync()
+        private async Task FlushDeferredQueueAsync(int sceneVersion)
         {
-            var pending = new List<DeferredEventEntry>();
-            _deferredEventQueue.DrainTo(pending);
-
-            if (pending.Count == 0)
+            if (!CanStartDeferredQueueFlush(sceneVersion))
             {
                 return;
             }
 
-            _log.Info("[BeatSurgeon] Flushing " + pending.Count + " deferred event(s) at gameplay scene entry.");
+            _deferredQueueFlushInProgress = true;
+            var pending = new List<DeferredEventEntry>();
 
-            foreach (DeferredEventEntry entry in pending)
+            try
             {
-                await ProcessDeferredEntryAsync(entry).ConfigureAwait(false);
+                _deferredEventQueue.DrainTo(pending);
+
+                if (pending.Count == 0)
+                {
+                    if (sceneVersion == _deferredQueueSceneVersion)
+                    {
+                        _deferredQueueFlushCompletedForCurrentScene = true;
+                    }
+
+                    return;
+                }
+
+                _log.Info("[BeatSurgeon] Flushing " + pending.Count + " deferred event(s) once current gameplay is confirmed unranked.");
+
+                for (int index = 0; index < pending.Count; index++)
+                {
+                    if (!CanContinueDeferredQueueFlush(sceneVersion))
+                    {
+                        for (int requeueIndex = index; requeueIndex < pending.Count; requeueIndex++)
+                        {
+                            _deferredEventQueue.Enqueue(pending[requeueIndex]);
+                        }
+
+                        return;
+                    }
+
+                    await ProcessDeferredEntryAsync(pending[index]).ConfigureAwait(false);
+                }
+
+                if (sceneVersion == _deferredQueueSceneVersion)
+                {
+                    _deferredQueueFlushCompletedForCurrentScene = true;
+                }
             }
+            finally
+            {
+                if (sceneVersion == _deferredQueueSceneVersion)
+                {
+                    _deferredQueueFlushInProgress = false;
+                }
+            }
+        }
+
+        private bool CanStartDeferredQueueFlush(int sceneVersion)
+        {
+            return _deferredEventQueue != null
+                && IsInMap
+                && sceneVersion == _deferredQueueSceneVersion
+                && !_deferredQueueFlushCompletedForCurrentScene
+                && !_deferredQueueFlushInProgress
+                && !RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking;
+        }
+
+        private bool CanContinueDeferredQueueFlush(int sceneVersion)
+        {
+            return _deferredEventQueue != null
+                && IsInMap
+                && sceneVersion == _deferredQueueSceneVersion
+                && !RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking;
         }
 
         private async Task ProcessDeferredEntryAsync(DeferredEventEntry entry)
@@ -1060,7 +1136,7 @@ namespace BeatSurgeon.Gameplay
             await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
                 .StartNew(() =>
                 {
-                    started = TestEffectManager.Instance.QueueBits(
+                    started = GlitterManager.Instance.QueueBits(
                         requestedBits,
                         ctx?.Username,
                         out queuedEffects,
@@ -1759,6 +1835,15 @@ namespace BeatSurgeon.Gameplay
             using (UpdateProfiler.Auto())
             {
                 // Scene-driven map detection; intentionally no object discovery in Update.
+                if (IsInMap
+                    && _deferredEventQueue != null
+                    && _deferredEventQueue.HasPendingEntries
+                    && !_deferredQueueFlushCompletedForCurrentScene
+                    && !_deferredQueueFlushInProgress
+                    && !RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking)
+                {
+                    _ = FlushDeferredQueueAsync(_deferredQueueSceneVersion);
+                }
             }
         }
 

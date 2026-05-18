@@ -483,14 +483,23 @@ namespace BeatSurgeon.Chat
                 ChatContext bitEventCtx = CreateBitEventContext(ctx);
                 if (bitEventCtx != null)
                 {
-                    if (_deferredEventQueue != null && !(GameplayManager.GetInstance()?.IsInMap ?? false))
+                    bool isInGameplay = GameplayManager.GetInstance()?.IsInMap ?? false;
+                    bool isRankedGameplayBlocked = isInGameplay && RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking;
+                    if (_deferredEventQueue != null && (!isInGameplay || isRankedGameplayBlocked))
                     {
                         _deferredEventQueue.Enqueue(new DeferredEventEntry(
                             EventKind.Bits,
                             ctx.SenderName,
                             ctx.Bits,
                             DateTime.UtcNow));
-                        _log.Debug("[BeatSurgeon] Bits event deferred for " + ctx.SenderName + " (" + ctx.Bits + " bits) — not in gameplay.");
+                        _log.Debug(
+                            "[BeatSurgeon] Bits event deferred for "
+                            + ctx.SenderName
+                            + " ("
+                            + ctx.Bits
+                            + " bits) — "
+                            + (isRankedGameplayBlocked ? "ranked gameplay is active or still checking" : "not in gameplay")
+                            + ".");
                     }
                     else
                     {

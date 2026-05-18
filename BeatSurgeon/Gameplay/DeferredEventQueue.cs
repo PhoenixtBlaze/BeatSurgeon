@@ -13,7 +13,8 @@ namespace BeatSurgeon.Gameplay
 
     /// <summary>
     /// Value type describing a single effect that arrived while the player was outside gameplay
-    /// and must be fired the next time a gameplay scene loads.
+    /// or while ranked gameplay/ranked-checking was active, and must be fired once an unranked
+    /// gameplay scene is available.
     /// </summary>
     internal struct DeferredEventEntry
     {
@@ -56,8 +57,9 @@ namespace BeatSurgeon.Gameplay
 
     /// <summary>
     /// Session-scoped, thread-safe queue for effects that arrived while the player was not in a
-    /// gameplay scene. Enqueue is safe to call from any thread (including the EventSub WebSocket
-    /// background thread). DrainTo is called on the Unity main thread at scene-start.
+    /// gameplay scene or while ranked gameplay was blocking visuals. Enqueue is safe to call from
+    /// any thread (including the EventSub WebSocket background thread). DrainTo is called when the
+    /// current gameplay scene has been confirmed safe for visual playback.
     ///
     /// The queue is intentionally NOT persisted to disk. Events that are pending when the player
     /// quits Beat Saber are silently dropped.
@@ -66,6 +68,8 @@ namespace BeatSurgeon.Gameplay
     {
         private readonly ConcurrentQueue<DeferredEventEntry> _queue =
             new ConcurrentQueue<DeferredEventEntry>();
+
+        internal bool HasPendingEntries => !_queue.IsEmpty;
 
         /// <summary>
         /// Enqueue a deferred effect entry. Safe to call from any thread.

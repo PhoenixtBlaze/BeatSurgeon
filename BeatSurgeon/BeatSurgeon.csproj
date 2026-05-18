@@ -365,9 +365,9 @@
     <Compile Include="Gameplay\RendererWatchdog.cs" />
     <Compile Include="Gameplay\BeatSurgeonTextMover.cs" />
     <Compile Include="Gameplay\SongRequest.cs" />
+    <Compile Include="Gameplay\GlitterManager.cs" />
     <Compile Include="Gameplay\SubscriberMessageManager.cs" />
     <Compile Include="Gameplay\SubscriberTrailCubeManager.cs" />
-    <Compile Include="Gameplay\TestEffectManager.cs" />
     <Compile Include="Gameplay\BundleRegistry.cs" />
     <Compile Include="Gameplay\SurgeonEffectsBundleService.cs" />
     <Compile Include="Gameplay\OutlineEmitterManager.cs" />
@@ -376,11 +376,13 @@
     <Compile Include="Harmony\DisappearingArrowsPatch.cs" />
     <Compile Include="Harmony\EndlessHarmonyPatch.cs" />
     <Compile Include="Harmony\FasterSongPatch.cs" />
+    <Compile Include="Harmony\GlitterCutPatch.cs" />
+    <Compile Include="Harmony\GlitterNotePatch.cs" />
     <Compile Include="Harmony\GhostNotesPatch.cs" />
     <Compile Include="Harmony\GameplayCoreInstallerPatch.cs" />
     <Compile Include="Harmony\LevelSelectionPatch.cs" />
     <Compile Include="Harmony\RainbowNotePatch.cs" />
-    <Compile Include="Harmony\TestCutPatch.cs" />
+    <Compile Include="Harmony\SubscriberTrailCubePatch.cs" />
     <Compile Include="Integrations\AccSaberClient.cs" />
     <Compile Include="Integrations\BeatSaverClient.cs" />
     <Compile Include="Integrations\EndlessPlaylistService.cs" />

@@ -50,7 +50,8 @@ namespace BeatSurgeon.Twitch
 
             string tierLabel = TierToLabel(notification.Tier);
 
-            if (!_gameplayManager.IsInMap)
+            string deferredReason = GetDeferredReason();
+            if (deferredReason != null)
             {
                 _deferredEventQueue.Enqueue(new DeferredEventEntry(
                     EventKind.Subscription,
@@ -60,7 +61,7 @@ namespace BeatSurgeon.Twitch
                     notification.CumulativeMonths,
                     notification.GiftCount,
                     notification.EventSubKind));
-                _log.Debug("Subscription event deferred for " + displayName + " — not in gameplay.");
+                _log.Debug("Subscription event deferred for " + displayName + " — " + deferredReason + ".");
                 return;
             }
 
@@ -180,6 +181,23 @@ namespace BeatSurgeon.Twitch
                 case "prime": return "Prime";
                 default: return "Tier 1";
             }
+        }
+
+        private string GetDeferredReason()
+        {
+            if (_deferredEventQueue == null)
+            {
+                return null;
+            }
+
+            if (!_gameplayManager.IsInMap)
+            {
+                return "not in gameplay";
+            }
+
+            return RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking
+                ? "ranked gameplay is active or still checking"
+                : null;
         }
     }
 }

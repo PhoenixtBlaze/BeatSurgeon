@@ -285,7 +285,7 @@ namespace BeatSurgeon.UI.Controllers
 
         private async System.Threading.Tasks.Task RefreshVisualsAccessStateAsync()
         {
-            if (!TwitchAuthManager.Instance.IsAuthenticated)
+            if (!PremiumVisualFeatureAccessController.HasAuthenticatedSupporterPlatform())
             {
                 return;
             }

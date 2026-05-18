@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeatSurgeon.Chat.Processors;
 using BeatSurgeon.Gameplay;
+using BeatSurgeon.Twitch;
 using BeatSurgeon.Utils;
 using Zenject;
 
@@ -363,11 +364,11 @@ namespace BeatSurgeon.Chat
 
             SendResponse(
                 "Surgeon command executed by " + (ctx?.SenderName ?? "Unknown"),
-                BuildSurgeonStatusMessage());
+                BuildSurgeonStatusMessage(ctx));
             return true;
         }
 
-        private string BuildSurgeonStatusMessage()
+        private string BuildSurgeonStatusMessage(ChatContext ctx)
         {
             var enabled = new List<string>();
 
@@ -401,8 +402,18 @@ namespace BeatSurgeon.Chat
             if (CommandRuntimeSettings.SuperFastEnabled) enabled.Add("!superfast");
             if (CommandRuntimeSettings.SlowerEnabled) enabled.Add("!slower");
             if (CommandRuntimeSettings.FlashbangEnabled) enabled.Add("!flashbang");
-            enabled.Add("!fmsg <text> [supporter]");
-            if (PluginConfig.Instance?.BitEffectEnabled ?? false)
+
+            if (ShouldAdvertiseFollowerMessageCommand())
+            {
+                enabled.Add("!fmsg <text>");
+            }
+
+            if (ShouldAdvertiseSubscriberMessageCommand(ctx))
+            {
+                enabled.Add("!smsg <text>");
+            }
+
+            if (ShouldAdvertiseGlitterCommand())
             {
                 enabled.Add("!glitter <bits>");
             }
@@ -424,6 +435,35 @@ namespace BeatSurgeon.Chat
             }
 
             return message;
+        }
+
+        private static bool ShouldAdvertiseFollowerMessageCommand()
+        {
+            PluginConfig config = PluginConfig.Instance;
+            return config != null
+                && config.FollowEffectsEnabled
+                && PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
+        }
+
+        private static bool ShouldAdvertiseSubscriberMessageCommand(ChatContext ctx)
+        {
+            PluginConfig config = PluginConfig.Instance;
+            if (config == null
+                || !config.SubEffectsEnabled
+                || !PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess())
+            {
+                return false;
+            }
+
+            return ctx != null && (ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster);
+        }
+
+        private static bool ShouldAdvertiseGlitterCommand()
+        {
+            PluginConfig config = PluginConfig.Instance;
+            return config != null
+                && config.BitEffectEnabled
+                && PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
         }
 
         private bool HandleSurgeonDisable(ChatContext ctx, string fullCommand)

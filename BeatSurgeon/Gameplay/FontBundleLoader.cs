@@ -336,6 +336,20 @@ namespace BeatSurgeon.Gameplay
                         textComponent.fontSharedMaterial = fontMaterial;
                     }
                 }
+                else
+                {
+                    BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Could not get/create material for custom font '{customFont?.name}'");
+                    return false;
+                }
+            }
+
+            // Ensure the TMP text has a usable material before callers try to modify
+            // material-dependent properties like outlineWidth. If no material is
+            // available, signal failure so callers can avoid dereferencing null.
+            if (textComponent.fontSharedMaterial == null && textComponent.fontMaterial == null && textComponent.material == null)
+            {
+                BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: Text component has no TMP material after applying font.");
+                return false;
             }
 
             return true;

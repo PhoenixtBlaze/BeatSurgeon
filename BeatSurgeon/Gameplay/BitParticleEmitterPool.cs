@@ -21,28 +21,14 @@ namespace BeatSurgeon.Gameplay
         private const float MaxReturnMotionDuration = 1.8f;
         private static bool _loggedBurstMotionSnapshot;
         private static bool _loggedFollowerLineTargetSnapshot;
-        private static readonly HashSet<int> _loggedMissingSpecialBranchDenominations = new HashSet<int>();
-
         private readonly struct BitBurstProfile
         {
-            internal BitBurstProfile(string primaryName, string specialName, Color burstColor, float burstSpeed, int burstParticles, int specialEmitCount, bool specialUsesPlay)
+            internal BitBurstProfile(string primaryName)
             {
                 PrimaryName = primaryName;
-                SpecialName = specialName;
-                BurstColor = burstColor;
-                BurstSpeed = burstSpeed;
-                BurstParticles = burstParticles;
-                SpecialEmitCount = specialEmitCount;
-                SpecialUsesPlay = specialUsesPlay;
             }
 
             internal string PrimaryName { get; }
-            internal string SpecialName { get; }
-            internal Color BurstColor { get; }
-            internal float BurstSpeed { get; }
-            internal int BurstParticles { get; }
-            internal int SpecialEmitCount { get; }
-            internal bool SpecialUsesPlay { get; }
         }
 
         private static BitParticleEmitterPool _instance;
@@ -392,6 +378,7 @@ namespace BeatSurgeon.Gameplay
 
             ResetBurstState(emitterRoot);
             DisableRejectedBranches(emitterRoot);
+            DisableUnusedBurstBranches(emitterRoot);
             EnsureBurstMotionDriver(emitterRoot);
             DisableBurstAutoplay(emitterRoot);
 
@@ -406,6 +393,48 @@ namespace BeatSurgeon.Gameplay
                 RebindParticleMaterialShader(particleRenderer, referenceRenderer);
                 SyncStereoRendererState(particleRenderer, referenceRenderer);
                 HardenStereoCulling(particleRenderer);
+            }
+        }
+
+        private static void DisableUnusedBurstBranches(GameObject emitterRoot)
+        {
+            if (emitterRoot == null)
+            {
+                return;
+            }
+
+            string[] unusedBranchNames =
+            {
+                BundleRegistry.TwitchControllerRefs.SubBurstEmitterName,
+                BundleRegistry.TwitchControllerRefs.OneBitParticleSpecialName,
+                BundleRegistry.TwitchControllerRefs.HundredBitParticleSpecialName,
+                BundleRegistry.TwitchControllerRefs.ThousandBitParticleSpecialName,
+                BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleSpecialName,
+                BundleRegistry.TwitchControllerRefs.TenThousandBitParticleSpecialName,
+            };
+
+            for (int index = 0; index < unusedBranchNames.Length; index++)
+            {
+                Transform branch = FindDescendantByNormalizedName(emitterRoot.transform, unusedBranchNames[index]);
+                if (branch == null)
+                {
+                    continue;
+                }
+
+                foreach (ParticleSystem particleSystem in branch.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    try
+                    {
+                        var main = particleSystem.main;
+                        main.playOnAwake = false;
+                        particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                branch.gameObject.SetActive(false);
             }
         }
 
@@ -466,7 +495,7 @@ namespace BeatSurgeon.Gameplay
 
             primary.Emit(1);
 
-            LogBurstMotionSnapshot(emitterRoot, denomination, primary, string.Empty);
+            LogBurstMotionSnapshot(emitterRoot, denomination, primary);
 
             return true;
         }
@@ -524,19 +553,6 @@ namespace BeatSurgeon.Gameplay
                 motionDriver.ResetState();
             }
 
-            Transform subBurstRoot = FindDescendantByNormalizedName(
-                emitterRoot.transform,
-                BundleRegistry.TwitchControllerRefs.SubBurstEmitterName);
-            if (subBurstRoot != null)
-            {
-                subBurstRoot.gameObject.SetActive(false);
-            }
-
-            SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.OneBitParticleSpecialName, false);
-            SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.HundredBitParticleSpecialName, false);
-            SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.ThousandBitParticleSpecialName, false);
-            SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleSpecialName, false);
-            SetSpecialParticleActive(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.TenThousandBitParticleSpecialName, false);
         }
 
         private static void DisableNonSelectedDenominations(Transform emitterRoot, string primaryName)
@@ -634,7 +650,7 @@ namespace BeatSurgeon.Gameplay
             return Mathf.Min(clampedDuration, Mathf.Max(MinReturnMotionDuration, lifetime - 0.1f));
         }
 
-        private static void LogBurstMotionSnapshot(GameObject emitterRoot, int denomination, ParticleSystem primary, string specialName)
+        private static void LogBurstMotionSnapshot(GameObject emitterRoot, int denomination, ParticleSystem primary)
         {
             if (_loggedBurstMotionSnapshot || emitterRoot == null)
             {
@@ -644,20 +660,12 @@ namespace BeatSurgeon.Gameplay
             _loggedBurstMotionSnapshot = true;
 
             ParticleSystem rootBurst = emitterRoot.GetComponent<ParticleSystem>();
-            ParticleSystem special = string.IsNullOrWhiteSpace(specialName)
-                ? null
-                : FindParticleSystemByName(emitterRoot.transform, specialName);
-            Transform subBurst = FindDescendantByNormalizedName(emitterRoot.transform, BundleRegistry.TwitchControllerRefs.SubBurstEmitterName);
-            ParticleSystem subBurstParticle = subBurst?.GetComponent<ParticleSystem>()
-                ?? subBurst?.GetComponentInChildren<ParticleSystem>(true);
             BeatSurgeonBurstMotionDriver motionDriver = emitterRoot.GetComponent<BeatSurgeonBurstMotionDriver>();
 
             _log.Info(
                 "Burst snapshot denomination=" + denomination
                 + " | root=" + DescribeParticleSystem(rootBurst)
                 + " | primary=" + DescribeParticleSystem(primary)
-                + " | special=" + DescribeParticleSystem(special)
-                + " | subBurst=" + DescribeParticleSystem(subBurstParticle)
                 + " | motion=" + DescribeMotionDriver(motionDriver));
         }
 
@@ -722,15 +730,6 @@ namespace BeatSurgeon.Gameplay
             catch
             {
                 return "<dynamic>";
-            }
-        }
-
-        private static void SetSpecialParticleActive(Transform root, string particleName, bool active)
-        {
-            Transform child = FindDescendantByNormalizedName(root, particleName);
-            if (child != null)
-            {
-                child.gameObject.SetActive(active);
             }
         }
 
@@ -821,116 +820,22 @@ namespace BeatSurgeon.Gameplay
                 : value.Trim().Replace(" ", string.Empty).Replace("_", string.Empty).ToLowerInvariant();
         }
 
-        private static void ConfigureAuxiliaryBurstParticleSystem(ParticleSystem particleSystem, BitBurstProfile profile)
-        {
-            if (particleSystem == null)
-            {
-                return;
-            }
-
-            try
-            {
-                var main = particleSystem.main;
-                main.playOnAwake = false;
-                main.startColor = profile.BurstColor;
-            }
-            catch
-            {
-            }
-        }
-
-        private static void LogMissingSpecialBranchOnce(GameObject emitterRoot, int denomination, string expectedSpecialName)
-        {
-            if (emitterRoot == null || !_loggedMissingSpecialBranchDenominations.Add(denomination))
-            {
-                return;
-            }
-
-            string nearbyBranches = string.Join(
-                ", ",
-                emitterRoot.transform
-                    .GetComponentsInChildren<Transform>(true)
-                    .Select(transform => transform.name)
-                    .Where(name =>
-                    {
-                        string normalizedName = NormalizeSelectionToken(name);
-                        return normalizedName.Contains(denomination.ToString())
-                            || normalizedName.Contains("special")
-                            || normalizedName.Contains("subhypercube")
-                            || normalizedName.Contains("burst");
-                    })
-                    .Distinct()
-                    .Take(20));
-
-            _log.Warn(
-                "Missing special bit burst branch for denomination="
-                + denomination
-                + " expected='"
-                + expectedSpecialName
-                + "' root='"
-                + emitterRoot.name
-                + "' nearby="
-                + (string.IsNullOrWhiteSpace(nearbyBranches) ? "<none>" : nearbyBranches));
-        }
-
         private static BitBurstProfile GetBurstProfile(int denomination)
         {
             switch (denomination)
             {
                 case 1:
-                    return new BitBurstProfile(
-                        BundleRegistry.TwitchControllerRefs.OneBitParticleName,
-                        BundleRegistry.TwitchControllerRefs.OneBitParticleSpecialName,
-                        Color.white,
-                        2f,
-                        100,
-                        1000,
-                        false);
+                    return new BitBurstProfile(BundleRegistry.TwitchControllerRefs.OneBitParticleName);
                 case 100:
-                    return new BitBurstProfile(
-                        BundleRegistry.TwitchControllerRefs.HundredBitParticleName,
-                        BundleRegistry.TwitchControllerRefs.HundredBitParticleSpecialName,
-                        new Color(0.5724139f, 0f, 1f, 1f),
-                        5f,
-                        250,
-                        1000,
-                        false);
+                    return new BitBurstProfile(BundleRegistry.TwitchControllerRefs.HundredBitParticleName);
                 case 1000:
-                    return new BitBurstProfile(
-                        BundleRegistry.TwitchControllerRefs.ThousandBitParticleName,
-                        BundleRegistry.TwitchControllerRefs.ThousandBitParticleSpecialName,
-                        Color.green,
-                        10f,
-                        750,
-                        1000,
-                        false);
+                    return new BitBurstProfile(BundleRegistry.TwitchControllerRefs.ThousandBitParticleName);
                 case 5000:
-                    return new BitBurstProfile(
-                        BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleName,
-                        BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleSpecialName,
-                        Color.blue,
-                        15f,
-                        2000,
-                        1000,
-                        false);
+                    return new BitBurstProfile(BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleName);
                 case 10000:
-                    return new BitBurstProfile(
-                        BundleRegistry.TwitchControllerRefs.TenThousandBitParticleName,
-                        BundleRegistry.TwitchControllerRefs.TenThousandBitParticleSpecialName,
-                        Color.red,
-                        20f,
-                        5000,
-                        0,
-                        true);
+                    return new BitBurstProfile(BundleRegistry.TwitchControllerRefs.TenThousandBitParticleName);
                 default:
-                    return new BitBurstProfile(
-                        BundleRegistry.TwitchControllerRefs.OneBitParticleName,
-                        BundleRegistry.TwitchControllerRefs.OneBitParticleSpecialName,
-                        Color.white,
-                        2f,
-                        100,
-                        1000,
-                        false);
+                    return new BitBurstProfile(BundleRegistry.TwitchControllerRefs.OneBitParticleName);
             }
         }
 
@@ -951,26 +856,6 @@ namespace BeatSurgeon.Gameplay
                 .FirstOrDefault(ps => ps != null && ps.transform == emitterRoot.transform);
         }
 
-        private static void ConfigureRootBurstParticleSystem(ParticleSystem particleSystem, BitBurstProfile profile)
-        {
-            if (particleSystem == null)
-            {
-                return;
-            }
-
-            try
-            {
-                var main = particleSystem.main;
-                main.loop = false;
-                main.playOnAwake = false;
-                main.startColor = profile.BurstColor;
-                main.startSpeed = profile.BurstSpeed;
-            }
-            catch
-            {
-            }
-        }
-
         private static Vector3 ResolveEmissionAnchorLocalOffset(GameObject emitterRoot, int denomination)
         {
             if (emitterRoot == null)
@@ -983,11 +868,6 @@ namespace BeatSurgeon.Gameplay
 
             AppendEmissionAnchor(anchorOffsets, emitterRoot.transform, ResolveRootBurstParticleSystem(emitterRoot));
             AppendEmissionAnchor(anchorOffsets, emitterRoot.transform, FindParticleSystemByName(emitterRoot.transform, profile.PrimaryName));
-
-            if (!string.IsNullOrWhiteSpace(profile.SpecialName))
-            {
-                AppendEmissionAnchor(anchorOffsets, emitterRoot.transform, FindParticleSystemByName(emitterRoot.transform, profile.SpecialName));
-            }
 
             if (anchorOffsets.Count == 0)
             {
@@ -1497,7 +1377,7 @@ namespace BeatSurgeon.Gameplay
                 _duration = duration;
                 _elapsed = 0f;
                 transform.position = startPosition;
-                RefreshTrackedParticleSystems();
+                EnsureTrackedParticleSystems();
                 _hasMotion = duration > 0f
                     && (targetPosition - startPosition).sqrMagnitude > 0.04f
                     && _trackedParticleSystems.Count > 0;
@@ -1511,7 +1391,6 @@ namespace BeatSurgeon.Gameplay
                 _duration = 0f;
                 _elapsed = 0f;
                 _hasMotion = false;
-                _trackedParticleSystems.Clear();
                 enabled = false;
             }
 
@@ -1538,40 +1417,83 @@ namespace BeatSurgeon.Gameplay
                 }
             }
 
-            private void RefreshTrackedParticleSystems()
+            private void EnsureTrackedParticleSystems()
             {
-                _trackedParticleSystems.Clear();
-
-                foreach (ParticleSystem particleSystem in GetComponentsInChildren<ParticleSystem>(true))
+                bool rebuildTrackedSystems = _trackedParticleSystems.Count == 0;
+                if (!rebuildTrackedSystems)
                 {
-                    if (particleSystem == null)
+                    for (int index = 0; index < _trackedParticleSystems.Count; index++)
                     {
-                        continue;
-                    }
-
-                    if (!ShouldTrackParticleSystem(particleSystem))
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        var main = particleSystem.main;
-                        if (main.simulationSpace != ParticleSystemSimulationSpace.World)
+                        if (_trackedParticleSystems[index] == null || _trackedParticleSystems[index].ParticleSystem == null)
                         {
-                            main.simulationSpace = ParticleSystemSimulationSpace.World;
+                            rebuildTrackedSystems = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (rebuildTrackedSystems)
+                {
+                    _trackedParticleSystems.Clear();
+
+                    foreach (ParticleSystem particleSystem in GetComponentsInChildren<ParticleSystem>(true))
+                    {
+                        if (particleSystem == null)
+                        {
+                            continue;
                         }
 
-                        int maxParticles = Mathf.Max(128, main.maxParticles);
-                        _trackedParticleSystems.Add(new TrackedParticleSystemState
+                        if (!ShouldTrackParticleSystem(particleSystem))
                         {
-                            ParticleSystem = particleSystem,
-                            Buffer = new ParticleSystem.Particle[maxParticles]
-                        });
+                            continue;
+                        }
+
+                        TrackedParticleSystemState trackedState = new TrackedParticleSystemState
+                        {
+                            ParticleSystem = particleSystem
+                        };
+                        PrepareTrackedParticleSystemState(trackedState);
+                        _trackedParticleSystems.Add(trackedState);
                     }
-                    catch
+
+                    return;
+                }
+
+                for (int index = 0; index < _trackedParticleSystems.Count; index++)
+                {
+                    TrackedParticleSystemState trackedState = _trackedParticleSystems[index];
+                    if (trackedState == null || trackedState.ParticleSystem == null)
                     {
+                        continue;
                     }
+
+                    PrepareTrackedParticleSystemState(trackedState);
+                }
+            }
+
+            private static void PrepareTrackedParticleSystemState(TrackedParticleSystemState trackedState)
+            {
+                if (trackedState == null || trackedState.ParticleSystem == null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    var main = trackedState.ParticleSystem.main;
+                    if (main.simulationSpace != ParticleSystemSimulationSpace.World)
+                    {
+                        main.simulationSpace = ParticleSystemSimulationSpace.World;
+                    }
+
+                    int maxParticles = Mathf.Max(128, main.maxParticles);
+                    if (trackedState.Buffer == null || trackedState.Buffer.Length < maxParticles)
+                    {
+                        trackedState.Buffer = new ParticleSystem.Particle[maxParticles];
+                    }
+                }
+                catch
+                {
                 }
             }
 

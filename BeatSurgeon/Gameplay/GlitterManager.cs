@@ -6,9 +6,9 @@ using UnityEngine;
 
 namespace BeatSurgeon.Gameplay
 {
-    internal sealed class TestEffectManager : MonoBehaviour
+    internal sealed class GlitterManager : MonoBehaviour
     {
-        private static readonly LogUtil _log = LogUtil.GetLogger("TestEffectManager");
+        private static readonly LogUtil _log = LogUtil.GetLogger("GlitterManager");
         private static readonly int[] SupportedBitDenominations = { 10000, 5000, 1000, 100, 1 };
 
         private class QueuedEffectEntry
@@ -37,22 +37,22 @@ namespace BeatSurgeon.Gameplay
         internal const int MaxRequestedBits = 1000000;
         private const int MaxPendingEffects = 1024;
 
-        private static TestEffectManager _instance;
+        private static GlitterManager _instance;
         private static GameObject _go;
 
         private readonly LinkedList<QueuedEffectEntry> _pendingEffects = new LinkedList<QueuedEffectEntry>();
         private readonly Dictionary<GameNoteController, ActiveEffectEntry> _activeEffects = new Dictionary<GameNoteController, ActiveEffectEntry>();
         private GameplayManager _gameplayManager;
 
-        public static TestEffectManager Instance
+        public static GlitterManager Instance
         {
             get
             {
                 if (_instance == null)
                 {
-                    _go = new GameObject("BeatSurgeon_TestEffectManager_GO");
+                    _go = new GameObject("BeatSurgeon_GlitterManager_GO");
                     UnityEngine.Object.DontDestroyOnLoad(_go);
-                    _instance = _go.AddComponent<TestEffectManager>();
+                    _instance = _go.AddComponent<GlitterManager>();
                 }
 
                 return _instance;
@@ -87,7 +87,7 @@ namespace BeatSurgeon.Gameplay
             int availableSlots = Mathf.Max(0, MaxPendingEffects - (_pendingEffects.Count + _activeEffects.Count));
             if (availableSlots <= 0)
             {
-                _log.Warn("Pending test effect queue is full.");
+                _log.Warn("Pending glitter effect queue is full.");
                 return false;
             }
 
@@ -134,10 +134,8 @@ namespace BeatSurgeon.Gameplay
             return queuedEffects > 0;
         }
 
-        internal bool TryMarkNextEffect(GameNoteController controller, NoteData noteData, out int denomination)
+        internal bool CanMarkNextEffect(GameNoteController controller, NoteData noteData)
         {
-            denomination = 0;
-
             if (controller == null)
             {
                 return false;
@@ -153,13 +151,30 @@ namespace BeatSurgeon.Gameplay
                 return false;
             }
 
-            LinkedListNode<QueuedEffectEntry> nextPending = _pendingEffects.First;
-            if (nextPending == null)
+            if (_pendingEffects.First == null)
             {
                 return false;
             }
 
             if (BombManager.IsBombWindowActive && BombManager.Instance.IsNoteMarkedAsBomb(noteData))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        internal bool TryMarkNextEffect(GameNoteController controller, NoteData noteData, out int denomination)
+        {
+            denomination = 0;
+
+            if (!CanMarkNextEffect(controller, noteData))
+            {
+                return false;
+            }
+
+            LinkedListNode<QueuedEffectEntry> nextPending = _pendingEffects.First;
+            if (nextPending == null)
             {
                 return false;
             }

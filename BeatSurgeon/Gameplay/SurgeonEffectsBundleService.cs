@@ -210,7 +210,6 @@ namespace BeatSurgeon.Gameplay
                     templateRoot.name = burstRootAsset.name;
                     templateRoot.SetActive(false);
 
-                    AttachSupplementalBitBurstBranches(templateRoot.transform, twitchControllerPrefab.transform);
                     DisableNonParticleRenderers(templateRoot);
 
                     foreach (var particleSystem in templateRoot.GetComponentsInChildren<ParticleSystem>(true))
@@ -1314,10 +1313,24 @@ namespace BeatSurgeon.Gameplay
             Texture fallbackTexture = VrVfxMaterialHelper.GetBestAvailableTexture(bundleMaterial)
                 ?? VrVfxMaterialHelper.GetBestAvailableTexture(currentMaterial);
 
-            return VrVfxMaterialHelper.CreatePreparedVisualMaterial(
+            Material preparedMaterial = VrVfxMaterialHelper.CreatePreparedVisualMaterial(
                 bundleMaterial,
                 "SurgeonEffectsBundleService visual renderer '" + contextName + "'",
                 fallbackTexture);
+
+            if (preparedMaterial != null
+                && contextName.IndexOf("TrailCube.mesh", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                const float trailBrightness = 1f;
+                const float trailAlpha = 0.3f;
+
+                ApplyScaledMaterialColor(preparedMaterial, "_Color", trailBrightness, trailAlpha);
+                ApplyScaledMaterialColor(preparedMaterial, "_BaseColor", trailBrightness, trailAlpha);
+                ApplyScaledMaterialColor(preparedMaterial, "_TintColor", trailBrightness, trailAlpha);
+                ApplyScaledMaterialColor(preparedMaterial, "_EmissionColor", trailBrightness, trailAlpha);
+            }
+
+            return preparedMaterial;
         }
 
         private static void CreateFollowerCanvasAnchor(Transform parent, Transform sourceAnchor, string name, bool active)
@@ -2017,15 +2030,10 @@ namespace BeatSurgeon.Gameplay
             }
 
             AssignBitParticleMaterial(templateRoot.transform, bundle, assetNames, BundleRegistry.TwitchControllerRefs.OneBitParticleName, BundleRegistry.Mat1BitAtlas);
-            AssignBitParticleMaterial(templateRoot.transform, bundle, assetNames, BundleRegistry.TwitchControllerRefs.OneBitParticleSpecialName, BundleRegistry.Mat1BitAtlas);
             AssignBitParticleMaterial(templateRoot.transform, bundle, assetNames, BundleRegistry.TwitchControllerRefs.HundredBitParticleName, BundleRegistry.Mat100BitAtlas);
-            AssignBitParticleMaterial(templateRoot.transform, bundle, assetNames, BundleRegistry.TwitchControllerRefs.HundredBitParticleSpecialName, BundleRegistry.Mat100BitAtlas);
             AssignBitParticleMaterial(templateRoot.transform, bundle, assetNames, BundleRegistry.TwitchControllerRefs.ThousandBitParticleName, BundleRegistry.Mat1000BitAtlas);
-            AssignBitParticleMaterial(templateRoot.transform, bundle, assetNames, BundleRegistry.TwitchControllerRefs.ThousandBitParticleSpecialName, BundleRegistry.Mat1000BitAtlas);
             AssignBitParticleMaterial(templateRoot.transform, bundle, assetNames, BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleName, BundleRegistry.Mat5000BitAtlas);
-            AssignBitParticleMaterial(templateRoot.transform, bundle, assetNames, BundleRegistry.TwitchControllerRefs.FiveThousandBitParticleSpecialName, BundleRegistry.Mat5000BitAtlas);
             AssignBitParticleMaterial(templateRoot.transform, bundle, assetNames, BundleRegistry.TwitchControllerRefs.TenThousandBitParticleName, BundleRegistry.Mat10000BitAtlas);
-            AssignBitParticleMaterial(templateRoot.transform, bundle, assetNames, BundleRegistry.TwitchControllerRefs.TenThousandBitParticleSpecialName, BundleRegistry.Mat10000BitAtlas);
         }
 
         private static void AssignBitParticleMaterial(Transform root, AssetBundle bundle, string[] assetNames, string particleName, string materialAssetName)

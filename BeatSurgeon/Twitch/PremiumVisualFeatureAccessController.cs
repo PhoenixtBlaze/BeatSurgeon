@@ -30,15 +30,15 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
-            string broadcasterId = GetCurrentBroadcasterId();
+            string identityKey = GetCurrentManualDisableIdentityKey();
             bool hasAccess = HasAuthenticatedVisualsAccess();
 
             if (!enabled)
             {
                 SetEnabled(config, feature, false);
-                if (hasAccess && !string.IsNullOrWhiteSpace(broadcasterId))
+                if (hasAccess && !string.IsNullOrWhiteSpace(identityKey))
                 {
-                    SetManualDisabledBroadcasterId(config, feature, broadcasterId);
+                    SetManualDisabledBroadcasterId(config, feature, identityKey);
                 }
 
                 return;
@@ -51,8 +51,8 @@ namespace BeatSurgeon.Twitch
             }
 
             SetEnabled(config, feature, true);
-            if (!string.IsNullOrWhiteSpace(broadcasterId) &&
-                string.Equals(GetManualDisabledBroadcasterId(config, feature), broadcasterId, StringComparison.Ordinal))
+            if (!string.IsNullOrWhiteSpace(identityKey) &&
+                string.Equals(GetManualDisabledBroadcasterId(config, feature), identityKey, StringComparison.Ordinal))
             {
                 SetManualDisabledBroadcasterId(config, feature, string.Empty);
             }
@@ -71,10 +71,10 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
-            string broadcasterId = GetCurrentBroadcasterId();
+            string identityKey = GetCurrentManualDisableIdentityKey();
             bool manuallyDisabledForCurrentBroadcaster =
-                !string.IsNullOrWhiteSpace(broadcasterId) &&
-                string.Equals(GetManualDisabledBroadcasterId(config, feature), broadcasterId, StringComparison.Ordinal);
+                !string.IsNullOrWhiteSpace(identityKey) &&
+                string.Equals(GetManualDisabledBroadcasterId(config, feature), identityKey, StringComparison.Ordinal);
 
             SetEnabled(config, feature, !manuallyDisabledForCurrentBroadcaster);
         }
@@ -92,6 +92,12 @@ namespace BeatSurgeon.Twitch
             return HasAuthenticatedVisualsAccess();
         }
 
+        internal static bool HasAuthenticatedSupporterPlatform()
+        {
+            return IsProviderAuthenticated(EntitlementProvider.Twitch)
+                || IsProviderAuthenticated(EntitlementProvider.Patreon);
+        }
+
         internal static bool ShouldMaintainSubscription(PremiumVisualFeature feature)
         {
             if (feature == PremiumVisualFeature.FollowEffect)
@@ -99,6 +105,7 @@ namespace BeatSurgeon.Twitch
                 PluginConfig config = PluginConfig.Instance;
                 return config != null
                     && HasAuthenticatedVisualsAccess()
+                    && IsProviderAuthenticated(EntitlementProvider.Twitch)
                     && config.FollowEffectsEnabled
                     && !string.IsNullOrWhiteSpace(GetCurrentBroadcasterId());
             }
@@ -108,6 +115,7 @@ namespace BeatSurgeon.Twitch
                 PluginConfig config = PluginConfig.Instance;
                 return config != null
                     && HasAuthenticatedVisualsAccess()
+                    && IsProviderAuthenticated(EntitlementProvider.Twitch)
                     && config.SubEffectsEnabled
                     && !string.IsNullOrWhiteSpace(GetCurrentBroadcasterId());
             }
@@ -127,9 +135,9 @@ namespace BeatSurgeon.Twitch
                 throw new InvalidOperationException(featureDisplayName + " are unavailable because the plugin configuration is not ready.");
             }
 
-            if (!TwitchAuthManager.Instance.IsAuthenticated || TwitchAuthManager.Instance.IsReauthRequired)
+            if (!HasAuthenticatedSupporterPlatform())
             {
-                throw new InvalidOperationException(featureDisplayName + " require a logged-in Twitch account.");
+                throw new InvalidOperationException(featureDisplayName + " require a logged-in Twitch or Patreon account.");
             }
 
             bool allowed = HasAuthenticatedVisualsAccess();
@@ -152,26 +160,28 @@ namespace BeatSurgeon.Twitch
 
         internal static bool HasAuthenticatedVisualsAccess()
         {
-            return TwitchAuthManager.Instance.IsAuthenticated
-                && !TwitchAuthManager.Instance.IsReauthRequired
-                && EntitlementsState.HasVisualsAccess;
+            return HasAuthenticatedVisualsAccessFor(EntitlementProvider.Twitch)
+                || HasAuthenticatedVisualsAccessFor(EntitlementProvider.Patreon);
         }
 
         internal static async Task<bool> RefreshVisualsPermissionAsync(CancellationToken ct)
         {
-            if (!TwitchAuthManager.Instance.IsAuthenticated || TwitchAuthManager.Instance.IsReauthRequired)
+            if (!HasAuthenticatedSupporterPlatform())
             {
                 return false;
             }
 
             EntitlementProvider currentProvider = EntitlementsState.CurrentProvider;
-            if (await TryCheckVisualsPermissionAsync(currentProvider, ct).ConfigureAwait(false))
+            if (currentProvider != EntitlementProvider.None &&
+                IsProviderAuthenticated(currentProvider) &&
+                await TryCheckVisualsPermissionAsync(currentProvider, ct).ConfigureAwait(false))
             {
                 SyncAllConfigEnabledStates();
                 return HasAuthenticatedVisualsAccess();
             }
 
             if (currentProvider != EntitlementProvider.Patreon &&
+                IsProviderAuthenticated(EntitlementProvider.Patreon) &&
                 await TryCheckVisualsPermissionAsync(EntitlementProvider.Patreon, ct).ConfigureAwait(false))
             {
                 SyncAllConfigEnabledStates();
@@ -179,6 +189,7 @@ namespace BeatSurgeon.Twitch
             }
 
             if (currentProvider != EntitlementProvider.Twitch &&
+                IsProviderAuthenticated(EntitlementProvider.Twitch) &&
                 await TryCheckVisualsPermissionAsync(EntitlementProvider.Twitch, ct).ConfigureAwait(false))
             {
                 SyncAllConfigEnabledStates();
@@ -198,6 +209,55 @@ namespace BeatSurgeon.Twitch
             }
 
             return PluginConfig.Instance?.CachedBroadcasterId ?? string.Empty;
+        }
+
+        private static bool HasAuthenticatedVisualsAccessFor(EntitlementProvider provider)
+        {
+            return IsProviderAuthenticated(provider)
+                && EntitlementsState.HasVisualsAccessFor(provider);
+        }
+
+        private static bool IsProviderAuthenticated(EntitlementProvider provider)
+        {
+            switch (provider)
+            {
+                case EntitlementProvider.Patreon:
+                    return PatreonAuthManager.Instance.IsAuthenticated
+                        && !PatreonAuthManager.Instance.IsReauthRequired;
+                case EntitlementProvider.Twitch:
+                    return TwitchAuthManager.Instance.IsAuthenticated
+                        && !TwitchAuthManager.Instance.IsReauthRequired;
+                default:
+                    return false;
+            }
+        }
+
+        private static string GetCurrentManualDisableIdentityKey()
+        {
+            if (IsProviderAuthenticated(EntitlementProvider.Twitch))
+            {
+                string broadcasterId = GetCurrentBroadcasterId();
+                if (!string.IsNullOrWhiteSpace(broadcasterId))
+                {
+                    return broadcasterId;
+                }
+            }
+
+            if (HasAuthenticatedVisualsAccessFor(EntitlementProvider.Patreon))
+            {
+                string patreonUserId = PatreonAuthManager.Instance.UserId;
+                if (string.IsNullOrWhiteSpace(patreonUserId))
+                {
+                    patreonUserId = PluginConfig.Instance?.CachedPatreonUserId ?? string.Empty;
+                }
+
+                if (!string.IsNullOrWhiteSpace(patreonUserId))
+                {
+                    return "patreon:" + patreonUserId.Trim();
+                }
+            }
+
+            return string.Empty;
         }
 
         private static async Task<bool> TryCheckVisualsPermissionAsync(EntitlementProvider provider, CancellationToken ct)

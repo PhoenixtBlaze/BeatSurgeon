@@ -67,7 +67,7 @@ namespace BeatSurgeon.HarmonyPatches
                 return false;
             }
 
-            if (TestEffectManager.Instance.TryRequeueMarkedEffect(gameNote, "BombOverride", out int requeuedDenomination))
+            if (GlitterManager.Instance.TryRequeueMarkedEffect(gameNote, "BombOverride", out int requeuedDenomination))
             {
                 OutlineEmitterManager.Instance.DetachFromNote(gameNote);
                 GlitterLoopEmitterManager.Instance.DetachFromNote(gameNote);
@@ -323,8 +323,20 @@ namespace BeatSurgeon.HarmonyPatches
     [HarmonyPriority(Priority.High)]
     internal static class BombCutPatch
     {
+        private sealed class PooledFlyingText : MonoBehaviour
+        {
+            internal TMP_Text TextComponent;
+            internal TMP_FontAsset AppliedFont;
+            internal bool UsesCurvedText;
+        }
+
         private static readonly LogUtil _log = LogUtil.GetLogger("BombCutPatch");
         private static CurvedTextMeshPro _flyingTextPrefab;
+        private static readonly Queue<PooledFlyingText> _curvedFlyingTextPool = new Queue<PooledFlyingText>();
+        private static readonly Queue<PooledFlyingText> _simpleFlyingTextPool = new Queue<PooledFlyingText>();
+        private static readonly Vector3 FlyingTextWarmActivationOffset = new Vector3(0f, -2048f, 0f);
+        private const int RecommendedFlyingTextPoolSize = 4;
+        private const int MaxFlyingTextPoolSize = 12;
 
         // Caches to avoid repeated Resources.FindObjectsOfTypeAll
         private static Shader _tmpDistanceFieldShader;
@@ -368,7 +380,7 @@ namespace BeatSurgeon.HarmonyPatches
 
                 SpawnFlyingText(displayText, cutPoint);
 
-                BombManager.Instance.ClearBombVisuals(restoreOriginalRenderers: false);
+                BombManager.Instance.ClearBombVisuals();
             }
             catch (Exception ex)
             {
@@ -407,6 +419,17 @@ namespace BeatSurgeon.HarmonyPatches
             try
             {
                 EnsureRefs();
+
+                if (_flyingTextPrefab != null)
+                {
+                    EnsureFlyingTextPoolSize(_curvedFlyingTextPool, RecommendedFlyingTextPoolSize, useCurvedText: true);
+                    RefreshFlyingTextPool(_curvedFlyingTextPool);
+                }
+                else
+                {
+                    EnsureFlyingTextPoolSize(_simpleFlyingTextPool, RecommendedFlyingTextPoolSize, useCurvedText: false);
+                    RefreshFlyingTextPool(_simpleFlyingTextPool);
+                }
             }
             catch (Exception ex)
             {
@@ -445,26 +468,16 @@ namespace BeatSurgeon.HarmonyPatches
 
         private static void SpawnCurvedFlyingText(string displayText, Vector3 cutPoint)
         {
-            var textGo = new GameObject("BombUsername_CurvedText");
+            PooledFlyingText pooledText = GetOrCreateFlyingText(useCurvedText: true);
+            if (pooledText == null || pooledText.TextComponent == null)
+            {
+                return;
+            }
+
+            GameObject textGo = pooledText.gameObject;
             textGo.transform.position = cutPoint + Vector3.up * 0.5f;
-
-            var curvedText = textGo.AddComponent<CurvedTextMeshPro>();
-
-            var customFont = FontBundleLoader.BombUsernameFont;
-            ApplyBombTextFont(curvedText, customFont, _flyingTextPrefab.font);
-
-            LogUtils.Debug(() => $"BombText font = {(customFont != null ? customFont.name : "NULL (fallback)")}");
-
-            curvedText.text = displayText;
-            curvedText.fontSize = 4f;
-            curvedText.alignment = TextAlignmentOptions.Center;
-            curvedText.color = Color.yellow;
-            curvedText.outlineWidth = 0.2f;
-            curvedText.outlineColor = Color.black;
-            curvedText.SetAllDirty();
-            curvedText.ForceMeshUpdate();
-
-            ApplyBloomToTextMaterial(curvedText);
+            textGo.SetActive(true);
+            ConfigureFlyingText(pooledText, displayText, _flyingTextPrefab != null ? _flyingTextPrefab.font : null);
 
             float height = EntitlementsState.HasVisualsAccess
                 ? (Plugin.Settings?.BombTextHeight ?? 1.0f)
@@ -476,35 +489,179 @@ namespace BeatSurgeon.HarmonyPatches
             width = Mathf.Clamp(width, 0.5f, 5f);
             textGo.transform.localScale = new Vector3(width, height, height);
 
-            CoroutineHost.Instance.StartCoroutine(AnimateFlyingText(textGo, cutPoint));
+            CoroutineHost.Instance.StartCoroutine(AnimateFlyingText(pooledText, cutPoint));
         }
 
         private static void SpawnSimpleFlyingText(string displayText, Vector3 cutPoint)
         {
-            var textGo = new GameObject("BombUsername_Text");
+            PooledFlyingText pooledText = GetOrCreateFlyingText(useCurvedText: false);
+            if (pooledText == null || pooledText.TextComponent == null)
+            {
+                return;
+            }
+
+            GameObject textGo = pooledText.gameObject;
             textGo.transform.position = cutPoint + Vector3.up * 0.5f;
+            textGo.transform.localScale = Vector3.one;
+            textGo.SetActive(true);
+            ConfigureFlyingText(pooledText, displayText, _tekoFontCached);
 
-            var tmp = textGo.AddComponent<TextMeshPro>();
-
-            var customFont = FontBundleLoader.BombUsernameFont;
-            ApplyBombTextFont(tmp, customFont, _tekoFontCached);
-
-            tmp.text = displayText;
-            tmp.fontSize = 4f;
-            tmp.alignment = TextAlignmentOptions.Center;
-            tmp.color = Color.yellow;
-            tmp.outlineWidth = 0.2f;
-            tmp.outlineColor = Color.black;
-            tmp.SetAllDirty();
-            tmp.ForceMeshUpdate();
-
-            textGo.AddComponent<LookAtCamera>();
-
-            CoroutineHost.Instance.StartCoroutine(AnimateFlyingText(textGo, cutPoint));
+            CoroutineHost.Instance.StartCoroutine(AnimateFlyingText(pooledText, cutPoint));
         }
 
-        // NOTE: This still clones a material per spawned text object.
-        // That’s usually acceptable (bomb cut is infrequent), and avoids changing shared TMP materials globally.
+        private static void EnsureFlyingTextPoolSize(Queue<PooledFlyingText> pool, int desiredPoolSize, bool useCurvedText)
+        {
+            if (pool == null)
+            {
+                return;
+            }
+
+            while (GetLivePooledEntryCount(pool) < desiredPoolSize)
+            {
+                PooledFlyingText pooledText = CreatePooledFlyingText(useCurvedText);
+                if (pooledText == null)
+                {
+                    return;
+                }
+
+                pool.Enqueue(pooledText);
+            }
+        }
+
+        private static int GetLivePooledEntryCount(Queue<PooledFlyingText> pool)
+        {
+            int count = 0;
+            foreach (PooledFlyingText pooledText in pool)
+            {
+                if (pooledText != null)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static void RefreshFlyingTextPool(Queue<PooledFlyingText> pool)
+        {
+            if (pool == null)
+            {
+                return;
+            }
+
+            foreach (PooledFlyingText pooledText in pool)
+            {
+                if (pooledText != null && pooledText.TextComponent != null)
+                {
+                    WarmPrepareFlyingText(pooledText);
+                }
+            }
+        }
+
+        private static PooledFlyingText GetOrCreateFlyingText(bool useCurvedText)
+        {
+            Queue<PooledFlyingText> pool = useCurvedText ? _curvedFlyingTextPool : _simpleFlyingTextPool;
+            while (pool.Count > 0)
+            {
+                PooledFlyingText pooledText = pool.Dequeue();
+                if (pooledText != null && pooledText.TextComponent != null)
+                {
+                    return pooledText;
+                }
+            }
+
+            return CreatePooledFlyingText(useCurvedText);
+        }
+
+        private static PooledFlyingText CreatePooledFlyingText(bool useCurvedText)
+        {
+            GameObject textGo = new GameObject(useCurvedText ? "BombUsername_CurvedText" : "BombUsername_Text");
+            PooledFlyingText pooledText = textGo.AddComponent<PooledFlyingText>();
+            pooledText.UsesCurvedText = useCurvedText;
+
+            if (useCurvedText)
+            {
+                pooledText.TextComponent = textGo.AddComponent<CurvedTextMeshPro>();
+            }
+            else
+            {
+                pooledText.TextComponent = textGo.AddComponent<TextMeshPro>();
+                textGo.AddComponent<LookAtCamera>();
+            }
+
+            WarmPrepareFlyingText(pooledText);
+            return pooledText;
+        }
+
+        private static void WarmPrepareFlyingText(PooledFlyingText pooledText)
+        {
+            if (pooledText == null || pooledText.TextComponent == null)
+            {
+                return;
+            }
+
+            GameObject textGo = pooledText.gameObject;
+            textGo.transform.position = FlyingTextWarmActivationOffset;
+            textGo.transform.localScale = Vector3.one;
+            textGo.SetActive(true);
+            ConfigureFlyingText(
+                pooledText,
+                "Warmup",
+                pooledText.UsesCurvedText && _flyingTextPrefab != null ? _flyingTextPrefab.font : _tekoFontCached);
+
+            if (pooledText.TextComponent != null)
+            {
+                pooledText.TextComponent.text = string.Empty;
+            }
+
+            textGo.transform.SetParent(null, false);
+            textGo.transform.localScale = Vector3.one;
+            textGo.SetActive(false);
+        }
+
+        private static void ConfigureFlyingText(PooledFlyingText pooledText, string displayText, TMP_FontAsset fallbackFont)
+        {
+            TMP_Text textComponent = pooledText?.TextComponent;
+            if (textComponent == null)
+            {
+                return;
+            }
+
+            TMP_FontAsset customFont = FontBundleLoader.BombUsernameFont;
+            TMP_FontAsset resolvedFont = customFont ?? fallbackFont;
+            bool fontChanged = resolvedFont != null && pooledText.AppliedFont != resolvedFont;
+            if (fontChanged || textComponent.font == null)
+            {
+                ApplyBombTextFont(textComponent, customFont, fallbackFont);
+                pooledText.AppliedFont = textComponent.font;
+
+                if (pooledText.UsesCurvedText)
+                {
+                    ApplyBloomToTextMaterial(textComponent);
+                }
+            }
+
+            if (pooledText.UsesCurvedText)
+            {
+                LogUtils.Debug(() => $"BombText font = {(customFont != null ? customFont.name : "NULL (fallback)")}");
+            }
+
+            textComponent.text = displayText;
+            textComponent.fontSize = 4f;
+            textComponent.alignment = TextAlignmentOptions.Center;
+            textComponent.color = Color.yellow;
+            var _mat = textComponent.fontSharedMaterial ?? textComponent.fontMaterial ?? textComponent.material;
+            if (_mat != null)
+            {
+                textComponent.outlineWidth = 0.2f;
+                textComponent.outlineColor = Color.black;
+            }
+            textComponent.SetAllDirty();
+            textComponent.ForceMeshUpdate();
+        }
+
+        // Keep a dedicated material instance per curved pooled text object so per-text glow/color changes
+        // never mutate shared TMP font materials.
         private static void ApplyBloomToTextMaterial(TMP_Text textComponent)
         {
             if (textComponent == null || textComponent.material == null) return;
@@ -523,8 +680,14 @@ namespace BeatSurgeon.HarmonyPatches
             textComponent.material = mat;
         }
 
-        private static IEnumerator AnimateFlyingText(GameObject textGo, Vector3 startPos)
+        private static IEnumerator AnimateFlyingText(PooledFlyingText pooledText, Vector3 startPos)
         {
+            if (pooledText == null || pooledText.TextComponent == null)
+            {
+                yield break;
+            }
+
+            GameObject textGo = pooledText.gameObject;
             float duration = EntitlementsState.HasVisualsAccess
                 ? Mathf.Clamp(Plugin.Settings?.FlyingTextTravelSeconds ?? 4.0f, 0.5f, 20f)
                 : 4.0f;
@@ -572,7 +735,34 @@ namespace BeatSurgeon.HarmonyPatches
                 yield return null;
             }
 
-            UnityEngine.Object.Destroy(textGo);
+            ReturnFlyingTextToPool(pooledText, destroyIfPoolFull: true);
+        }
+
+        private static void ReturnFlyingTextToPool(PooledFlyingText pooledText, bool destroyIfPoolFull)
+        {
+            if (pooledText == null)
+            {
+                return;
+            }
+
+            GameObject textGo = pooledText.gameObject;
+            if (pooledText.TextComponent != null)
+            {
+                pooledText.TextComponent.text = string.Empty;
+            }
+
+            textGo.transform.SetParent(null, false);
+            textGo.transform.localScale = Vector3.one;
+            textGo.SetActive(false);
+
+            Queue<PooledFlyingText> pool = pooledText.UsesCurvedText ? _curvedFlyingTextPool : _simpleFlyingTextPool;
+            if (destroyIfPoolFull && GetLivePooledEntryCount(pool) >= MaxFlyingTextPoolSize)
+            {
+                UnityEngine.Object.Destroy(textGo);
+                return;
+            }
+
+            pool.Enqueue(pooledText);
         }
     }
 

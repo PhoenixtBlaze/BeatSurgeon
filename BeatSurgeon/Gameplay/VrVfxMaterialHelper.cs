@@ -119,6 +119,30 @@ namespace BeatSurgeon.Gameplay
             }
 
             Texture resolvedFallbackTexture = fallbackTexture ?? GetBestAvailableTexture(sourceMaterial);
+
+            if (ShouldSkipKnownUnsupportedVisualRepair(sourceMaterial, context))
+            {
+                Material skippedRepairSafeMaterial = CreateSafeVisualMaterial(sourceMaterial, resolvedFallbackTexture);
+                if (skippedRepairSafeMaterial != null)
+                {
+                    Plugin.Log.Info(
+                        context
+                        + ": skipping AssetBundleLoadingTools shader repair for known unsupported material '"
+                        + sourceMaterial.name
+                        + "' shader='"
+                        + (sourceMaterial.shader != null ? sourceMaterial.shader.name : "<missing>")
+                        + "'; using visual-safe fallback material '"
+                        + skippedRepairSafeMaterial.name
+                        + "' shader='"
+                        + (skippedRepairSafeMaterial.shader != null ? skippedRepairSafeMaterial.shader.name : "<missing>")
+                        + "' texture='"
+                        + (GetBestAvailableTexture(skippedRepairSafeMaterial) != null ? GetBestAvailableTexture(skippedRepairSafeMaterial).name : "<missing>")
+                        + "'.");
+                }
+
+                return skippedRepairSafeMaterial;
+            }
+
             Material repairedClone = new Material(sourceMaterial)
             {
                 name = sourceMaterial.name + "_BeatSurgeonPreparedVisual"
@@ -336,6 +360,28 @@ namespace BeatSurgeon.Gameplay
                 && sourceMaterial.shader.isSupported
                 && !string.IsNullOrWhiteSpace(sourceMaterial.shader.name)
                 && !string.Equals(sourceMaterial.shader.name, InvalidShaderName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ShouldSkipKnownUnsupportedVisualRepair(Material sourceMaterial, string context)
+        {
+            if (sourceMaterial == null)
+            {
+                return false;
+            }
+
+            if (!string.Equals(sourceMaterial.name, "TrailMaterial", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string shaderName = sourceMaterial.shader != null ? sourceMaterial.shader.name : null;
+            if (!string.Equals(shaderName, "Unlit/TrailShader", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return !string.IsNullOrWhiteSpace(context)
+                && context.IndexOf("TrailCube", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static void CopyCommonParticleProperties(Material sourceMaterial, Material destinationMaterial)

@@ -33,7 +33,8 @@ namespace BeatSurgeon.Gameplay
         private static readonly LogUtil _log = LogUtil.GetLogger("SubscriberTrailCubeManager");
         private const int MaxPendingEntries = 1024;
         private const int MaxPoolSize = 128;
-    internal const int RecommendedWarmPoolSize = 8;
+        private static readonly Vector3 WarmActivationOffset = new Vector3(0f, -2048f, 0f);
+        internal const int RecommendedWarmPoolSize = 8;
 
         private static SubscriberTrailCubeManager _instance;
         private static GameObject _go;
@@ -77,9 +78,7 @@ namespace BeatSurgeon.Gameplay
 
             while (_pool.Count < desiredPoolSize)
             {
-                GameObject clone = UnityEngine.Object.Instantiate(_templateRoot);
-                UnityEngine.Object.DontDestroyOnLoad(clone);
-                clone.SetActive(false);
+                GameObject clone = CreatePooledInstance(warmActivate: true);
                 _pool.Enqueue(clone);
             }
 
@@ -291,10 +290,84 @@ namespace BeatSurgeon.Gameplay
                 }
             }
 
+            return CreatePooledInstance(warmActivate: false);
+        }
+
+        private GameObject CreatePooledInstance(bool warmActivate)
+        {
             GameObject clone = UnityEngine.Object.Instantiate(_templateRoot);
             UnityEngine.Object.DontDestroyOnLoad(clone);
             clone.SetActive(false);
+
+            if (warmActivate)
+            {
+                WarmActivateVisual(clone);
+            }
+
             return clone;
+        }
+
+        private static void WarmActivateVisual(GameObject visualRoot)
+        {
+            if (visualRoot == null)
+            {
+                return;
+            }
+
+            Transform transform = visualRoot.transform;
+            Transform originalParent = transform.parent;
+            Vector3 originalLocalPosition = transform.localPosition;
+            Quaternion originalLocalRotation = transform.localRotation;
+            Vector3 originalLocalScale = transform.localScale;
+
+            try
+            {
+                transform.SetParent(null, false);
+                transform.position = WarmActivationOffset;
+                transform.rotation = Quaternion.identity;
+                visualRoot.SetActive(true);
+
+                foreach (TrailRenderer trailRenderer in visualRoot.GetComponentsInChildren<TrailRenderer>(true))
+                {
+                    trailRenderer.Clear();
+                }
+
+                foreach (ParticleSystem particleSystem in visualRoot.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    try
+                    {
+                        particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        particleSystem.Simulate(0.05f, true, true, true);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            finally
+            {
+                foreach (TrailRenderer trailRenderer in visualRoot.GetComponentsInChildren<TrailRenderer>(true))
+                {
+                    trailRenderer.Clear();
+                }
+
+                foreach (ParticleSystem particleSystem in visualRoot.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    try
+                    {
+                        particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                visualRoot.SetActive(false);
+                transform.SetParent(originalParent, false);
+                transform.localPosition = originalLocalPosition;
+                transform.localRotation = originalLocalRotation;
+                transform.localScale = originalLocalScale;
+            }
         }
 
         private void CleanupVisual(GameObject visualRoot)

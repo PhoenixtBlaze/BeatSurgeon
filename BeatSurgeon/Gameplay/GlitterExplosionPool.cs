@@ -15,6 +15,30 @@ namespace BeatSurgeon.Gameplay
     /// </summary>
     internal sealed class GlitterExplosionPool : MonoBehaviour
     {
+        private sealed class GlitterExplosionInstanceData : MonoBehaviour
+        {
+            internal ParticleSystem[] CachedParticleSystems;
+            internal Transform[] CachedTransforms;
+            internal float EstimatedLifetime;
+            internal int ActiveSpawnId;
+        }
+
+        private readonly struct PendingDespawn
+        {
+            internal PendingDespawn(int denomination, GameObject instance, int spawnId, float despawnTime)
+            {
+                Denomination = denomination;
+                Instance = instance;
+                SpawnId = spawnId;
+                DespawnTime = despawnTime;
+            }
+
+            internal int Denomination { get; }
+            internal GameObject Instance { get; }
+            internal int SpawnId { get; }
+            internal float DespawnTime { get; }
+        }
+
         private static readonly LogUtil _log = LogUtil.GetLogger("GlitterExplosionPool");
         private static readonly Vector3 WarmActivationOffset = new Vector3(0f, -2048f, 0f);
 
@@ -25,9 +49,11 @@ namespace BeatSurgeon.Gameplay
         private static GameObject _go;
 
         private readonly Dictionary<int, Queue<GameObject>> _pools = new Dictionary<int, Queue<GameObject>>();
+        private readonly List<PendingDespawn> _pendingDespawns = new List<PendingDespawn>();
 
         private Transform _gameplayVfxAnchor;
         private ParticleSystemRenderer _referenceBombParticleRenderer;
+        private int _nextSpawnId;
 
         internal static GlitterExplosionPool Instance
         {
@@ -42,6 +68,34 @@ namespace BeatSurgeon.Gameplay
                 UnityEngine.Object.DontDestroyOnLoad(_go);
                 _instance = _go.AddComponent<GlitterExplosionPool>();
                 return _instance;
+            }
+        }
+
+        private void Update()
+        {
+            if (_pendingDespawns.Count == 0)
+            {
+                return;
+            }
+
+            float now = Time.time;
+            while (_pendingDespawns.Count > 0 && _pendingDespawns[0].DespawnTime <= now)
+            {
+                PendingDespawn pendingDespawn = _pendingDespawns[0];
+                _pendingDespawns.RemoveAt(0);
+
+                if (pendingDespawn.Instance == null)
+                {
+                    continue;
+                }
+
+                GlitterExplosionInstanceData instanceData = GetInstanceData(pendingDespawn.Instance);
+                if (instanceData == null || instanceData.ActiveSpawnId != pendingDespawn.SpawnId)
+                {
+                    continue;
+                }
+
+                ReturnToPool(pendingDespawn.Denomination, pendingDespawn.Instance, instanceData);
             }
         }
 
@@ -95,7 +149,13 @@ namespace BeatSurgeon.Gameplay
                 return false;
             }
 
-            ResetParticleSystems(emitterRoot);
+            GlitterExplosionInstanceData instanceData = GetInstanceData(emitterRoot);
+            if (instanceData == null)
+            {
+                return false;
+            }
+
+            ResetParticleSystems(instanceData);
 
             Transform anchor = GetGameplayVfxAnchor();
             if (anchor != null && emitterRoot.transform.parent != anchor)
@@ -107,24 +167,31 @@ namespace BeatSurgeon.Gameplay
             emitterRoot.transform.rotation = Quaternion.identity;
             emitterRoot.transform.localScale = Vector3.one;
 
-            SyncLayer(emitterRoot);
+            SyncLayer(instanceData, anchor);
 
             emitterRoot.SetActive(true);
 
             // Play all particle systems in the cloned emitter
-            foreach (var ps in emitterRoot.GetComponentsInChildren<ParticleSystem>(true))
+            foreach (ParticleSystem particleSystem in instanceData.CachedParticleSystems)
             {
+                if (particleSystem == null)
+                {
+                    continue;
+                }
+
                 try
                 {
-                    ps.gameObject.SetActive(true);
-                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                    ps.Play(true);
+                    particleSystem.gameObject.SetActive(true);
+                    particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    particleSystem.Play(true);
                 }
                 catch { }
             }
 
-            float lifetime = EstimateLifetime(emitterRoot);
-            StartCoroutine(DespawnAfter(denomination, emitterRoot, lifetime));
+            float lifetime = EstimateLifetime(instanceData);
+            int spawnId = AllocateSpawnId();
+            instanceData.ActiveSpawnId = spawnId;
+            EnqueueDespawn(denomination, emitterRoot, spawnId, lifetime);
             return true;
         }
 
@@ -167,6 +234,7 @@ namespace BeatSurgeon.Gameplay
             GameObject instance = Instantiate(template);
             instance.SetActive(false);
             PrepareEmitterInstance(instance);
+            GetInstanceData(instance);
 
             if (warmActivate)
             {
@@ -183,9 +251,15 @@ namespace BeatSurgeon.Gameplay
                 return;
             }
 
+            GlitterExplosionInstanceData instanceData = GetInstanceData(emitterRoot);
+            if (instanceData == null)
+            {
+                return;
+            }
+
             try
             {
-                ResetParticleSystems(emitterRoot);
+                ResetParticleSystems(instanceData);
 
                 Transform anchor = GetGameplayVfxAnchor();
                 if (anchor != null && emitterRoot.transform.parent != anchor)
@@ -196,10 +270,10 @@ namespace BeatSurgeon.Gameplay
                 emitterRoot.transform.position = GetWarmActivationPosition();
                 emitterRoot.transform.rotation = Quaternion.identity;
                 emitterRoot.transform.localScale = Vector3.one;
-                SyncLayer(emitterRoot);
+                SyncLayer(instanceData, anchor);
                 emitterRoot.SetActive(true);
 
-                foreach (ParticleSystem particleSystem in emitterRoot.GetComponentsInChildren<ParticleSystem>(true))
+                foreach (ParticleSystem particleSystem in instanceData.CachedParticleSystems)
                 {
                     if (particleSystem == null)
                     {
@@ -224,7 +298,8 @@ namespace BeatSurgeon.Gameplay
             }
             finally
             {
-                ResetParticleSystems(emitterRoot);
+                ResetParticleSystems(instanceData);
+                instanceData.ActiveSpawnId = 0;
                 emitterRoot.transform.SetParent(null, false);
                 emitterRoot.SetActive(false);
             }
@@ -238,12 +313,22 @@ namespace BeatSurgeon.Gameplay
 
         private void ReturnToPool(int denomination, GameObject instance)
         {
+            ReturnToPool(denomination, instance, GetInstanceData(instance));
+        }
+
+        private void ReturnToPool(int denomination, GameObject instance, GlitterExplosionInstanceData instanceData)
+        {
             if (instance == null)
             {
                 return;
             }
 
-            ResetParticleSystems(instance);
+            ResetParticleSystems(instanceData);
+            if (instanceData != null)
+            {
+                instanceData.ActiveSpawnId = 0;
+            }
+
             instance.transform.SetParent(null, false);
             instance.SetActive(false);
 
@@ -258,52 +343,87 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
-        private IEnumerator DespawnAfter(int denomination, GameObject emitterRoot, float lifetime)
+        private void EnqueueDespawn(int denomination, GameObject emitterRoot, int spawnId, float lifetime)
         {
-            yield return new WaitForSeconds(lifetime);
-
             if (emitterRoot == null)
-            {
-                yield break;
-            }
-
-            ReturnToPool(denomination, emitterRoot);
-        }
-
-        // ── Particle helpers ──────────────────────────────────────────────────
-
-        private static void ResetParticleSystems(GameObject root)
-        {
-            if (root == null)
             {
                 return;
             }
 
-            foreach (var ps in root.GetComponentsInChildren<ParticleSystem>(true))
+            PendingDespawn pendingDespawn = new PendingDespawn(
+                denomination,
+                emitterRoot,
+                spawnId,
+                Time.time + Mathf.Max(0f, lifetime));
+
+            int insertIndex = _pendingDespawns.Count;
+            while (insertIndex > 0 && _pendingDespawns[insertIndex - 1].DespawnTime > pendingDespawn.DespawnTime)
             {
+                insertIndex--;
+            }
+
+            _pendingDespawns.Insert(insertIndex, pendingDespawn);
+        }
+
+        // ── Particle helpers ──────────────────────────────────────────────────
+
+        private static void ResetParticleSystems(GlitterExplosionInstanceData instanceData)
+        {
+            if (instanceData == null || instanceData.CachedParticleSystems == null)
+            {
+                return;
+            }
+
+            foreach (ParticleSystem particleSystem in instanceData.CachedParticleSystems)
+            {
+                if (particleSystem == null)
+                {
+                    continue;
+                }
+
                 try
                 {
-                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 }
                 catch { }
             }
         }
 
-        private static float EstimateLifetime(GameObject root)
+        private static float EstimateLifetime(GlitterExplosionInstanceData instanceData)
+        {
+            if (instanceData == null)
+            {
+                return 2f;
+            }
+
+            if (instanceData.EstimatedLifetime <= 0f)
+            {
+                instanceData.EstimatedLifetime = EstimateLifetime(instanceData.CachedParticleSystems);
+            }
+
+            return instanceData.EstimatedLifetime;
+        }
+
+        private static float EstimateLifetime(ParticleSystem[] particleSystems)
         {
             float max = 2f;
-            if (root == null)
+            if (particleSystems == null)
             {
                 return max;
             }
 
-            foreach (var ps in root.GetComponentsInChildren<ParticleSystem>(true))
+            foreach (ParticleSystem particleSystem in particleSystems)
             {
+                if (particleSystem == null)
+                {
+                    continue;
+                }
+
                 try
                 {
-                    var main = ps.main;
-                    float delay    = GetCurveMax(main.startDelay, 0f);
-                    float life     = GetCurveMax(main.startLifetime, 0.5f);
+                    var main = particleSystem.main;
+                    float delay = GetCurveMax(main.startDelay, 0f);
+                    float life = GetCurveMax(main.startLifetime, 0.5f);
                     float duration = Mathf.Max(main.duration, 0.1f);
                     max = Mathf.Max(max, delay + duration + life + 0.1f);
                 }
@@ -519,23 +639,66 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
-        private void SyncLayer(GameObject root)
+        private void SyncLayer(GlitterExplosionInstanceData instanceData, Transform anchor)
         {
-            if (root == null)
+            if (instanceData == null || instanceData.CachedTransforms == null)
             {
                 return;
             }
 
-            Transform anchor = GetGameplayVfxAnchor();
             if (anchor == null)
             {
                 return;
             }
 
             int layer = anchor.gameObject.layer;
-            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            foreach (Transform transform in instanceData.CachedTransforms)
             {
-                t.gameObject.layer = layer;
+                if (transform != null)
+                {
+                    transform.gameObject.layer = layer;
+                }
+            }
+        }
+
+        private GlitterExplosionInstanceData GetInstanceData(GameObject root)
+        {
+            if (root == null)
+            {
+                return null;
+            }
+
+            GlitterExplosionInstanceData instanceData = root.GetComponent<GlitterExplosionInstanceData>();
+            if (instanceData == null)
+            {
+                instanceData = root.AddComponent<GlitterExplosionInstanceData>();
+            }
+
+            if (instanceData.CachedParticleSystems == null || instanceData.CachedParticleSystems.Length == 0)
+            {
+                instanceData.CachedParticleSystems = root.GetComponentsInChildren<ParticleSystem>(true);
+                instanceData.EstimatedLifetime = EstimateLifetime(instanceData.CachedParticleSystems);
+            }
+
+            if (instanceData.CachedTransforms == null || instanceData.CachedTransforms.Length == 0)
+            {
+                instanceData.CachedTransforms = root.GetComponentsInChildren<Transform>(true);
+            }
+
+            return instanceData;
+        }
+
+        private int AllocateSpawnId()
+        {
+            unchecked
+            {
+                _nextSpawnId++;
+                if (_nextSpawnId == 0)
+                {
+                    _nextSpawnId = 1;
+                }
+
+                return _nextSpawnId;
             }
         }
 

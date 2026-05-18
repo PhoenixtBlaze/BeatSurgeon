@@ -23,8 +23,8 @@ namespace BeatSurgeon.Gameplay
 
         private static readonly LogUtil _log = LogUtil.GetLogger("FollowerMessageManager");
         private const int MaxQueuedMessages = 10;
-        private const float DefaultMessageTravelSeconds = 15f;
-        private const float FollowerTravelSecondsMultiplier = 1.5f;
+        private const float DefaultMessageTravelSeconds = 50f;
+        private const float FollowerTravelSecondsMultiplier = 4f;
         private static FollowerMessageManager _instance;
         private static GameObject _go;
 
@@ -268,8 +268,31 @@ namespace BeatSurgeon.Gameplay
                 return null;
             }
 
-            text.outlineWidth = 0.2f;
-            text.outlineColor = Color.black;
+            // Guard against TMP internal material being null. SetOutlineThickness can
+            // throw a NullReferenceException if the font material hasn't been created
+            // or assigned yet (seen during warmup). If material isn't ready, bail out.
+            var _mat = text.fontSharedMaterial ?? text.fontMaterial;
+            if (text.font == null || _mat == null)
+            {
+                Plugin.Log.Warn("FollowerMessageManager: follower message font or material not ready.");
+                UnityEngine.Object.Destroy(textGo);
+                return null;
+            }
+
+            float desiredOutline = 0.2f;
+            Color desiredOutlineColor = Color.black;
+            bool outlineApplied = false;
+            try
+            {
+                text.outlineColor = desiredOutlineColor;
+                text.outlineWidth = desiredOutline;
+                outlineApplied = true;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("FollowerMessageManager: outline apply failed, will retry later: " + ex.Message);
+            }
+
             Vector2 preferredSize = text.GetPreferredValues(
                 displayText,
                 Mathf.Max(64f, maxTextWidth - (text.margin.x + text.margin.z)),
@@ -278,7 +301,20 @@ namespace BeatSurgeon.Gameplay
                 maxTextWidth,
                 Mathf.Clamp(preferredSize.y + text.margin.y + text.margin.w + 10f, 96f, maxTextHeight));
             text.SetAllDirty();
-            text.ForceMeshUpdate();
+            try
+            {
+                text.ForceMeshUpdate();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("FollowerMessageManager: ForceMeshUpdate failed: " + ex.Message);
+            }
+
+            if (!outlineApplied)
+            {
+                StartCoroutine(TryApplyOutlineWhenReady(text, desiredOutline, desiredOutlineColor));
+            }
+
             return text;
         }
 
@@ -387,6 +423,48 @@ namespace BeatSurgeon.Gameplay
             }
 
             return _gameplayManager != null && _gameplayManager.IsInMap;
+        }
+
+        private IEnumerator TryApplyOutlineWhenReady(TextMeshProUGUI text, float desiredOutline, Color desiredColor, int maxFrames = 30)
+        {
+            int attempts = 0;
+            while (text != null && attempts < maxFrames)
+            {
+                var mat = text.fontSharedMaterial ?? text.fontMaterial;
+                if (text.font != null && mat != null)
+                {
+                    try
+                    {
+                        text.outlineColor = desiredColor;
+                        text.outlineWidth = desiredOutline;
+                        text.SetAllDirty();
+                        text.ForceMeshUpdate();
+                        yield break;
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Log.Warn("FollowerMessageManager: deferred outline apply failed: " + ex.Message);
+                    }
+                }
+
+                attempts++;
+                yield return null;
+            }
+
+            try
+            {
+                if (text != null)
+                {
+                    text.outlineColor = desiredColor;
+                    text.outlineWidth = desiredOutline;
+                    text.SetAllDirty();
+                    text.ForceMeshUpdate();
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("FollowerMessageManager: final outline apply failed: " + ex.Message);
+            }
         }
 
         private static Transform FindDescendantByNormalizedName(Transform root, string targetName)
