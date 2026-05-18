@@ -39,8 +39,14 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
     *   *Includes an optional "Speed Exclusivity" mode to prevent multiple speed effects from stacking.*
 *   **Flashbang (`!flashbang`)**: Triggers an intense, momentary overexposure of the game's lighting system to simulate a flashbang.
 
+#### Multiplayer+ Support (Requires lobby host to have BeatSurgeon installed and enabled)
+Beat Surgeon integrates with **[Multiplayer+](https://github.com/hardcpp/BeatSaberPlus)** to share effects across a lobby. When the **Enable Surgeon Multiplayer Effects** toggle is on:
+- Effects triggered by the lobby Host's Twitch chat are replicated to all Beat Surgeon users in the session (this happens only if other players in lobby also have Multiplayer+).
+- The **Surgeon Tab** in the Gameplay Setup screen is accessible from the multiplayer lobby for on-the-fly control.
+- All ranked map auto-protections still apply individually per player.
+
 ### Supporter-Exclusive Commands
-These commands are unlocked automatically when the mod detects an active Twitch Subscription or Patreon support tier. No manual setup is needed — connect to the Beat Surgeon backend and your status is verified instantly.
+These commands are unlocked automatically when the mod detects an active Twitch Subscription or Patreon support tier. No manual setup is needed - connect to the Beat Surgeon backend and your status is verified instantly.
 
 *   **Glitter (`!glitter <bits>`)**: Triggered by Twitch Bits or chat (when Bit Effect is enabled). Spawns a glitter particle burst on notes. Bit amount is accepted as a parameter; chat usage is hard-capped at 10,000 bits equivalent. Has its own cooldown (default: 10s).
 *   **Subscriber Message (`!smsg <text>`)**: Available to Twitch **subscribers, moderators, and the broadcaster**. Displays a custom in-game message effect (up to 100 characters). Has its own cooldown (default: 60s).
@@ -52,7 +58,7 @@ These commands are unlocked automatically when the mod detects an active Twitch 
 *   **Cooldown Management**:
     *   **Global Cooldowns**: Enforce a universal wait time between *any* command usage.
     *   **Per-Command Cooldowns**: Set specific timers for individual effects (e.g., allow `!rainbow` often, but restrict `!superfast`).
-*   **Permission Gating**: Restrict all gameplay commands to specific audience groups — Everyone (default), VIPs only, or Subscribers only. Configured in the surgeon settings tab.
+*   **Permission Gating**: Restrict all gameplay commands to specific audience groups - Everyone (default), VIPs only, or Subscribers only. Configured in the surgeon settings tab.
 *   **Custom Aliases**: Rename commands like `!bomb` to fit your channel's theme (e.g., `!boop` or `!prank`).
 *   **Ranked Map Auto-Protection**: When Beat Surgeon detects a ranked map (ScoreSaber, BeatLeader, or AccSaber), all commands are automatically blocked to protect your score. A chat notification is sent when this triggers. Individually configurable per leaderboard in the mod settings.
 
@@ -74,14 +80,14 @@ The Mod Settings menu contains four active tabs:
 #### 1. Surgeon Commands Tab
 Enable or disable individual commands using visual icon toggle buttons. Enabled commands are highlighted in color; disabled commands are grayed out.
 
-*   **Rainbow / Note Color** — `!rainbow` and `!notecolor`
-*   **Disappearing Arrows** — `!disappear`
-*   **Ghost Notes** — `!ghost`
-*   **Bomb** — `!bomb` / `!bmsg`
-*   **Faster Song** — `!faster`
-*   **SuperFast Song** — `!superfast`
-*   **Slower Song** — `!slower`
-*   **Flashbang** — `!flashbang`
+*   **Rainbow / Note Color** - `!rainbow` and `!notecolor`
+*   **Disappearing Arrows** - `!disappear`
+*   **Ghost Notes** - `!ghost`
+*   **Bomb** - `!bomb` / `!bmsg`
+*   **Faster Song** - `!faster`
+*   **SuperFast Song** - `!superfast`
+*   **Slower Song** - `!slower`
+*   **Flashbang** - `!flashbang`
 
 <img width="1067" height="655" alt="image" src="https://github.com/user-attachments/assets/d7d61494-fd69-41b0-bb61-fe48f2a79292" />
 
@@ -90,10 +96,10 @@ Manage your Twitch connection and control who is allowed to use chat commands.
 
 *   **Twitch Status:** Live read-only display of your current connection state (e.g. `Connected`, `Connected • Supporter Verified (Tier 1)`, or `Not connected`).
 *   **Connect Twitch Button:** Opens a browser window to link your Twitch account to the Beat Surgeon backend. Required for Channel Points and Supporter feature verification.
-*   **Who can use `!` commands?** — Three independent toggles to gate command access:
-    *   **Allow Everyone** — Any viewer can use commands.
-    *   **Allow VIPs** — Only VIP users can use commands.
-    *   **Allow Subscribers** — Only subscribers can use commands.
+*   **Who can use `!` commands?** - Three independent toggles to gate command access:
+    *   **Allow Everyone** - Any viewer can use commands.
+    *   **Allow VIPs** - Only VIP users can use commands.
+    *   **Allow Subscribers** - Only subscribers can use commands.
 
 > **Note:** These toggles are independent, so you can allow both VIPs and Subscribers while blocking everyone else, for example.
 
@@ -102,11 +108,11 @@ Manage your Twitch connection and control who is allowed to use chat commands.
 #### 3. Surgeon Settings Tab
 General mod behaviour and ranked map protection settings.
 
-*   **Enable Surgeon Multiplayer Effects** — When enabled, Beat Surgeon applies the same commands and effects to your game that your Multiplayer+ lobby leader receives.
-*   **Auto-Disable everything on Ranked maps** — When enabled, all commands and Channel Point rewards are automatically stopped and blocked whenever a ranked map is detected. Individually configurable per leaderboard:
-    *   **BeatLeader** — Detect BeatLeader ranked maps for auto-disable.
-    *   **ScoreSaber** — Detect ScoreSaber ranked maps for auto-disable.
-    *   **AccSaber (reloaded)** — Detect AccSaber Reloaded ranked maps for auto-disable.
+*   **Enable Surgeon Multiplayer Effects** - When enabled, Beat Surgeon applies the same commands and effects to your game that your Multiplayer+ lobby leader receives.
+*   **Auto-Disable everything on Ranked maps** - When enabled, all commands and Channel Point rewards are automatically stopped and blocked whenever a ranked map is detected. Individually configurable per leaderboard:
+    *   **BeatLeader** - Detect BeatLeader ranked maps for auto-disable.
+    *   **ScoreSaber** - Detect ScoreSaber ranked maps for auto-disable.
+    *   **AccSaber (reloaded)** - Detect AccSaber Reloaded ranked maps for auto-disable.
     *(The per-leaderboard toggles are only visible when the main auto-disable toggle is enabled.)*
 
 <img width="1331" height="732" alt="image" src="https://github.com/user-attachments/assets/f051bf29-ddb0-499d-8d30-1678c87c2567" />
@@ -117,10 +123,10 @@ This tab becomes available once the mod detects an active **Twitch Subscription*
 
 <!-- SCREENSHOT: Add a screenshot of the Supporter Tab here -->
 
-*   **Bit Effect** — Enable supporter-only Bits and Cheer effects and the `!glitter` command.
-*   **Sub Effects** — Enable supporter-only Subscriber effects and commands for when viewers subscribe. *(Toggle is interactable only when backend authorization is confirmed.)*
-*   **Follow Effects** — Enable supporter-only follower message effects and the `!fmsg` command for when viewers follow. *(Toggle is interactable only when Follow Effects backend authorization is confirmed.)*
-*   **Surgeon Fonts** — Select the font style Beat Surgeon uses for all in-game text effects (e.g., bomb cut text, message effects). Includes a live preview of the chosen font.
+*   **Bit Effect** - Enable supporter-only Bits and Cheer effects and the `!glitter` command.
+*   **Sub Effects** - Enable supporter-only Subscriber effects and commands for when viewers subscribe. *(Toggle is interactable only when backend authorization is confirmed.)*
+*   **Follow Effects** - Enable supporter-only follower message effects and the `!fmsg` command for when viewers follow. *(Toggle is interactable only when Follow Effects backend authorization is confirmed.)*
+*   **Surgeon Fonts** - Select the font style Beat Surgeon uses for all in-game text effects (e.g., bomb cut text, message effects). Includes a live preview of the chosen font.
 
 <img width="1402" height="745" alt="image" src="https://github.com/user-attachments/assets/ea47994d-44ff-4a54-a4a4-8a93c2c59b2f" />
 
@@ -189,7 +195,7 @@ Once verified:
 - The **Supporter Tab** unlocks automatically in the mod settings menu.
 - **Edit Visuals** buttons appear throughout the Cooldowns screen for supported effects.
 - Supporter-exclusive commands (`!glitter`, `!smsg`, `!fmsg`) become active in chat.
-- The "Support Beat Surgeon" button at the bottom of the settings screen is replaced with a **"Supporter features unlocked 💙"** confirmation — no restart needed.
+- The "Support Beat Surgeon" button at the bottom of the settings screen is replaced with a **"Supporter features unlocked 💙"** confirmation - no restart needed.
 
 > If you don't see the Edit Visuals buttons or the Supporter Tab after connecting, exit and re-select Beat Surgeon in the mods tab to refresh the UI.
 
@@ -232,7 +238,7 @@ Each effect below gains an **Edit Visuals** button in the Cooldowns settings scr
 
 
 #### **Ghost Notes Visuals**
-- No active settings yet — placeholder for future customisation.
+- No active settings yet - placeholder for future customisation.
 
 #### **Flashbang Visuals**
 - **Brightness Multiplier:** Controls the intensity of the flashbang effect (1–200, increment 5; higher = brighter). Default is 91.
@@ -405,7 +411,7 @@ Once verified on either platform:
 
 ## Support Development
 
-I am working on **Beat Surgeon** full-time to create the best possible interactive experience for Beat Saber streamers. As a solo developer still mastering the Beat Saber codebase, this project is a labor of love—and a significant amount of time investment.
+I am working on **Beat Surgeon** full-time to create the best possible interactive experience for Beat Saber streamers. As a solo developer still mastering the Beat Saber codebase, this project is a labor of love-and a significant amount of time investment.
 
 If you enjoy the chaos this mod brings to your streams and want to support its continued development, optimization, and new features, please consider supporting me:
 
@@ -425,19 +431,21 @@ Thank you for helping me keep the lights on and the sabers swinging!
 ## Version History
 
 *   **v1.1.1** (Upcoming)
+
     *   **Bug Fixes** Fixed Ranked Message Spam when restarting a ranked map.
     *   **Bug Fixes** Fixed Command loop restarting the effects and loopping.
     *   **Bug Fixes** Fixed Channel point cooldowns reseting when opeaning the UI.
     *   **Bug Fixes** Fixed Channel Point cooldowns not applying proper cooldowns on twitch.
-    *   **New Feature:** Added Supporter Tab in the Surgeon gameplay setup view — unlocks automatically when Twitch Subscription or Patreon supporter tier is verified via the backend.
-    *   **New Feature:** Added `!glitter <bits>` command — spawns a glitter particle burst on notes, triggered by Bit Events or chat (when Bit Effect is enabled, capped at 10,000 bits for command).
-    *   **New Feature:** Added `!smsg <text>` command — subscriber-exclusive in-game message effect (up to 100 characters; available to subscribers, moderators, and broadcaster).
-    *   **New Feature:** Added `!fmsg <text>` command — follower in-game message effect (up to 100 characters; requires Follow Effects backend authorization).
+    *   **New Feature** Multiplayer+ effect sync - lobby members with Beat Surgeon installed receive the same effects as the lobby host's chat triggers.
+    *   **New Feature:** Added Supporter Tab in the Surgeon gameplay setup view - unlocks automatically when Twitch Subscription or Patreon supporter tier is verified via the backend.
+    *   **New Feature:** Added `!glitter <bits>` command - spawns a glitter particle burst on notes, triggered by Bit Events or chat (when Bit Effect is enabled, capped at 10,000 bits for command).
+    *   **New Feature:** Added `!smsg <text>` command - subscriber-exclusive in-game message effect (up to 100 characters; available to subscribers, moderators, and broadcaster).
+    *   **New Feature:** Added `!fmsg <text>` command - follower in-game message effect (up to 100 characters; requires Follow Effects backend authorization).
     *   **New Feature:** Added Patreon backend support tier verification alongside Twitch subscription checking.
     *   **New Feature:** Connection status in the Twitch sub-tab now displays verified supporter tier (e.g., `Connected • Supporter Verified (Tier 1)`).
     *   **New Feature:** Subscribe button in the Twitch sub-tab is automatically replaced with supporter status text once verification is confirmed.
-    *   **New Feature:** Added ranked map auto-protection — all commands/effects are blocked on ScoreSaber, BeatLeader, and AccSaber ranked maps, individually configurable.
-    *   **New Feature:** Added permission gating — commands can be restricted to Everyone (default), VIPs only, or Subscribers only.
+    *   **New Feature:** Added ranked map auto-protection - all commands/effects are blocked on ScoreSaber, BeatLeader, and AccSaber ranked maps, individually configurable.
+    *   **New Feature:** Added permission gating - commands can be restricted to Everyone (default), VIPs only, or Subscribers only.
 
 *   **v1.0.0** (Current)
     *   **Major Update:** Reworked almost the entire mod architecture (chat/backend/Twitch systems) for stability and long-term maintainability.
