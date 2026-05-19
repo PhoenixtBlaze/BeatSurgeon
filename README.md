@@ -1,8 +1,5 @@
 # Beat Surgeon
 
-## This Readme has been updated for upcoming release of v1.1.1 so features noted in this might not be avialable in v1.0.0 of the mod that's currently out.
-## Expected Release date of v1.1.1 is Tuesday 19th May 2026.
-
 **Beat Surgeon** is a Beat Saber mod that empowers your Twitch chat to directly interact with your gameplay in real time. It turns your stream into a collaborative (and chaotic) experience, allowing viewers to trigger visual effects like Rainbow notes, Flashbang, Bombs, Disappearing Arrows, Ghost Notes and Speed modifiers using simple chat commands or Channel Point Redeems. All while letting you maintain full control over cooldowns and if command is enabled or not.
 
 ## What this mod does
@@ -428,9 +425,11 @@ Thank you for helping me keep the lights on and the sabers swinging!
 
 ---
 
+## Expected Release date of Next Update is Saturday 29th August 2026.
+
 ## Version History
 
-*   **v1.1.1** (Upcoming)
+*   **v1.1.1** (Current)
 
     *   **Bug Fixes** Fixed Ranked Message Spam when restarting a ranked map.
     *   **Bug Fixes** Fixes BeatLeader ranked map detection.
@@ -448,7 +447,7 @@ Thank you for helping me keep the lights on and the sabers swinging!
     *   **New Feature:** Added ranked map auto-protection - all commands/effects are blocked on ScoreSaber, BeatLeader, and AccSaber ranked maps, individually configurable.
     *   **New Feature:** Added permission gating - commands can be restricted to Everyone (default), VIPs only, or Subscribers only.
 
-*   **v1.0.0** (Current)
+*   **v1.0.0**
     *   **Major Update:** Reworked almost the entire mod architecture (chat/backend/Twitch systems) for stability and long-term maintainability.
     *   **Performance Fix:** Full performance pass to reduce/remove frame-drop issues during gameplay.
     *   **New Feature:** Added modular command-processor pipeline for gameplay effects and moderation handling.
