@@ -433,6 +433,7 @@ Thank you for helping me keep the lights on and the sabers swinging!
 *   **v1.1.1** (Upcoming)
 
     *   **Bug Fixes** Fixed Ranked Message Spam when restarting a ranked map.
+    *   **Bug Fixes** Fixes BeatLeader ranked map detection.
     *   **Bug Fixes** Fixed Command loop restarting the effects and loopping.
     *   **Bug Fixes** Fixed Channel point cooldowns reseting when opeaning the UI.
     *   **Bug Fixes** Fixed Channel Point cooldowns not applying proper cooldowns on twitch.
