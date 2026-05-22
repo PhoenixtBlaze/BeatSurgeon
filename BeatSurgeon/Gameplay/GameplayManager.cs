@@ -665,7 +665,7 @@ namespace BeatSurgeon.Gameplay
 
             _pendingDownloads.Clear();
             _playedLevelIds.Clear();
-            _requestQueue.Clear();
+            while (_requestQueue.TryDequeue(out _)) { }
             _inLevelQueueProcessor?.StopProcessing();
             _inLevelQueueProcessor.SwitchRequested -= OnSwitchRequestedDuringPlay; // cleanup
             _inLevelQueueProcessor.PreloadRequested -= OnPreloadRequested;
@@ -1652,6 +1652,8 @@ namespace BeatSurgeon.Gameplay
                     randomDiff
                 );
 
+                var additionalInformation = new GameplayAdditionalInformation("Menu", false, false, PlaymodeOptions.Default, null);
+
                 _menuTransitionsHelper.StartStandardLevel(
                     "Solo",
                     in beatmapKey,
@@ -1659,14 +1661,11 @@ namespace BeatSurgeon.Gameplay
                     overrideEnvironmentSettings,
                     _capturedColorScheme,
                     false,
-                    null,
                     gameplayModifiers,
                     playerSettings,
                     null,
                     _environmentsListModel,
-                    "Menu",
-                    false,
-                    false,
+                    additionalInformation,
                     null,
                     null,
                     (data, results) =>
