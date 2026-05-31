@@ -271,22 +271,12 @@ namespace BeatSurgeon.HarmonyPatches
             var existingSetup = GetFieldValue<StandardLevelScenesTransitionSetupDataSO>(helper, "_standardLevelScenesTransitionSetupData", "standardLevelScenesTransitionSetupData");
             if (existingSetup == null) return;
 
-            var stdGameplayInfoField = FindField(typeof(StandardLevelScenesTransitionSetupDataSO), "_standardGameplaySceneInfo", "standardGameplaySceneInfo");
-            var gameCoreInfoField = FindField(typeof(StandardLevelScenesTransitionSetupDataSO), "_gameCoreSceneInfo", "gameCoreSceneInfo");
-
-            if (stdGameplayInfoField == null || gameCoreInfoField == null) return;
-
-            var existingStdGameplayInfo = stdGameplayInfoField.GetValue(existingSetup) as SceneInfo;
-            var existingGameCoreInfo = gameCoreInfoField.GetValue(existingSetup) as SceneInfo;
-
             var newSetup = ScriptableObject.CreateInstance<StandardLevelScenesTransitionSetupDataSO>();
-
-            stdGameplayInfoField.SetValue(newSetup, existingStdGameplayInfo);
-            gameCoreInfoField.SetValue(newSetup, existingGameCoreInfo);
+            var additionalInformation = new GameplayAdditionalInformation("Menu", false, false, PlaymodeOptions.Default, null);
 
             newSetup.Init(
-                "Solo", nextKey, nextLevel, null, color, false, null, modifiers, playerSettings, null, envs,
-                audioLoader, dataLoader, settingsMgr, "Menu", levelsModel, entitlement, false, false, null
+                "Solo", nextKey, nextLevel, null, color, false, modifiers, playerSettings, null, envs,
+                audioLoader, settingsMgr, additionalInformation, dataLoader, entitlement, levelsModel, null, null
             );
 
             LogUtils.Debug(() => $"EndlessHarmonyPatch: Replacing scenes -> {nextLevel.songName}");
