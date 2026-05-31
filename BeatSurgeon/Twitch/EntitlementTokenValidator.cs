@@ -17,6 +17,8 @@ namespace BeatSurgeon.Twitch
             snapshot = default(EntitlementsSnapshot);
             if (!JwtEd25519.TryVerify(signedToken, out JwtEd25519.VerifiedJwt verified))
             {
+                _log.Warn("TryVerifyAndParse: signature/format verification failed (JwtEd25519.TryVerify returned false). provider=" + expectedProvider +
+                    " tokenPresent=" + (!string.IsNullOrWhiteSpace(signedToken)));
                 return false;
             }
 
@@ -27,12 +29,16 @@ namespace BeatSurgeon.Twitch
                 string sub = payload["sub"]?.ToString();
                 if (exp <= 0 || string.IsNullOrWhiteSpace(sub))
                 {
+                    _log.Warn("TryVerifyAndParse: payload missing exp or sub claim. exp=" + exp +
+                        " subPresent=" + (!string.IsNullOrWhiteSpace(sub)) + " provider=" + expectedProvider);
                     return false;
                 }
 
                 if (!string.IsNullOrWhiteSpace(expectedUserId) &&
                     !string.Equals(sub, expectedUserId, StringComparison.Ordinal))
                 {
+                    _log.Warn("TryVerifyAndParse: sub mismatch. expected='" + expectedUserId + "' actual='" + sub +
+                        "' provider=" + expectedProvider + ". Likely the OAuth flow was completed under a different account.");
                     return false;
                 }
 
@@ -41,6 +47,7 @@ namespace BeatSurgeon.Twitch
                 {
                     if (!string.Equals(provider, "patreon", StringComparison.OrdinalIgnoreCase))
                     {
+                        _log.Warn("TryVerifyAndParse: provider mismatch. expected=patreon actual='" + provider + "'");
                         return false;
                     }
                 }
@@ -49,6 +56,7 @@ namespace BeatSurgeon.Twitch
                     if (!string.IsNullOrWhiteSpace(provider) &&
                         !string.Equals(provider, "twitch", StringComparison.OrdinalIgnoreCase))
                     {
+                        _log.Warn("TryVerifyAndParse: provider mismatch. expected=twitch actual='" + provider + "'");
                         return false;
                     }
                 }
@@ -56,6 +64,7 @@ namespace BeatSurgeon.Twitch
                 int tierInt = payload["tier"]?.Value<int>() ?? 0;
                 if (tierInt < 0 || tierInt > 3)
                 {
+                    _log.Warn("TryVerifyAndParse: tier out of range tier=" + tierInt + " provider=" + expectedProvider);
                     return false;
                 }
 

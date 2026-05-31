@@ -463,6 +463,11 @@ namespace BeatSurgeon.Twitch
                         string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                         if (!response.IsSuccessStatusCode)
                         {
+                            string bodySnippet = body == null
+                                ? "<null>"
+                                : (body.Length > 512 ? body.Substring(0, 512) + "..." : body);
+                            _log.Warn("RefreshEntitlementsAsync: backend returned non-success status=" +
+                                ((int)response.StatusCode) + " (" + response.StatusCode + ") body=" + bodySnippet);
                             InvalidateSupporterState();
                             OnSubscriberStatusChanged?.Invoke();
                             return;
@@ -472,11 +477,15 @@ namespace BeatSurgeon.Twitch
                         string entitlementToken = json["entitlementToken"]?.ToString();
                         if (!TryVerifyAndParseEntitlement(entitlementToken, out EntitlementsSnapshot snapshot))
                         {
+                            _log.Warn("RefreshEntitlementsAsync: backend returned 200 but entitlement JWT failed verification " +
+                                "(see EntitlementTokenValidator log for reason). tokenPresent=" + (!string.IsNullOrWhiteSpace(entitlementToken)));
                             InvalidateSupporterState();
                             OnSubscriberStatusChanged?.Invoke();
                             return;
                         }
 
+                        _log.Info("RefreshEntitlementsAsync: success tier=" + snapshot.Tier +
+                            " expiresAt=" + snapshot.ExpiresAtUtc.ToString("u"));
                         EntitlementsState.Set(EntitlementProvider.Twitch, snapshot);
                         PluginConfig.Instance.CachedSupporterTier = (int)EntitlementsState.Current.Tier;
                         PremiumVisualFeatureAccessController.SyncAllConfigEnabledStates();

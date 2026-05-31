@@ -41,6 +41,10 @@
     <DisableCopyToPlugins>True</DisableCopyToPlugins>
     <DisableZipRelease>True</DisableZipRelease>
   </PropertyGroup>
+  <!-- Always suppress BSMT's built-in DLL copy; PostBuildEvent handles deployment with IPA Pending fallback -->
+  <PropertyGroup>
+    <DisableCopyToPlugins>True</DisableCopyToPlugins>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="0Harmony, Version=2.10.2.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
@@ -112,14 +116,9 @@
       <HintPath>$(BeatSaberDir)\Plugins\BS_Utils.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
-    <Reference Include="CatCore, Version=1.1.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Libs\CatCore.dll</HintPath>
-      <SpecificVersion>False</SpecificVersion>
-    </Reference>
     <Reference Include="ChatPlexSDK_BS, Version=6.4.2.0, Culture=en, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\ChatPlexSDK_BS.dll</HintPath>
+      <HintPath>F:\Games\BSManager\BSInstances\1.40.8_Test\Plugins\ChatPlexSDK_BS.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="Colors, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
@@ -159,7 +158,7 @@
     </Reference>
     <Reference Include="PlaylistManager, Version=1.7.3.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\PlaylistManager.dll</HintPath>
+      <HintPath>F:\Games\BSManager\BSInstances\1.40.8_Test\Plugins\PlaylistManager.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="SongCore, Version=3.15.3.0, Culture=neutral, processorArchitecture=MSIL">
@@ -297,11 +296,6 @@
       <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BGLib.AppFlow.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="websocket-sharp, Version=1.0.2.1803, Culture=neutral, PublicKeyToken=5660b08a1845a91e, processorArchitecture=MSIL">
-      <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Libs\websocket-sharp.dll</HintPath>
-      <SpecificVersion>False</SpecificVersion>
-    </Reference>
     <Reference Include="Zenject, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
       <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\Zenject.dll</HintPath>
@@ -321,6 +315,7 @@
   <ItemGroup>
     <Compile Include="Chat\ChatContext.cs" />
     <Compile Include="Chat\ChatManager.cs" />
+    <Compile Include="Chat\ChatPlexBridge.cs" />
     <Compile Include="Chat\CommandHandler.cs" />
     <Compile Include="Chat\CommandRuntimeSettings.cs" />
     <Compile Include="Chat\Processors\BombsProcessor.cs" />
@@ -486,14 +481,13 @@
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>
-		  REM Source: $(TargetDir)..\UserData  ==  C:\Users\Phoen\source\repos\SaberSurgeon\SaberSurgeon\bin\UserData
-		  REM Dest:   F:\Games\BSManager\BSInstances\1.40.8_Test\UserData
+		  REM Copy UserData to game install
+		  robocopy "$(TargetDir)..\UserData" "I:\SteamLibrary\steamapps\common\Beat Saber\UserData" /E
+		  IF %ERRORLEVEL% LEQ 1 SET ERRORLEVEL=0
 
-		  robocopy "$(TargetDir)..\UserData" "F:\Games\BSManager\BSInstances\1.40.8_Test\UserData" /E
-
-		  REM Make sure robocopy's nonzero codes do not fail the build
-		  IF %ERRORLEVEL% LEQ 1 EXIT 0
-		  EXIT 0
+		  REM Copy BeatSurgeon.dll to Plugins; fall back to IPA\Pending\Plugins if the game is running (DLL locked)
+		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='I:\SteamLibrary\steamapps\common\Beat Saber\Plugins\BeatSurgeon.dll'; $pend='I:\SteamLibrary\steamapps\common\Beat Saber\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -> Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -> IPA\Pending\Plugins (game running - will apply on next start)' }"
+		  IF %ERRORLEVEL% NEQ 0 EXIT %ERRORLEVEL%
 	  </PostBuildEvent>
   </PropertyGroup>
 </Project>

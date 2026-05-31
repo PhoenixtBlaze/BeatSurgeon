@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -8,7 +9,6 @@ using System.Threading.Tasks;
 using BeatSurgeon.Gameplay;
 using BeatSurgeon.Twitch;
 using BeatSurgeon.Utils;
-using CP_SDK.Chat.Interfaces;
 using Zenject;
 
 namespace BeatSurgeon.Chat
@@ -46,6 +46,7 @@ namespace BeatSurgeon.Chat
         private string _channelName;
         private int _queuedCommands;
         private bool _chatPlexAcquired;
+        private IChatPlexBridge _chatPlexBridge;
 
         internal event Action<ChatContext> OnChatMessageReceived;
         internal event Action<string, int> OnSubscriptionReceived;
@@ -152,8 +153,7 @@ namespace BeatSurgeon.Chat
             {
                 try
                 {
-                    CP_SDK.Chat.Service.Discrete_OnTextMessageReceived -= OnChatPlexMessageReceived;
-                    CP_SDK.Chat.Service.Release();
+                    ReleaseChatPlexCore();
                 }
                 catch (Exception ex)
                 {
@@ -213,17 +213,23 @@ namespace BeatSurgeon.Chat
                 return;
             }
 
+            // Check that ChatPlexSDK_BS is actually loaded before touching any of its types.
+            // This guard prevents JIT-time FileNotFoundException when the DLL is absent,
+            // making ChatPlexSDK_BS a true optional runtime dependency.
+            bool chatPlexLoaded = false;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (asm.GetName().Name == "ChatPlexSDK_BS") { chatPlexLoaded = true; break; }
+            }
+            if (!chatPlexLoaded)
+            {
+                _log.Info("ChatPlexSDK_BS not loaded - ChatPlex fallback unavailable");
+                return;
+            }
+
             try
             {
-                CP_SDK.Chat.Service.Acquire();
-                CP_SDK.Chat.Service.Discrete_OnTextMessageReceived += OnChatPlexMessageReceived;
-                _chatPlexAcquired = true;
-
-                // If not yet authenticated with BeatSurgeon backend, set ChatPlex as active backend
-                if (!_authManager.IsAuthenticated)
-                    ActiveBackend = ChatBackend.ChatPlex;
-
-                _log.Info("ChatPlex acquired - will be used when IRC is not connected");
+                CreateChatPlexBridgeCore();
             }
             catch (Exception ex)
             {
@@ -231,30 +237,60 @@ namespace BeatSurgeon.Chat
             }
         }
 
-        private void OnChatPlexMessageReceived(IChatService service, IChatMessage message)
+        // [NoInlining] is critical: prevents JIT from compiling this method body
+        // as part of TryAcquireChatPlex. Because this method contains 'new ChatPlexBridge(this)',
+        // JIT-compiling it would force Mono to resolve ChatPlexBridge's field layout,
+        // which in turn requires ChatPlexSDK_BS.dll. By keeping it [NoInlining], JIT of
+        // this method is deferred until first call — and we only call it after confirming
+        // ChatPlexSDK_BS is already loaded in the AppDomain.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void CreateChatPlexBridgeCore()
         {
-            // Only process via ChatPlex when IRC is not the active backend
+            _chatPlexBridge = new ChatPlexBridge(this);
+            _chatPlexAcquired = true;
+
+            // If not yet authenticated with BeatSurgeon backend, set ChatPlex as active backend
+            if (!_authManager.IsAuthenticated)
+                ActiveBackend = ChatBackend.ChatPlex;
+
+            _log.Info("ChatPlex acquired - will be used when IRC is not connected");
+        }
+
+        private void ReleaseChatPlexCore()
+        {
+            _chatPlexBridge?.Release();
+            _chatPlexBridge = null;
+        }
+
+        private void BroadcastViaChatPlex(string message)
+        {
+            _chatPlexBridge?.BroadcastMessage(message);
+        }
+
+        // Called by ChatPlexBridge — receives message fields as plain types so
+        // ChatManager never needs to reference any CP_SDK type directly.
+        internal void HandleChatPlexMessage(
+            string senderName, string messageText,
+            bool isMod, bool isVip, bool isSub, bool isBroadcaster,
+            object rawService, object rawMessage)
+        {
             if (ActiveBackend == ChatBackend.Irc)
                 return;
 
-            if (!ChatEnabled || message == null || message.IsSystemMessage)
-                return;
-
-            var sender = message.Sender;
-            if (sender == null)
+            if (!ChatEnabled)
                 return;
 
             var ctx = new ChatContext
             {
-                SenderName = sender.UserName,
-                MessageText = message.Message,
-                IsModerator = sender.IsModerator,
-                IsSubscriber = sender.IsSubscriber,
-                IsVip = sender.IsVip,
-                IsBroadcaster = sender.IsBroadcaster,
+                SenderName = senderName,
+                MessageText = messageText,
+                IsModerator = isMod,
+                IsVip = isVip,
+                IsSubscriber = isSub,
+                IsBroadcaster = isBroadcaster,
                 Source = ChatSource.ChatPlex,
-                RawService = service,
-                RawMessage = message
+                RawService = rawService,
+                RawMessage = rawMessage
             };
 
             _log.Info("ChatPlex.MessageReceived user=" + ctx.Username + " cmd=" + ctx.Command);
@@ -785,7 +821,7 @@ namespace BeatSurgeon.Chat
                 {
                     try
                     {
-                        CP_SDK.Chat.Service.BroadcastMessage(message);
+                        BroadcastViaChatPlex(message);
                         _log.Debug("Chat message sent via ChatPlex");
                         return;
                     }
