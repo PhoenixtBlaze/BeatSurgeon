@@ -33,8 +33,10 @@ namespace BeatSurgeon.Gameplay
                 if (r == null) continue;
                 if (_ignoreRoot != null && r.transform.IsChildOf(_ignoreRoot)) continue;
 
-                // Mark NoteCube as managed by BeatSurgeon (bomb effect)
-                bool isManaged = r.name == "NoteCube";
+                // Mark all tracked note renderers as managed — during a bomb all original note
+                // renderers should stay disabled; enforce them every frame in case an external mod
+                // (e.g. NoteTweaker) re-enables them after our Harmony Postfix runs.
+                bool isManaged = true;
 
                 _entries.Add(new Entry
                 {

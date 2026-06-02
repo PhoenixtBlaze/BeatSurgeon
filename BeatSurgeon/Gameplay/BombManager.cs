@@ -46,15 +46,9 @@ namespace BeatSurgeon.Gameplay
 
         private struct BombVisualState
         {
-            public BombVisualInstance Visual;   // <-- CHANGE THISS
-            public MeshRenderer CubeRenderer;
-            public MeshRenderer CircleRenderer;
-            public MeshRenderer ArrowRenderer;
-            public MeshRenderer ArrowGlowRenderer;
-            public bool CubeWasEnabled;
-            public bool CircleWasEnabled;
-            public bool ArrowWasEnabled;
-            public bool ArrowGlowWasEnabled;
+            public BombVisualInstance Visual;
+            public MeshRenderer[] Renderers;
+            public bool[] WasEnabled;
         }
 
         private readonly Dictionary<GameNoteController, BombVisualState> _activeBombVisuals
@@ -159,18 +153,12 @@ namespace BeatSurgeon.Gameplay
 
 
 
-        // NEW: Call this from BombNotePatch to track the visual
+        // Called from BombNotePatch to track the visual and all original note renderers
         internal void RegisterBombVisual(
             GameNoteController controller,
             BombVisualInstance visual,
-            MeshRenderer cubeRenderer,
-            MeshRenderer circleRenderer,
-            MeshRenderer arrowRenderer,
-            MeshRenderer arrowGlowRenderer,
-            bool cubeWasEnabled,
-            bool circleWasEnabled,
-            bool arrowWasEnabled,
-            bool arrowGlowWasEnabled)
+            MeshRenderer[] renderers,
+            bool[] wasEnabled)
         {
             if (controller == null || _activeBombVisuals.ContainsKey(controller))
                 return;
@@ -178,14 +166,8 @@ namespace BeatSurgeon.Gameplay
             _activeBombVisuals[controller] = new BombVisualState
             {
                 Visual = visual,
-                CubeRenderer = cubeRenderer,
-                CircleRenderer = circleRenderer,
-                ArrowRenderer = arrowRenderer,
-                ArrowGlowRenderer = arrowGlowRenderer,
-                CubeWasEnabled = cubeWasEnabled,
-                CircleWasEnabled = circleWasEnabled,
-                ArrowWasEnabled = arrowWasEnabled,
-                ArrowGlowWasEnabled = arrowGlowWasEnabled
+                Renderers = renderers,
+                WasEnabled = wasEnabled
             };
         }
 
@@ -236,6 +218,33 @@ namespace BeatSurgeon.Gameplay
             return noteData != null && _bombNotes.ContainsKey(noteData);
         }
 
+        // Cleans up stale bomb visual state from a previously missed bomb on a recycled note controller.
+        // Beat Saber pools GameNoteControllers and reuses them within the same song. If a bomb note is
+        // missed (not cut), ClearBombVisuals is never called for that specific note, leaving disabled
+        // renderers and an attached bomb visual child on the recycled controller. This must be called
+        // at the top of HandleNoteControllerDidInit so the recycled controller starts clean.
+        internal void TryClearStaleVisual(GameNoteController controller)
+        {
+            if (controller == null) return;
+            if (!_activeBombVisuals.TryGetValue(controller, out var state)) return;
+
+            LogUtils.Debug(() => $"BombManager: Clearing stale bomb visual on recycled controller '{controller.name}'");
+
+            if (state.Visual != null)
+                BombVisualPool.Instance.Return(state.Visual);
+
+            if (state.Renderers != null && state.WasEnabled != null)
+            {
+                int count = Mathf.Min(state.Renderers.Length, state.WasEnabled.Length);
+                for (int i = 0; i < count; i++)
+                {
+                    var r = state.Renderers[i];
+                    if (r != null) r.enabled = state.WasEnabled[i];
+                }
+            }
+
+            _activeBombVisuals.Remove(controller);
+        }
 
         // OPTIMIZED: Clears only known active visuals
         public void ClearBombVisuals(bool restoreOriginalRenderers = true)
@@ -246,22 +255,21 @@ namespace BeatSurgeon.Gameplay
             {
                 var state = kvp.Value;
 
-                // Return pooled visual (no Transform.Find needed)
+                // Return pooled visual
                 if (state.Visual != null)
                     BombVisualPool.Instance.Return(state.Visual);
 
-                // Restore renderers (no Transform.Find needed)
-                if (state.CubeRenderer != null)
-                    state.CubeRenderer.enabled = restoreOriginalRenderers && state.CubeWasEnabled;
-
-                if (state.CircleRenderer != null)
-                    state.CircleRenderer.enabled = restoreOriginalRenderers && state.CircleWasEnabled;
-
-                if (state.ArrowRenderer != null)
-                    state.ArrowRenderer.enabled = restoreOriginalRenderers && state.ArrowWasEnabled;
-
-                if (state.ArrowGlowRenderer != null)
-                    state.ArrowGlowRenderer.enabled = restoreOriginalRenderers && state.ArrowGlowWasEnabled;
+                // Restore all original note renderers
+                if (state.Renderers != null && state.WasEnabled != null)
+                {
+                    int count = Mathf.Min(state.Renderers.Length, state.WasEnabled.Length);
+                    for (int i = 0; i < count; i++)
+                    {
+                        var r = state.Renderers[i];
+                        if (r != null)
+                            r.enabled = restoreOriginalRenderers && state.WasEnabled[i];
+                    }
+                }
             }
 
             _activeBombVisuals.Clear();
