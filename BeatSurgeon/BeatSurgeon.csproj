@@ -482,11 +482,11 @@
   <PropertyGroup>
     <PostBuildEvent>
 		  REM Copy UserData to game install
-		  robocopy "$(TargetDir)..\UserData" "I:\SteamLibrary\steamapps\common\Beat Saber\UserData" /E
+		  robocopy "$(TargetDir)..\UserData" "F:\Games\BSManager\BSInstances\1.40.8_Test\UserData" /E
 		  IF %ERRORLEVEL% LEQ 1 SET ERRORLEVEL=0
 
 		  REM Copy BeatSurgeon.dll to Plugins; fall back to IPA\Pending\Plugins if the game is running (DLL locked)
-		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='I:\SteamLibrary\steamapps\common\Beat Saber\Plugins\BeatSurgeon.dll'; $pend='I:\SteamLibrary\steamapps\common\Beat Saber\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -> Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -> IPA\Pending\Plugins (game running - will apply on next start)' }"
+		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='F:\Games\BSManager\BSInstances\1.40.8_Test\Plugins\BeatSurgeon.dll'; $pend='F:\Games\BSManager\BSInstances\1.40.8_Test\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -> Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -> IPA\Pending\Plugins (game running - will apply on next start)' }"
 		  IF %ERRORLEVEL% NEQ 0 EXIT %ERRORLEVEL%
 	  </PostBuildEvent>
   </PropertyGroup>

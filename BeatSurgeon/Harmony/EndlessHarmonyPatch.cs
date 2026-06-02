@@ -271,16 +271,13 @@ namespace BeatSurgeon.HarmonyPatches
             var existingSetup = GetFieldValue<StandardLevelScenesTransitionSetupDataSO>(helper, "_standardLevelScenesTransitionSetupData", "standardLevelScenesTransitionSetupData");
             if (existingSetup == null) return;
 
-            var newSetup = ScriptableObject.CreateInstance<StandardLevelScenesTransitionSetupDataSO>();
-            var additionalInformation = new GameplayAdditionalInformation("Menu", false, false, PlaymodeOptions.Default, null);
-
-            newSetup.Init(
-                "Solo", nextKey, nextLevel, null, color, false, modifiers, playerSettings, null, envs,
-                audioLoader, settingsMgr, additionalInformation, dataLoader, entitlement, levelsModel, null, null
+            existingSetup.Init(
+                "Solo", in nextKey, nextLevel, null, color, false, null, modifiers, playerSettings, null, envs,
+                audioLoader, dataLoader, settingsMgr, "Menu", levelsModel, entitlement
             );
 
             LogUtils.Debug(() => $"EndlessHarmonyPatch: Replacing scenes -> {nextLevel.songName}");
-            scenesMgr.ReplaceScenes(newSetup, null, fade);
+            scenesMgr.ReplaceScenes(existingSetup, null, fade);
         }
     }
 }

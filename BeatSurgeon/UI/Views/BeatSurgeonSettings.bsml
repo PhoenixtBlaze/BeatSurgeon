@@ -268,7 +268,7 @@
 				</modifier-container>
 			</tab>
 			<!-- TAB 3: Endless Mode(Disabled for now)  -->
-			<!--
+			
 			<tab tab-name="Endless" tags="saber-surgeon-tabs">
 				<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
 					
@@ -277,7 +277,7 @@
 						
 						
 						<!-- Play Time Slider -->
-					<!--
+					
 						<slider-setting
 								text="Play Time (minutes)"
 								value="playTime"
@@ -315,10 +315,10 @@
 					</horizontal>
 					<horizontal>
 					
-					-->
+					
 						<!-- Start / Play Button -->
 					
-					<!--
+					
 						<button
 								text="Start / Play"
 								on-click="OnStartPlayPressed"
@@ -336,7 +336,7 @@
 				</modifier-container>
 			</tab>
 			
-			-->
+		
 			
 		</horizontal>
 		<horizontal>

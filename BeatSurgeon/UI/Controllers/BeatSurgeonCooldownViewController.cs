@@ -601,9 +601,45 @@ namespace BeatSurgeon.UI.Controllers
                 yield break;
             }
 
-            var sceneNames = standardLevelScenesTransitionSetupData.scenes;
-            var gameCoreSceneName = sceneNames?.FirstOrDefault(sceneName => sceneName.Contains("GameCore")) ?? "GameCore";
-            var gameplaySceneName = sceneNames?.FirstOrDefault(sceneName => sceneName.Contains("StandardGameplay")) ?? "StandardGameplay";
+            // Resolve scene names: try 1.40.8 private SceneInfo fields first,
+            // fall back to the 1.43+ public `scenes` string collection via reflection.
+            string gameplaySceneName;
+            string gameCoreSceneName;
+
+            var gameplaySceneInfoField = typeof(StandardLevelScenesTransitionSetupDataSO).GetField(
+                "_standardGameplaySceneInfo",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var gameCoreSceneInfoField = typeof(StandardLevelScenesTransitionSetupDataSO).GetField(
+                "_gameCoreSceneInfo",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (gameplaySceneInfoField != null && gameCoreSceneInfoField != null)
+            {
+                // 1.40.8 path: private SceneInfo fields
+                var gameplaySceneInfo = gameplaySceneInfoField.GetValue(standardLevelScenesTransitionSetupData) as SceneInfo;
+                var gameCoreSceneInfo  = gameCoreSceneInfoField.GetValue(standardLevelScenesTransitionSetupData) as SceneInfo;
+
+                if (gameplaySceneInfo == null) { Plugin.Log.Error("gameplaySceneInfo was null!"); yield break; }
+                if (gameCoreSceneInfo  == null) { Plugin.Log.Error("gameCoreSceneInfo was null!");  yield break; }
+
+                gameplaySceneName = gameplaySceneInfo.sceneName;
+                gameCoreSceneName  = gameCoreSceneInfo.sceneName;
+            }
+            else
+            {
+                // 1.43+ path: public `scenes` property returns IEnumerable<string>
+                var scenesProperty = typeof(StandardLevelScenesTransitionSetupDataSO).GetProperty(
+                    "scenes",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+
+                if (scenesProperty == null) { Plugin.Log.Error("Could not find scenes field or property on StandardLevelScenesTransitionSetupDataSO!"); yield break; }
+
+                var sceneNames = scenesProperty.GetValue(standardLevelScenesTransitionSetupData) as System.Collections.Generic.IEnumerable<string>;
+                if (sceneNames == null) { Plugin.Log.Error("scenes property was null or wrong type!"); yield break; }
+
+                gameplaySceneName = sceneNames.FirstOrDefault(s => s.Contains("StandardGameplay")) ?? "StandardGameplay";
+                gameCoreSceneName  = sceneNames.FirstOrDefault(s => s.Contains("GameCore"))         ?? "GameCore";
+            }
 
             // Load GameCore scene first
             var gameCoreLoad = SceneManager.LoadSceneAsync(gameCoreSceneName, LoadSceneMode.Additive);

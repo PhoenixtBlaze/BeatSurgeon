@@ -102,11 +102,10 @@ namespace BeatSurgeon.Installers
             Container.Bind<ICommandProcessor>().To<SubscriberMessageProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<GlitterProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<TestProcessor>().AsSingle();
-            // Endless mode + song request command processors are intentionally disabled for now.
-            // Container.Bind<ICommandProcessor>().To<EndlessModeProcessor>().AsSingle();
-            // Container.Bind<ICommandProcessor>().To<SongRequestProcessor>().AsSingle();
+            Container.Bind<ICommandProcessor>().To<EndlessModeProcessor>().AsSingle();
+            Container.Bind<ICommandProcessor>().To<SongRequestProcessor>().AsSingle();
 
-            _log.Info("Registered 10 ICommandProcessor implementations");
+            _log.Info("Registered 13 ICommandProcessor implementations");
             _log.Lifecycle("InstallBindings complete");
         }
     }

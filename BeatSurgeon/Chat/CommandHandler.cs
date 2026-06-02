@@ -266,7 +266,10 @@ namespace BeatSurgeon.Chat
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.CommandDisabled);
             }
 
-            if (RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking)
+            bool isSongRequestCommand = string.Equals(normalized, "!sr", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "!bsr", StringComparison.OrdinalIgnoreCase);
+
+            if (!isSongRequestCommand && RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking)
             {
                 _log.Command(ctx.Username, normalized, false, "RankedMapBlocked");
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.RankedMap);
