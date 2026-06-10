@@ -43,6 +43,8 @@ namespace BeatSurgeon.Gameplay
         private static bool _triedSubscriberCanvasLoad = false;
         private static GameObject _cachedTrailCubeTemplate;
         private static bool _triedTrailCubeLoad = false;
+        private static GameObject _cachedBombTemplate;
+        private static bool _triedBombLoad = false;
         private static readonly Dictionary<string, Material> _cachedPreparedBurstMaterials = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<int, GameObject> _cachedGlitterTemplates = new Dictionary<int, GameObject>();
         private static readonly HashSet<int> _triedGlitterLoads = new HashSet<int>();
@@ -110,6 +112,14 @@ namespace BeatSurgeon.Gameplay
 
                 _cachedTrailCubeTemplate = null;
                 _triedTrailCubeLoad = false;
+
+                if (_cachedBombTemplate != null)
+                {
+                    UnityEngine.Object.Destroy(_cachedBombTemplate);
+                }
+
+                _cachedBombTemplate = null;
+                _triedBombLoad = false;
 
                 foreach (var cachedBitEmitter in _cachedBitEmitterTemplates.Values)
                 {
@@ -1009,6 +1019,97 @@ namespace BeatSurgeon.Gameplay
             }
 
             return _cachedTrailCubeTemplate;
+        }
+
+        public static GameObject GetBombTemplate()
+        {
+            if (_cachedBombTemplate != null)
+            {
+                return _cachedBombTemplate;
+            }
+
+            if (_triedBombLoad)
+            {
+                return null;
+            }
+
+            _triedBombLoad = true;
+
+            try
+            {
+                string bundlePath = Path.Combine(Environment.CurrentDirectory, "UserData", "BeatSurgeon", "Effects", "surgeoneffects");
+                if (!File.Exists(bundlePath))
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle not found at " + bundlePath);
+                    return null;
+                }
+
+                var bundle = AssetBundle.LoadFromFile(bundlePath);
+                if (bundle == null)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: failed to load asset bundle: " + bundlePath);
+                    return null;
+                }
+
+                try
+                {
+                    string[] assets = bundle.GetAllAssetNames();
+                    if (assets == null || assets.Length == 0)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle did not expose any assets.");
+                        return null;
+                    }
+
+                    string twitchControllerAssetName = ResolveBundleAssetName(assets, BundleRegistry.PrefabTwitchController);
+                    var twitchControllerPrefab = string.IsNullOrWhiteSpace(twitchControllerAssetName)
+                        ? null
+                        : bundle.LoadAsset<GameObject>(twitchControllerAssetName);
+                    if (twitchControllerPrefab == null)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: could not load TwitchController prefab for Bomb template.");
+                        return null;
+                    }
+
+                    Transform bombTransform = twitchControllerPrefab.transform.Find(BundleRegistry.TwitchControllerRefs.BombNodePath)
+                        ?? FindDescendantByNormalizedName(twitchControllerPrefab.transform, BundleRegistry.TwitchControllerRefs.BombNodeName);
+                    if (bombTransform == null)
+                    {
+                        Plugin.Log.Warn(
+                            "SurgeonEffectsBundleService: Bomb node '"
+                            + BundleRegistry.TwitchControllerRefs.BombNodePath
+                            + "' was not found on the loaded TwitchController prefab asset.");
+                        return null;
+                    }
+
+                    var templateRoot = UnityEngine.Object.Instantiate(bombTransform.gameObject);
+                    UnityEngine.Object.DontDestroyOnLoad(templateRoot);
+                    templateRoot.transform.SetParent(null, false);
+                    templateRoot.name = "BeatSurgeonBombTemplate";
+                    templateRoot.SetActive(false);
+
+                    _cachedBombTemplate = templateRoot;
+                    LogUtils.Debug(() =>
+                        "SurgeonEffectsBundleService: cached Bomb template path='"
+                        + BundleRegistry.TwitchControllerRefs.BombNodePath
+                        + "'.");
+
+                    return _cachedBombTemplate;
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: error loading Bomb template: " + ex.Message);
+                }
+                finally
+                {
+                    try { bundle.Unload(false); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("SurgeonEffectsBundleService: unexpected Bomb template load error: " + ex.Message);
+            }
+
+            return _cachedBombTemplate;
         }
 
         public static bool TryResolveFollowerCanvasStartWorldPosition(out Vector3 position)

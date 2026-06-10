@@ -1,6 +1,7 @@
 using BeatSurgeon.Chat;
 using BeatSurgeon.Chat.Processors;
 using BeatSurgeon.Gameplay;
+using BeatSurgeon.Integration;
 using BeatSurgeon.Integrations;
 using BeatSurgeon;
 using BeatSurgeon.Twitch;
@@ -87,6 +88,22 @@ namespace BeatSurgeon.Installers
                 .AsSingle()
                 .NonLazy();
 
+            Container.BindInterfacesAndSelfTo<AutomaticEffectDedupService>()
+                .AsSingle()
+                .NonLazy();
+
+            Container.BindInterfacesAndSelfTo<IntegrationCommandExecutor>()
+                .AsSingle()
+                .NonLazy();
+
+            Container.BindInterfacesAndSelfTo<IntegrationEventExecutor>()
+                .AsSingle()
+                .NonLazy();
+
+            Container.BindInterfacesAndSelfTo<IntegrationApiCoordinator>()
+                .AsSingle()
+                .NonLazy();
+
             Container.BindInterfacesAndSelfTo<RankedMapDetectionService>()
                 .AsSingle()
                 .NonLazy();
@@ -102,11 +119,11 @@ namespace BeatSurgeon.Installers
             Container.Bind<ICommandProcessor>().To<SubscriberMessageProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<GlitterProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<TestProcessor>().AsSingle();
-            // Endless mode + song request command processors are intentionally disabled for now.
+            // Endless mode disabled for release — restore bindings when ready.
             // Container.Bind<ICommandProcessor>().To<EndlessModeProcessor>().AsSingle();
             // Container.Bind<ICommandProcessor>().To<SongRequestProcessor>().AsSingle();
 
-            _log.Info("Registered 10 ICommandProcessor implementations");
+            _log.Info("Registered 11 ICommandProcessor implementations");
             _log.Lifecycle("InstallBindings complete");
         }
     }

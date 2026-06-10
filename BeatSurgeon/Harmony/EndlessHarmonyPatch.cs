@@ -182,7 +182,8 @@ namespace BeatSurgeon.HarmonyPatches
     }
     */
 
-    // PATCH 2: Endless Mode Chaining 
+    /*
+    // PATCH 2: Endless Mode Chaining (disabled for release — restore when ready)
     [HarmonyPatch(typeof(MenuTransitionsHelper), "HandleMainGameSceneDidFinish")]
     internal static class EndlessHarmonyPatch
     {
@@ -202,6 +203,13 @@ namespace BeatSurgeon.HarmonyPatches
                 if (gm == null || !gm.IsPlaying() || gm.GetRemainingTime() <= 0f) return true;
                 if (levelCompletionResults == null) return true;
 
+                var seamless = Gameplay.SeamlessTransitionController.Instance;
+                if (seamless != null && seamless.ShouldSuppressSongFinish)
+                {
+                    _log.Info($"Seamless active; suppressing HandleMainGameSceneDidFinish at remainingTime={gm.GetRemainingTime():0.0}s.");
+                    return false;
+                }
+
                 if (levelCompletionResults.levelEndAction == LevelCompletionResults.LevelEndAction.Quit ||
                     levelCompletionResults.levelEndAction == LevelCompletionResults.LevelEndAction.Restart ||
                     levelCompletionResults.levelEndStateType == LevelCompletionResults.LevelEndStateType.Failed)
@@ -219,14 +227,23 @@ namespace BeatSurgeon.HarmonyPatches
                 }
 
                 ReplaceScenes(__instance, nextLevel, nextKey, modifiers, playerSettings, color, envs);
+                gm.ClearReservedSeamlessNextChain();
                 return false;
             }
             catch (Exception ex)
             {
+                Gameplay.GameplayManager.GetInstance()?.ClearReservedSeamlessNextChain();
                 _log.Exception(ex, "Prefix");
                 return true;
             }
         }
+    */
+
+    // Scene-replacement helper kept for GameplayManager compile-time reference (harmony patch disabled above).
+    internal static class EndlessHarmonyPatch
+    {
+        private static readonly LogUtil _log = LogUtil.GetLogger("EndlessHarmonyPatch");
+        private const float ChainFadeDurationSeconds = 1.0f;
 
         private static void ClearPreviousPauseState()
         {
@@ -271,16 +288,13 @@ namespace BeatSurgeon.HarmonyPatches
             var existingSetup = GetFieldValue<StandardLevelScenesTransitionSetupDataSO>(helper, "_standardLevelScenesTransitionSetupData", "standardLevelScenesTransitionSetupData");
             if (existingSetup == null) return;
 
-            var newSetup = ScriptableObject.CreateInstance<StandardLevelScenesTransitionSetupDataSO>();
-            var additionalInformation = new GameplayAdditionalInformation("Menu", false, false, PlaymodeOptions.Default, null);
-
-            newSetup.Init(
-                "Solo", nextKey, nextLevel, null, color, false, modifiers, playerSettings, null, envs,
-                audioLoader, settingsMgr, additionalInformation, dataLoader, entitlement, levelsModel, null, null
+            existingSetup.Init(
+                "Solo", in nextKey, nextLevel, null, color, false, null, modifiers, playerSettings, null, envs,
+                audioLoader, dataLoader, settingsMgr, "Menu", levelsModel, entitlement
             );
 
             LogUtils.Debug(() => $"EndlessHarmonyPatch: Replacing scenes -> {nextLevel.songName}");
-            scenesMgr.ReplaceScenes(newSetup, null, fade);
+            scenesMgr.ReplaceScenes(existingSetup, null, fade);
         }
     }
 }

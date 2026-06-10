@@ -181,6 +181,13 @@ namespace BeatSurgeon.Utils
             [CallerLineNumber] int line = 0)
             => Write(Level.Notice, $"[AUTH] {phase}{Detail(detail)}", caller, line);
 
+        internal void IntegrationApi(
+            string eventType,
+            string detail = "",
+            [CallerMemberName] string caller = "",
+            [CallerLineNumber] int line = 0)
+            => Write(Level.Info, $"[INTEGRATION-API] {eventType}{Detail(detail)}", caller, line);
+
         private static string Detail(string value)
             => string.IsNullOrWhiteSpace(value) ? string.Empty : " | " + value;
 

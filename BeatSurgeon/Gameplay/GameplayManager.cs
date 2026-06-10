@@ -101,6 +101,19 @@ namespace BeatSurgeon.Gameplay
         // Track the currently-started request (if the current song came from queue)
         private SongRequest _currentSongRequest;
 
+        private sealed class PreparedNextChain
+        {
+            public SongRequest Request;
+            public BeatmapLevel NextLevel;
+            public BeatmapKey NextKey;
+            public GameplayModifiers Modifiers;
+            public PlayerSpecificSettings PlayerSettings;
+            public ColorScheme Color;
+            public EnvironmentsListModel Envs;
+        }
+
+        private PreparedNextChain _seamlessPreparedNextChain;
+
         public float? SwitchAfterSeconds { get; set; }  // e.g., 60 means "switch in 60s of current song"
 
 
@@ -586,39 +599,43 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         public void StartEndlessMode(float durationMinutes)
         {
-            // Endless mode is intentionally disabled for now.
-            // if (_isPlaying)
-            // {
-            //     Plugin.Log.Warn("GameplayManager: Already playing!");
-            //     return;
-            // }
-            // if (!EnsureDependencies())
-            // {
-            //     Plugin.Log.Error("GameplayManager: Cannot start – MenuTransitionsHelper missing");
-            //     return;
-            // }
-            // LogUtils.Debug(() => $"GameplayManager: Starting Endless Mode for {durationMinutes} minutes");
-            // CapturePlayerSettings();
-            // _totalTime = durationMinutes * 60f;
-            // _remainingTime = _totalTime;
-            // _isPlaying = true;
-            // _playedLevelIds.Clear();
-            // _requestQueue.Clear();
-            // LoadAvailableSongs();
-            // if (_availableLevels.Count == 0)
-            // {
-            //     Plugin.Log.Error("GameplayManager: No custom songs found!");
-            //     StopEndlessMode();
-            //     return;
-            // }
-            // _inLevelQueueProcessor?.StartProcessing();
-            // _inLevelQueueProcessor.SwitchRequested += OnSwitchRequestedDuringPlay;
-            // _inLevelQueueProcessor.PreloadRequested += OnPreloadRequested;
-            // _downloadPollerCoroutine = StartCoroutine(DownloadPoller());
-            // LogUtils.Debug(() => $"GameplayManager: Found {_availableLevels.Count} custom songs");
-            // _gameplayCoroutine = StartCoroutine(GameplayLoop());
-            // _timerCoroutine = StartCoroutine(TimerCountdown());
-            Plugin.Log.Info("GameplayManager: StartEndlessMode ignored because Endless mode is disabled.");
+            if (_isPlaying)
+            {
+                Plugin.Log.Warn("GameplayManager: Already playing!");
+                return;
+            }
+
+            if (!EnsureDependencies())
+            {
+                Plugin.Log.Error("GameplayManager: Cannot start - MenuTransitionsHelper missing");
+                return;
+            }
+
+            LogUtils.Debug(() => $"GameplayManager: Starting Endless Mode for {durationMinutes} minutes");
+            CapturePlayerSettings();
+            _totalTime = durationMinutes * 60f;
+            _remainingTime = _totalTime;
+            _isPlaying = true;
+            ClearReservedSeamlessNextChain();
+            _playedLevelIds.Clear();
+
+            while (_requestQueue.TryDequeue(out _)) { }
+
+            LoadAvailableSongs();
+            if (_availableLevels.Count == 0)
+            {
+                Plugin.Log.Error("GameplayManager: No custom songs found!");
+                StopEndlessMode();
+                return;
+            }
+
+            _inLevelQueueProcessor?.StartProcessing();
+            _inLevelQueueProcessor.SwitchRequested += OnSwitchRequestedDuringPlay;
+            _inLevelQueueProcessor.PreloadRequested += OnPreloadRequested;
+
+            LogUtils.Debug(() => $"GameplayManager: Found {_availableLevels.Count} custom songs");
+            _gameplayCoroutine = StartCoroutine(GameplayLoop());
+            _timerCoroutine = StartCoroutine(TimerCountdown());
         }
 
 
@@ -644,6 +661,7 @@ namespace BeatSurgeon.Gameplay
             LogUtils.Debug(() => "GameplayManager: Stopping Endless Mode");
             _isPlaying = false;
             _remainingTime = 0f;
+            ClearReservedSeamlessNextChain();
             FasterSongPatch.ClearCache();
 
             if (_gameplayCoroutine != null)
@@ -712,43 +730,171 @@ namespace BeatSurgeon.Gameplay
     out ColorScheme color,
     out EnvironmentsListModel envs)
         {
-            nextLevel = null;
-            nextKey = default;
-            modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
-            playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
-            color = _capturedColorScheme;
-            envs = _environmentsListModel;
+            if (_seamlessPreparedNextChain != null)
+            {
+                _currentSongRequest = _seamlessPreparedNextChain.Request;
+                return CopyPreparedNextChain(_seamlessPreparedNextChain, out nextLevel, out nextKey, out modifiers, out playerSettings, out color, out envs);
+            }
+
+            if (!TryBuildNextChain(0f, out var preparedNextChain))
+            {
+                nextLevel = null;
+                nextKey = default;
+                modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
+                playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
+                color = _capturedColorScheme;
+                envs = _environmentsListModel;
+                return false;
+            }
+
+            _currentSongRequest = preparedNextChain.Request;
+            return CopyPreparedNextChain(preparedNextChain, out nextLevel, out nextKey, out modifiers, out playerSettings, out color, out envs);
+        }
+
+        public bool TryReserveSeamlessNextChain(float minimumSongDurationSeconds,
+            out BeatmapLevel nextLevel,
+            out BeatmapKey nextKey,
+            out GameplayModifiers modifiers,
+            out PlayerSpecificSettings playerSettings,
+            out ColorScheme color,
+            out EnvironmentsListModel envs)
+        {
+            if (_seamlessPreparedNextChain != null)
+            {
+                return CopyPreparedNextChain(_seamlessPreparedNextChain, out nextLevel, out nextKey, out modifiers, out playerSettings, out color, out envs);
+            }
+
+            if (!TryBuildNextChain(minimumSongDurationSeconds, out var preparedNextChain))
+            {
+                nextLevel = null;
+                nextKey = default;
+                modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
+                playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
+                color = _capturedColorScheme;
+                envs = _environmentsListModel;
+                return false;
+            }
+
+            _seamlessPreparedNextChain = preparedNextChain;
+            return CopyPreparedNextChain(preparedNextChain, out nextLevel, out nextKey, out modifiers, out playerSettings, out color, out envs);
+        }
+
+        public bool CommitReservedSeamlessNextChain()
+        {
+            if (_seamlessPreparedNextChain == null)
+            {
+                return false;
+            }
+
+            _currentSongRequest = _seamlessPreparedNextChain.Request;
+            _seamlessPreparedNextChain = null;
+            return true;
+        }
+
+        public void ClearReservedSeamlessNextChain()
+        {
+            _seamlessPreparedNextChain = null;
+        }
+
+        private static bool CopyPreparedNextChain(
+            PreparedNextChain preparedChain,
+            out BeatmapLevel nextLevel,
+            out BeatmapKey nextKey,
+            out GameplayModifiers modifiers,
+            out PlayerSpecificSettings playerSettings,
+            out ColorScheme color,
+            out EnvironmentsListModel envs)
+        {
+            if (preparedChain == null)
+            {
+                nextLevel = null;
+                nextKey = default;
+                modifiers = null;
+                playerSettings = null;
+                color = null;
+                envs = null;
+                return false;
+            }
+
+            nextLevel = preparedChain.NextLevel;
+            nextKey = preparedChain.NextKey;
+            modifiers = preparedChain.Modifiers;
+            playerSettings = preparedChain.PlayerSettings;
+            color = preparedChain.Color;
+            envs = preparedChain.Envs;
+            return true;
+        }
+
+        private bool TryBuildNextChain(float minimumSongDurationSeconds, out PreparedNextChain preparedChain)
+        {
+            preparedChain = null;
 
             if (!_isPlaying)
+            {
                 return false;
+            }
 
-            // FIX: Use TryDequeue instead of Dequeue
             int safety = _requestQueue.Count;
             while (safety-- > 0 && !_requestQueue.IsEmpty)
             {
-                if (_requestQueue.TryDequeue(out var req))
+                if (!_requestQueue.TryDequeue(out var req) || req == null)
                 {
-                    if (req == null) continue;
-
-                    if (TryResolveRequestToLevel(req, out var resolvedLevel))
-                    {
-                        _currentSongRequest = req;
-                        return BuildKeyForLevel(req, resolvedLevel, out nextLevel, out nextKey);
-                    }
-
-                    // Not installed yet -> ensure download started and re-enqueue
-                    EnsureDownloadStarted(req);
-                    _requestQueue.Enqueue(req);
+                    continue;
                 }
+
+                if (!TryResolveRequestToLevel(req, out var resolvedLevel))
+                {
+                    // Endless mode stays local-only; unresolved requests are skipped instead of downloading.
+                    Plugin.Log.Warn($"GameplayManager: Skipping {req.BsrCode} because it is not in the current library.");
+                    continue;
+                }
+
+                if (minimumSongDurationSeconds > 0f && resolvedLevel.songDuration < minimumSongDurationSeconds)
+                {
+                    Plugin.Log.Warn($"GameplayManager: Skipping {req.BsrCode} for seamless mode because song duration {resolvedLevel.songDuration:0.0}s is shorter than required {minimumSongDurationSeconds:0.0}s.");
+                    continue;
+                }
+
+                if (!BuildKeyForLevel(req, resolvedLevel, out var nextLevel, out var nextKey))
+                {
+                    return false;
+                }
+
+                preparedChain = new PreparedNextChain
+                {
+                    Request = req,
+                    NextLevel = nextLevel,
+                    NextKey = nextKey,
+                    Modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers(),
+                    PlayerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings(),
+                    Color = _capturedColorScheme,
+                    Envs = _environmentsListModel,
+                };
+                return true;
             }
 
-            // Random fallback
-            _currentSongRequest = null;
-            var random = GetRandomLevel();
+            var random = GetRandomLevel(minimumSongDurationSeconds);
             if (random == null)
+            {
                 return false;
+            }
 
-            return BuildKeyForLevel(null, random, out nextLevel, out nextKey);
+            if (!BuildKeyForLevel(null, random, out var randomNextLevel, out var randomNextKey))
+            {
+                return false;
+            }
+
+            preparedChain = new PreparedNextChain
+            {
+                Request = null,
+                NextLevel = randomNextLevel,
+                NextKey = randomNextKey,
+                Modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers(),
+                PlayerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings(),
+                Color = _capturedColorScheme,
+                Envs = _environmentsListModel,
+            };
+            return true;
         }
 
 
@@ -779,33 +925,38 @@ namespace BeatSurgeon.Gameplay
             return true;
         }
 
-        private bool TryResolveRequestToLevel(SongRequest req, out BeatmapLevel level)
+        private bool TryResolveRequestToLevel(SongRequest req, out BeatmapLevel level, bool logOnFailure = true)
         {
             level = null;
             if (req == null) return false;
 
             string key = NormalizeKey(req.BsrCode);
+            if (string.IsNullOrWhiteSpace(key)) return false;
 
-            // If we already resolved it via hash->levelID, grab it directly.
-            if (_pendingDownloads.TryGetValue(key, out var pd) && !string.IsNullOrWhiteSpace(pd.ResolvedLevelId))
-            {
-                var found = SongCore.Loader.GetLevelById(pd.ResolvedLevelId);
-                if (found != null)
-                {
-                    level = found;
-                    return true;
-                }
-            }
-
-
-            // If the user pasted a 40-hex hash instead of a BSR key, support it:
+            // Endless mode stays local-only: resolve only against the installed SongCore library.
             if (key.Length == 40 && key.All(Uri.IsHexDigit))
             {
                 return TryFindLevelByHash(key, out level);
             }
 
-            // No reliable way to match BeatSaver key to levelID without fetching its hash,
-            // so at this point we return false and rely on download+poll to resolve later.
+            level = FindLevelByBsr(key, logOnFailure);
+            return level != null;
+        }
+
+        /// <summary>
+        /// Queue a song request from chat (BSR code)
+        /// </summary>
+        public bool TryQueueSongRequest(
+        string bsrCode,
+        string requesterName,
+        BeatmapDifficulty? requestedDifficulty,
+        float? startTimeSeconds,
+        float? switchAfterSeconds,
+        float? segmentLengthSeconds,
+        out string rejectReason)
+        {
+            // Song requests are intentionally disabled for now (covers !sr / !bsr flows).
+            rejectReason = "Song requests are currently disabled.";
             return false;
         }
 
@@ -985,32 +1136,29 @@ namespace BeatSurgeon.Gameplay
         }
 
 
-        /// <summary>
-        /// Called by InLevelQueueProcessor when it's time to switch mid-song to a new request.
-        /// </summary>
-        private void OnSwitchRequestedDuringPlay(SongRequest nextRequest)
+        private bool TrySwitchRequestedSong(SongRequest nextRequest, BeatmapLevel resolvedLevel = null)
         {
             if (nextRequest == null || !_isPlaying)
-                return;
+                return false;
 
             LogUtils.Debug(() => $"GameplayManager: Switch triggered for {nextRequest.BsrCode} by {nextRequest.RequesterName}");
 
-            // Resolve the request to an actual level
-            if (!TryResolveRequestToLevel(nextRequest, out var resolvedLevel))
+            // Resolve the request to an actual level.
+            if (resolvedLevel == null && !TryResolveRequestToLevel(nextRequest, out resolvedLevel))
             {
-                Plugin.Log.Warn($"GameplayManager: Cannot switch — {nextRequest.BsrCode} still not playable");
-                ChatManager.GetInstance().SendChatMessage($"!!Switch failed — {nextRequest.BsrCode} not ready");
-                return;
+                Plugin.Log.Warn($"GameplayManager: Cannot switch - {nextRequest.BsrCode} is not in the current library");
+                ChatManager.GetInstance().SendChatMessage($"!!Switch failed - {nextRequest.BsrCode} is not in the current library");
+                return false;
             }
 
-            // Build the beatmap key
+            // Build the beatmap key.
             if (!BuildKeyForLevel(nextRequest, resolvedLevel, out var nextLevel, out var nextKey))
             {
                 Plugin.Log.Error($"GameplayManager: Failed to build key for {nextRequest.BsrCode}");
-                return;
+                return false;
             }
 
-            // *** Trigger the chain transition (same as your Harmony patch does at song end) ***
+            // Trigger the chain transition (same as your Harmony patch does at song end).
             var modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
             var playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
 
@@ -1031,30 +1179,18 @@ namespace BeatSurgeon.Gameplay
                 modifiers,
                 playerSettings,
                 _capturedColorScheme,
-                _environmentsListModel
-            );
+                _environmentsListModel);
 
+            return true;
         }
 
-
-
         /// <summary>
-        /// Queue a song request from chat (BSR code) 
+        /// Called by InLevelQueueProcessor when it's time to switch mid-song to a new request,
+        /// and by immediate chat requests that should switch right away.
         /// </summary>
-        public bool TryQueueSongRequest(
-        string bsrCode,
-        string requesterName,
-        BeatmapDifficulty? requestedDifficulty,
-        float? startTimeSeconds,
-        float? switchAfterSeconds,
-        float? segmentLengthSeconds,
-        out string rejectReason)
+        private void OnSwitchRequestedDuringPlay(SongRequest nextRequest)
         {
-            // Song requests are intentionally disabled for now (covers !sr / !bsr flows).
-            // rejectReason = null; 
-            // ...existing queueing logic temporarily disabled...
-            rejectReason = "Song requests are currently disabled.";
-            return false;
+            _ = TrySwitchRequestedSong(nextRequest);
         }
 
 
@@ -1350,27 +1486,77 @@ namespace BeatSurgeon.Gameplay
         internal Task ApplyEndlessModeAsync(float durationMinutes, ChatContext ctx, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            // StartEndlessMode(durationMinutes);
-            _log.Effect("EndlessMode", false, "disabled=true requestedBy=" + (ctx?.Username ?? "Unknown"));
-            return Task.CompletedTask;
+            return IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                .StartNew(() => StartEndlessMode(durationMinutes))
+                .ContinueWith(_ =>
+                {
+                    _log.Effect("EndlessMode", IsPlaying(), "requestedBy=" + (ctx?.Username ?? "Unknown"));
+                }, ct, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
 
         internal Task StopEndlessModeAsync(ChatContext ctx, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            StopEndlessMode();
-            _log.Effect("EndlessModeStop", true, "requestedBy=" + (ctx?.Username ?? "Unknown"));
-            return Task.CompletedTask;
+            return IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                .StartNew(() => StopEndlessMode())
+                .ContinueWith(_ =>
+                {
+                    _log.Effect("EndlessModeStop", !IsPlaying(), "requestedBy=" + (ctx?.Username ?? "Unknown"));
+                }, ct, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         }
 
-        internal Task<bool> ApplySongRequestAsync(string bsrCode, ChatContext ctx, CancellationToken ct)
+        internal async Task<bool> ApplySongRequestAsync(string bsrCode, ChatContext ctx, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            // !sr / !bsr handling is intentionally disabled for now.
-            // bool ok = TryQueueSongRequest(...);
-            // if (!ok) { ...chat response... }
-            _log.Effect("SongRequest", false, "bsrCode=" + bsrCode + " reason=disabled");
-            return Task.FromResult(false);
+
+            if (!_isPlaying)
+            {
+                _log.Effect("SongRequest", false, "bsrCode=" + bsrCode + " reason=not_playing");
+                return false;
+            }
+
+            var request = new SongRequest
+            {
+                BsrCode = bsrCode,
+                RequesterName = ctx?.Username ?? "Unknown",
+                RequestTime = DateTime.UtcNow
+            };
+
+            BeatmapLevel resolvedLevel = null;
+            bool resolvedLocally = await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                .StartNew(() => TryResolveRequestToLevel(request, out resolvedLevel, logOnFailure: false))
+                .ConfigureAwait(false);
+
+            if (!resolvedLocally)
+            {
+                string resolvedHash = await BeatSaverClient.ResolveMapHashAsync(request.BsrCode, ct).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(resolvedHash))
+                {
+                    bool resolvedFromHash = await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                        .StartNew(() => TryFindLevelByHash(resolvedHash, out resolvedLevel))
+                        .ConfigureAwait(false);
+
+                    if (resolvedFromHash)
+                    {
+                        LogUtils.Debug(() => $"GameplayManager: Resolved BSR {request.BsrCode} to installed hash {resolvedHash}");
+                    }
+                }
+            }
+
+            if (resolvedLevel == null)
+            {
+                Plugin.Log.Warn($"GameplayManager: Cannot switch - {request.BsrCode} is not in the current library");
+                Chat.ChatManager.GetInstance().SendChatMessage($"!!Switch failed - {request.BsrCode} is not in the current library");
+                _log.Effect("SongRequest", false, "bsrCode=" + bsrCode + " requestedBy=" + (ctx?.Username ?? "Unknown"));
+                return false;
+            }
+
+            bool ok = await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                .StartNew(() => TrySwitchRequestedSong(request, resolvedLevel))
+                .ConfigureAwait(false);
+
+            _log.Effect("SongRequest", ok, "bsrCode=" + bsrCode + " requestedBy=" + (ctx?.Username ?? "Unknown"));
+            return ok;
         }
 
         /// <summary>
@@ -1490,86 +1676,10 @@ namespace BeatSurgeon.Gameplay
 
         private IEnumerator DownloadPoller()
         {
-            _nextSongCoreRefreshTime = 0f;
-
+            // Endless mode download fallback is intentionally disabled.
+            // Keep the coroutine inert if it is ever started accidentally.
             while (_isPlaying)
             {
-                // Only refresh if there are pending downloads AND enough time has passed
-                // This prevents excessive SongCore operations which can cause frame stutters
-                if (_pendingDownloads.Count > 0 && Time.unscaledTime >= _nextSongCoreRefreshTime)
-                {
-                    _nextSongCoreRefreshTime = Time.unscaledTime + 5f;
-
-                    // Only refresh SongCore during non-critical gameplay moments (when not in GameCore playing)
-                    // Frame drops during actual song playback are worse than delayed song availability
-                    try
-                    {
-                        SongCore.Loader.Instance.RefreshSongs(false);
-                        LoadAvailableSongs();
-                    }
-                    catch (System.Exception ex)
-                    {
-                        LogUtils.Debug(() => $"GameplayManager: SongCore refresh error: {ex.Message}");
-                    }
-                }
-
-                // Try to resolve any pending downloads into real BeatmapLevels.
-                foreach (var kvp in _pendingDownloads.ToList())
-                {
-                    var pd = kvp.Value;
-                    if (pd == null) continue;
-
-                    if (!string.IsNullOrWhiteSpace(pd.ResolvedLevelId))
-                        continue;
-
-                    if (!string.IsNullOrWhiteSpace(pd.Hash) && TryFindLevelByHash(pd.Hash, out var level))
-                    {
-                        pd.ResolvedLevelId = level.levelID;
-                        // Try to resolve any pending downloads into real BeatmapLevels.
-                        // Try to resolve any pending downloads into real BeatmapLevels.
-                        foreach (var entry in _pendingDownloads.ToList())
-                        {
-                            var key = entry.Key;
-                            var pending = entry.Value;
-                            if (pending == null)
-                                continue;
-
-                            // Already resolved → remove from dictionary so we stop refreshing for it.
-                            if (!string.IsNullOrWhiteSpace(pending.ResolvedLevelId))
-                            {
-                                _pendingDownloads.TryRemove(key, out _);
-                                continue;
-                            }
-
-                            // If we have a hash and SongCore knows about it, map to levelID.
-                            if (!string.IsNullOrWhiteSpace(pending.Hash) &&
-                                TryFindLevelByHash(pending.Hash, out var resolvedLevel))
-                            {
-                                pending.ResolvedLevelId = resolvedLevel.levelID;
-                                pending.LastError = null;
-
-                                LogUtils.Debug(() => $"GameplayManager: Pending download {pending.Request?.BsrCode} resolved to {pending.ResolvedLevelId}");
-
-                                // Optional: auto-switch ASAP requests
-                                bool shouldAutoSwitch = (pending.Request?.SwitchAfterSeconds ?? -1f) == 0f;
-                                if (shouldAutoSwitch)
-                                {
-                                    LogUtils.Debug(() => $"GameplayManager: {pending.Request?.BsrCode} ready — arming immediate switch");
-                                    _inLevelQueueProcessor?.ArmForCurrentSegment(0.1f);
-                                }
-
-                                // Now that it's resolved, we no longer need to track it here.
-                                _requestQueue.TryDequeue(out _);
-                            }
-                        }
-
-                        pd.LastError = null;
-
-                        // Optional: chat announce once installed
-                        Chat.ChatManager.GetInstance().SendChatMessage($"Downloaded & ready: {pd.Request.BsrCode}");
-                    }
-                }
-
                 yield return new WaitForSecondsRealtime(1f);
             }
         }
@@ -1652,8 +1762,6 @@ namespace BeatSurgeon.Gameplay
                     randomDiff
                 );
 
-                var additionalInformation = new GameplayAdditionalInformation("Menu", false, false, PlaymodeOptions.Default, null);
-
                 _menuTransitionsHelper.StartStandardLevel(
                     "Solo",
                     in beatmapKey,
@@ -1661,16 +1769,19 @@ namespace BeatSurgeon.Gameplay
                     overrideEnvironmentSettings,
                     _capturedColorScheme,
                     false,
+                    null,
                     gameplayModifiers,
                     playerSettings,
                     null,
                     _environmentsListModel,
-                    additionalInformation,
+                    "Menu",
+                    false,
+                    false,
                     null,
                     null,
                     (data, results) =>
                     {
-                        LogUtils.Debug(() => 
+                        LogUtils.Debug(() =>
                             $"GameplayManager: Level finished. State={results.levelEndStateType}, Action={results.levelEndAction}");
 
                         _lastLevelEndAction = results.levelEndAction;
@@ -1711,11 +1822,11 @@ namespace BeatSurgeon.Gameplay
         /// <summary>
         /// Get a random level that hasn't been played recently
         /// </summary>
-        private BeatmapLevel GetRandomLevel()
+        private BeatmapLevel GetRandomLevel(float minimumSongDurationSeconds = 0f)
         {
             // Filter out recently played songs
             var availableToPlay = _availableLevels
-                .Where(l => !_playedLevelIds.Contains(l.levelID))
+                .Where(l => !_playedLevelIds.Contains(l.levelID) && (minimumSongDurationSeconds <= 0f || l.songDuration >= minimumSongDurationSeconds))
                 .ToList();
 
             // If all songs played, reset the history
@@ -1723,7 +1834,9 @@ namespace BeatSurgeon.Gameplay
             {
                 LogUtils.Debug(() => "GameplayManager: All songs played, resetting history");
                 _playedLevelIds.Clear();
-                availableToPlay = _availableLevels;
+                availableToPlay = _availableLevels
+                    .Where(l => minimumSongDurationSeconds <= 0f || l.songDuration >= minimumSongDurationSeconds)
+                    .ToList();
             }
 
             if (availableToPlay.Count == 0)
@@ -1734,29 +1847,38 @@ namespace BeatSurgeon.Gameplay
         }
 
         /// <summary>
-        /// Find a level by BSR code
+        /// <summary>
+        /// Find a locally installed level by BSR code or installed hash.
         /// </summary>
-        private BeatmapLevel FindLevelByBsr(string bsrCode)
+        private BeatmapLevel FindLevelByBsr(string bsrCode, bool logOnFailure = true)
         {
-            // BSR codes are typically the last part of BeatSaver IDs
-            // Level IDs in Beat Saber are formatted as: custom_level_<hash>
-            // We need to search for levels that match the BSR code
-
-            bsrCode = bsrCode.ToLower().Replace("!", "").Trim();
+            string normalizedBsr = NormalizeKey(bsrCode);
+            if (string.IsNullOrWhiteSpace(normalizedBsr))
+                return null;
 
             foreach (var level in _availableLevels)
             {
-                // Check if level ID contains the BSR code
-                if (level.levelID.ToLower().Contains(bsrCode))
+                if (level == null)
+                    continue;
+
+                string levelId = level.levelID ?? string.Empty;
+                if (levelId.IndexOf(normalizedBsr, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     return level;
                 }
 
-                // Also check custom data if available
-                // This is where BeatSaver metadata is stored
+                string installedHash = Collections.GetCustomLevelHash(levelId);
+                if (!string.IsNullOrWhiteSpace(installedHash) &&
+                    installedHash.Equals(normalizedBsr, StringComparison.OrdinalIgnoreCase))
+                {
+                    return level;
+                }
             }
 
-            Plugin.Log.Warn($"GameplayManager: Could not find level with BSR code: {bsrCode}");
+            if (logOnFailure)
+            {
+                Plugin.Log.Warn($"GameplayManager: Could not find local custom song for BSR code: {bsrCode}");
+            }
             return null;
         }
 

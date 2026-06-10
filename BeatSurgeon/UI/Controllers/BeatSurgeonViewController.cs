@@ -139,8 +139,8 @@ namespace BeatSurgeon.UI.Controllers
         private string _twitchStatusText = "<color=#FF4444>Not connected</color>";
 
 
-        // === Play time slider ===
-
+        // === Endless mode UI (disabled for release — restore when BSML tab is re-enabled) ===
+        /*
         [UIValue("playTime")]
         public float PlayTime
         {
@@ -154,6 +154,7 @@ namespace BeatSurgeon.UI.Controllers
         }
 
         private float _playTime = 60f;
+        */
 
         // === Rainbow enabled flag (backed by CommandHandler) ===
 
@@ -1101,9 +1102,6 @@ namespace BeatSurgeon.UI.Controllers
 
 
 
-        // --- Endless Mode Section ---
-
-
         [UIAction("OnRainbowButtonClicked")]
         private void OnRainbowButtonClicked()
         {
@@ -1111,27 +1109,27 @@ namespace BeatSurgeon.UI.Controllers
             LogUtils.Debug(() => $"BeatSurgeon: Rainbow command enabled = {RainbowEnabled}");
         }
 
+        // --- Endless Mode Section (disabled for release) ---
+        /*
         [UIAction("OnStartPlayPressed")]
         private void OnStartPlayPressed()
         {
             LogUtils.Debug(() => "BeatSurgeon: Start/Play button pressed!");
             LogUtils.Debug(() => $"Timer set to: {PlayTime} minutes");
-            // Endless mode is intentionally disabled for now.
-            // var gameplayManager = BeatSurgeon.Gameplay.GameplayManager.GetInstance();
-            // if (gameplayManager.IsPlaying())
-            // {
-            //     gameplayManager.StopEndlessMode();
-            //     LogUtils.Debug(() => "BeatSurgeon: Stopped endless mode");
-            //     ChatManager.GetInstance().SendChatMessage("Saber Surgeon session ended!");
-            // }
-            // else
-            // {
-            //     gameplayManager.StartEndlessMode(PlayTime);
-            //     LogUtils.Debug(() => $"BeatSurgeon: Started endless mode for {PlayTime} minutes");
-            //     ChatManager.GetInstance().SendChatMessage(
-            //         $"Saber Surgeon started! Playing for {PlayTime} minutes. Request songs with !bsr <code>");
-            // }
-            ChatManager.GetInstance().SendChatMessage("Endless mode is currently disabled.");
+            var gameplayManager = BeatSurgeon.Gameplay.GameplayManager.GetInstance();
+            if (gameplayManager.IsPlaying())
+            {
+                gameplayManager.StopEndlessMode();
+                LogUtils.Debug(() => "BeatSurgeon: Stopped endless mode");
+                ChatManager.GetInstance().SendChatMessage("Saber Surgeon session ended!");
+            }
+            else
+            {
+                gameplayManager.StartEndlessMode(PlayTime);
+                LogUtils.Debug(() => $"BeatSurgeon: Started endless mode for {PlayTime} minutes");
+                ChatManager.GetInstance().SendChatMessage(
+                    $"Saber Surgeon started! Playing for {PlayTime} minutes.");
+            }
         }
 
 
@@ -1193,6 +1191,7 @@ namespace BeatSurgeon.UI.Controllers
                 NotifyPropertyChanged(nameof(RequeueLimit));
             }
         }
+        */
 
 
 

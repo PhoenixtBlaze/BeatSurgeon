@@ -367,9 +367,11 @@
     <Compile Include="Gameplay\SurgeonEffectsBundleService.cs" />
     <Compile Include="Gameplay\OutlineEmitterManager.cs" />
     <Compile Include="Gameplay\SubBurstNoteManager.cs" />
+    <Compile Include="Gameplay\SeamlessTransitionController.cs" />
     <Compile Include="Harmony\BombNotePatch.cs" />
     <Compile Include="Harmony\DisappearingArrowsPatch.cs" />
     <Compile Include="Harmony\EndlessHarmonyPatch.cs" />
+    <Compile Include="Harmony\SeamlessInstallerPatch.cs" />
     <Compile Include="Harmony\FasterSongPatch.cs" />
     <Compile Include="Harmony\GlitterCutPatch.cs" />
     <Compile Include="Harmony\GlitterNotePatch.cs" />
@@ -378,6 +380,17 @@
     <Compile Include="Harmony\LevelSelectionPatch.cs" />
     <Compile Include="Harmony\RainbowNotePatch.cs" />
     <Compile Include="Harmony\SubscriberTrailCubePatch.cs" />
+    <Compile Include="Integration\AutomaticEffectDedupService.cs" />
+    <Compile Include="Integration\IntegrationApiConstants.cs" />
+    <Compile Include="Integration\IntegrationApiLog.cs" />
+    <Compile Include="Integration\IntegrationApiCoordinator.cs" />
+    <Compile Include="Integration\IntegrationApiProtocol.cs" />
+    <Compile Include="Integration\IntegrationCapabilitiesBuilder.cs" />
+    <Compile Include="Integration\IntegrationCommandExecutor.cs" />
+    <Compile Include="Integration\IntegrationEventExecutor.cs" />
+    <Compile Include="Integration\IntegrationWebSocketConnection.cs" />
+    <Compile Include="Integration\IntegrationWebSocketFraming.cs" />
+    <Compile Include="Integration\IntegrationWebSocketHost.cs" />
     <Compile Include="Integrations\AccSaberClient.cs" />
     <Compile Include="Integrations\BeatSaverClient.cs" />
     <Compile Include="Integrations\EndlessPlaylistService.cs" />
@@ -482,11 +495,11 @@
   <PropertyGroup>
     <PostBuildEvent>
 		  REM Copy UserData to game install
-		  robocopy "$(TargetDir)..\UserData" "I:\SteamLibrary\steamapps\common\Beat Saber\UserData" /E
+		  robocopy "$(TargetDir)..\UserData" "F:\Games\BSManager\BSInstances\1.40.8_Test\UserData" /E
 		  IF %ERRORLEVEL% LEQ 1 SET ERRORLEVEL=0
 
 		  REM Copy BeatSurgeon.dll to Plugins; fall back to IPA\Pending\Plugins if the game is running (DLL locked)
-		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='I:\SteamLibrary\steamapps\common\Beat Saber\Plugins\BeatSurgeon.dll'; $pend='I:\SteamLibrary\steamapps\common\Beat Saber\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -> Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -> IPA\Pending\Plugins (game running - will apply on next start)' }"
+		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='F:\Games\BSManager\BSInstances\1.40.8_Test\Plugins\BeatSurgeon.dll'; $pend='F:\Games\BSManager\BSInstances\1.40.8_Test\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -> Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -> IPA\Pending\Plugins (game running - will apply on next start)' }"
 		  IF %ERRORLEVEL% NEQ 0 EXIT %ERRORLEVEL%
 	  </PostBuildEvent>
   </PropertyGroup>

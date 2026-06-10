@@ -61,6 +61,9 @@ namespace BeatSurgeon.Gameplay
             public const string FollowerLineName = "Line";
             public const string FollowerStartName = "Start";
             public const string FollowerEndName = "End";
+            public const string BombNodeName = "Bomb";
+            public const string BombParticlesNodeName = "BombParticles";
+            public const string BombNodePath = "Bits/BitsHyperCube/Bomb";
             public const string BitsOutlineEmitterPath = "Bits/BitsHyperCube/Outline/OutlineParticles";
             public const string BitsOutlineRootPath = "Bits/BitsHyperCube/Outline";
             public const string BitsBurstRootPath = "Bits/BitsHyperCube/BitsHyperCubeBurst";

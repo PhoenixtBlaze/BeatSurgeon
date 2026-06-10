@@ -31,6 +31,13 @@ namespace BeatSurgeon.HarmonyPatches
         {
             try
             {
+                // Note controllers are pooled and recycled mid-song. If a previous bomb was missed
+                // (not cut), its disabled renderers and attached bomb visual child carry forward onto
+                // this controller. Always clean up stale state BEFORE the early-out checks.
+                var gameNote = noteController as GameNoteController ?? __instance.GetComponentInParent<GameNoteController>();
+                if (gameNote != null)
+                    BombManager.Instance.TryClearStaleVisual(gameNote);
+
                 // Only create bombs while the bomb window is active
                 if (!BombManager.IsBombWindowActive)
                     return;
@@ -39,7 +46,6 @@ namespace BeatSurgeon.HarmonyPatches
             if (!BombManager.IsEligibleBombNote(noteData))
                 return;
 
-            var gameNote = noteController as GameNoteController ?? __instance.GetComponentInParent<GameNoteController>();
             if (gameNote == null)
             {
                 LogUtils.Warn("BombNotePatch: No GameNoteController found for noteController type '" + (noteController != null ? noteController.GetType().Name : "<null>") + "'");
@@ -78,8 +84,6 @@ namespace BeatSurgeon.HarmonyPatches
                     + requeuedDenomination);
             }
 
-            CacheBombPrefabIfNeeded();
-
             bool isBomb = BombManager.Instance.MarkNoteAsBomb(noteData);
             if (!isBomb)
             {
@@ -92,20 +96,20 @@ namespace BeatSurgeon.HarmonyPatches
                 ? TryGetNoteColor(visuals, noteData.colorType)
                 : Color.magenta;
 
-            CacheAndDisableNoteCube(
-                gameNote,
-                out var cubeMr,
-                out var circleMr,
-                out var arrowMr,
-                out var arrowGlowMr,
-                out var cubeWasEnabled,
-                out var circleWasEnabled,
-                out var arrowWasEnabled,
-                out var arrowGlowWasEnabled);
+            // Capture and disable ALL MeshRenderers on the note before the bomb visual is added.
+            // This is done before Rent() so the bomb visual's own renderers are not in the list.
+            CacheAndDisableAllNoteRenderers(gameNote, out var noteRenderers, out var noteWasEnabled);
 
             // Rent pooled bomb visual and cache the exact instance
             int noteLayer = gameNote.gameObject.layer;
-            GameObject prefabGo = _bombPrefab != null ? _bombPrefab.gameObject : null;
+            // Prefer the custom Bomb object from the TwitchController prefab in the effects bundle.
+            // Fall back to the stock BombNoteController mesh if the bundle template is unavailable.
+            GameObject prefabGo = SurgeonEffectsBundleService.GetBombTemplate();
+            if (prefabGo == null)
+            {
+                CacheBombPrefabIfNeeded();
+                prefabGo = _bombPrefab != null ? _bombPrefab.gameObject : null;
+            }
             var visualInst = BombVisualPool.Instance.Rent(gameNote.transform, noteLayer, noteColor, prefabGo);
 
             try
@@ -122,14 +126,8 @@ namespace BeatSurgeon.HarmonyPatches
             BombManager.Instance.RegisterBombVisual(
                 gameNote,
                 visualInst,
-                cubeMr,
-                circleMr,
-                arrowMr,
-                arrowGlowMr,
-                cubeWasEnabled,
-                circleWasEnabled,
-                arrowWasEnabled,
-                arrowGlowWasEnabled
+                noteRenderers,
+                noteWasEnabled
             );
 
             return true;
@@ -196,82 +194,25 @@ namespace BeatSurgeon.HarmonyPatches
             return noteColor;
         }
 
-        private static void CacheAndDisableNoteCube(
+        private static void CacheAndDisableAllNoteRenderers(
             GameNoteController gameNote,
-            out MeshRenderer cubeMr,
-            out MeshRenderer circleMr,
-            out MeshRenderer arrowMr,
-            out MeshRenderer arrowGlowMr,
-            out bool cubeWasEnabled,
-            out bool circleWasEnabled,
-            out bool arrowWasEnabled,
-            out bool arrowGlowWasEnabled)
+            out MeshRenderer[] renderers,
+            out bool[] wasEnabled)
         {
-            cubeMr = null;
-            circleMr = null;
-            arrowMr = null;
-            arrowGlowMr = null;
-            cubeWasEnabled = false;
-            circleWasEnabled = false;
-            arrowWasEnabled = false;
-            arrowGlowWasEnabled = false;
-
-            var noteCube = gameNote.GetComponentsInChildren<Transform>(true)
-                .FirstOrDefault(t => t.name == "NoteCube");
-
-            if (noteCube == null)
+            // Capture all MeshRenderers present on the note hierarchy BEFORE the bomb visual
+            // child is added by BombVisualPool.Rent. This ensures every original note renderer
+            // (cube body, arrow, arrow glow, circle glow, any other effect) is hidden, regardless
+            // of the note hierarchy version or number of renderers per slot.
+            var mrs = gameNote.GetComponentsInChildren<MeshRenderer>(true);
+            renderers = mrs;
+            wasEnabled = new bool[mrs.Length];
+            for (int i = 0; i < mrs.Length; i++)
             {
-                LogUtils.Warn($"BombNotePatch: NoteCube not found under '{gameNote.name}'");
-                return;
+                wasEnabled[i] = mrs[i].enabled;
+                mrs[i].enabled = false;
             }
 
-            cubeMr = noteCube.GetComponent<MeshRenderer>()
-                    ?? noteCube.GetComponentInChildren<MeshRenderer>(true);
-
-            if (cubeMr != null)
-            {
-                cubeWasEnabled = cubeMr.enabled;
-                cubeMr.enabled = false;
-            }
-
-            var circleT = noteCube.GetComponentsInChildren<Transform>(true)
-                .FirstOrDefault(t => t.name == "NoteCircleGlow");
-
-            circleMr = circleT != null
-                ? (circleT.GetComponent<MeshRenderer>() ?? circleT.GetComponentInChildren<MeshRenderer>(true))
-                : null;
-
-            if (circleMr != null)
-            {
-                circleWasEnabled = circleMr.enabled;
-                circleMr.enabled = false;
-            }
-
-            var arrowT = gameNote.GetComponentsInChildren<Transform>(true)
-                .FirstOrDefault(t => t.name == "NoteArrow");
-
-            arrowMr = arrowT != null
-                ? (arrowT.GetComponent<MeshRenderer>() ?? arrowT.GetComponentInChildren<MeshRenderer>(true))
-                : null;
-
-            if (arrowMr != null)
-            {
-                arrowWasEnabled = arrowMr.enabled;
-                arrowMr.enabled = false;
-            }
-
-            var arrowGlowT = gameNote.GetComponentsInChildren<Transform>(true)
-                .FirstOrDefault(t => t.name == "NoteArrowGlow");
-
-            arrowGlowMr = arrowGlowT != null
-                ? (arrowGlowT.GetComponent<MeshRenderer>() ?? arrowGlowT.GetComponentInChildren<MeshRenderer>(true))
-                : null;
-
-            if (arrowGlowMr != null)
-            {
-                arrowGlowWasEnabled = arrowGlowMr.enabled;
-                arrowGlowMr.enabled = false;
-            }
+            LogUtils.Debug(() => $"BombNotePatch: Disabled {mrs.Length} note renderer(s) on '{gameNote.name}'");
         }
 
 
@@ -380,7 +321,9 @@ namespace BeatSurgeon.HarmonyPatches
 
                 SpawnFlyingText(displayText, cutPoint);
 
-                BombManager.Instance.ClearBombVisuals();
+                // Do NOT restore original note renderers on cut — the note is being destroyed
+                // by the cut animation. Restoring them causes a ghost arrow flash.
+                BombManager.Instance.ClearBombVisuals(false);
             }
             catch (Exception ex)
             {
