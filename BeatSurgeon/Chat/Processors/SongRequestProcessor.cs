@@ -6,6 +6,8 @@ using BeatSurgeon.Utils;
 
 namespace BeatSurgeon.Chat.Processors
 {
+    /*
+    // Song request commands disabled for release (Endless mode) — restore class body and DI binding when ready.
     internal sealed class SongRequestProcessor : ICommandProcessor
     {
         private static readonly LogUtil _log = LogUtil.GetLogger("SongRequestProcessor");
@@ -44,4 +46,5 @@ namespace BeatSurgeon.Chat.Processors
             await _gameplayManager.ApplySongRequestAsync(bsrCode, ctx, ct).ConfigureAwait(false);
         }
     }
+    */
 }

@@ -277,8 +277,10 @@ namespace BeatSurgeon.Chat
         {
             switch ((normalizedCommand ?? string.Empty).Trim().ToLowerInvariant())
             {
+                /*
                 case "!sr":
                 case "!bsr":
+                */
                 case "!fmsg":
                 case "!test":
                     return true;

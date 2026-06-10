@@ -101,6 +101,19 @@ namespace BeatSurgeon.Gameplay
         // Track the currently-started request (if the current song came from queue)
         private SongRequest _currentSongRequest;
 
+        private sealed class PreparedNextChain
+        {
+            public SongRequest Request;
+            public BeatmapLevel NextLevel;
+            public BeatmapKey NextKey;
+            public GameplayModifiers Modifiers;
+            public PlayerSpecificSettings PlayerSettings;
+            public ColorScheme Color;
+            public EnvironmentsListModel Envs;
+        }
+
+        private PreparedNextChain _seamlessPreparedNextChain;
+
         public float? SwitchAfterSeconds { get; set; }  // e.g., 60 means "switch in 60s of current song"
 
 
@@ -603,6 +616,7 @@ namespace BeatSurgeon.Gameplay
             _totalTime = durationMinutes * 60f;
             _remainingTime = _totalTime;
             _isPlaying = true;
+            ClearReservedSeamlessNextChain();
             _playedLevelIds.Clear();
 
             while (_requestQueue.TryDequeue(out _)) { }
@@ -647,6 +661,7 @@ namespace BeatSurgeon.Gameplay
             LogUtils.Debug(() => "GameplayManager: Stopping Endless Mode");
             _isPlaying = false;
             _remainingTime = 0f;
+            ClearReservedSeamlessNextChain();
             FasterSongPatch.ClearCache();
 
             if (_gameplayCoroutine != null)
@@ -715,43 +730,171 @@ namespace BeatSurgeon.Gameplay
     out ColorScheme color,
     out EnvironmentsListModel envs)
         {
-            nextLevel = null;
-            nextKey = default;
-            modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
-            playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
-            color = _capturedColorScheme;
-            envs = _environmentsListModel;
+            if (_seamlessPreparedNextChain != null)
+            {
+                _currentSongRequest = _seamlessPreparedNextChain.Request;
+                return CopyPreparedNextChain(_seamlessPreparedNextChain, out nextLevel, out nextKey, out modifiers, out playerSettings, out color, out envs);
+            }
+
+            if (!TryBuildNextChain(0f, out var preparedNextChain))
+            {
+                nextLevel = null;
+                nextKey = default;
+                modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
+                playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
+                color = _capturedColorScheme;
+                envs = _environmentsListModel;
+                return false;
+            }
+
+            _currentSongRequest = preparedNextChain.Request;
+            return CopyPreparedNextChain(preparedNextChain, out nextLevel, out nextKey, out modifiers, out playerSettings, out color, out envs);
+        }
+
+        public bool TryReserveSeamlessNextChain(float minimumSongDurationSeconds,
+            out BeatmapLevel nextLevel,
+            out BeatmapKey nextKey,
+            out GameplayModifiers modifiers,
+            out PlayerSpecificSettings playerSettings,
+            out ColorScheme color,
+            out EnvironmentsListModel envs)
+        {
+            if (_seamlessPreparedNextChain != null)
+            {
+                return CopyPreparedNextChain(_seamlessPreparedNextChain, out nextLevel, out nextKey, out modifiers, out playerSettings, out color, out envs);
+            }
+
+            if (!TryBuildNextChain(minimumSongDurationSeconds, out var preparedNextChain))
+            {
+                nextLevel = null;
+                nextKey = default;
+                modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers();
+                playerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings();
+                color = _capturedColorScheme;
+                envs = _environmentsListModel;
+                return false;
+            }
+
+            _seamlessPreparedNextChain = preparedNextChain;
+            return CopyPreparedNextChain(preparedNextChain, out nextLevel, out nextKey, out modifiers, out playerSettings, out color, out envs);
+        }
+
+        public bool CommitReservedSeamlessNextChain()
+        {
+            if (_seamlessPreparedNextChain == null)
+            {
+                return false;
+            }
+
+            _currentSongRequest = _seamlessPreparedNextChain.Request;
+            _seamlessPreparedNextChain = null;
+            return true;
+        }
+
+        public void ClearReservedSeamlessNextChain()
+        {
+            _seamlessPreparedNextChain = null;
+        }
+
+        private static bool CopyPreparedNextChain(
+            PreparedNextChain preparedChain,
+            out BeatmapLevel nextLevel,
+            out BeatmapKey nextKey,
+            out GameplayModifiers modifiers,
+            out PlayerSpecificSettings playerSettings,
+            out ColorScheme color,
+            out EnvironmentsListModel envs)
+        {
+            if (preparedChain == null)
+            {
+                nextLevel = null;
+                nextKey = default;
+                modifiers = null;
+                playerSettings = null;
+                color = null;
+                envs = null;
+                return false;
+            }
+
+            nextLevel = preparedChain.NextLevel;
+            nextKey = preparedChain.NextKey;
+            modifiers = preparedChain.Modifiers;
+            playerSettings = preparedChain.PlayerSettings;
+            color = preparedChain.Color;
+            envs = preparedChain.Envs;
+            return true;
+        }
+
+        private bool TryBuildNextChain(float minimumSongDurationSeconds, out PreparedNextChain preparedChain)
+        {
+            preparedChain = null;
 
             if (!_isPlaying)
+            {
                 return false;
+            }
 
-            // FIX: Use TryDequeue instead of Dequeue
             int safety = _requestQueue.Count;
             while (safety-- > 0 && !_requestQueue.IsEmpty)
             {
-                if (_requestQueue.TryDequeue(out var req))
+                if (!_requestQueue.TryDequeue(out var req) || req == null)
                 {
-                    if (req == null) continue;
+                    continue;
+                }
 
-                    if (TryResolveRequestToLevel(req, out var resolvedLevel))
-                    {
-                        _currentSongRequest = req;
-                        return BuildKeyForLevel(req, resolvedLevel, out nextLevel, out nextKey);
-                    }
-
+                if (!TryResolveRequestToLevel(req, out var resolvedLevel))
+                {
                     // Endless mode stays local-only; unresolved requests are skipped instead of downloading.
                     Plugin.Log.Warn($"GameplayManager: Skipping {req.BsrCode} because it is not in the current library.");
                     continue;
                 }
+
+                if (minimumSongDurationSeconds > 0f && resolvedLevel.songDuration < minimumSongDurationSeconds)
+                {
+                    Plugin.Log.Warn($"GameplayManager: Skipping {req.BsrCode} for seamless mode because song duration {resolvedLevel.songDuration:0.0}s is shorter than required {minimumSongDurationSeconds:0.0}s.");
+                    continue;
+                }
+
+                if (!BuildKeyForLevel(req, resolvedLevel, out var nextLevel, out var nextKey))
+                {
+                    return false;
+                }
+
+                preparedChain = new PreparedNextChain
+                {
+                    Request = req,
+                    NextLevel = nextLevel,
+                    NextKey = nextKey,
+                    Modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers(),
+                    PlayerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings(),
+                    Color = _capturedColorScheme,
+                    Envs = _environmentsListModel,
+                };
+                return true;
             }
 
-            // Random fallback
-            _currentSongRequest = null;
-            var random = GetRandomLevel();
+            var random = GetRandomLevel(minimumSongDurationSeconds);
             if (random == null)
+            {
                 return false;
+            }
 
-            return BuildKeyForLevel(null, random, out nextLevel, out nextKey);
+            if (!BuildKeyForLevel(null, random, out var randomNextLevel, out var randomNextKey))
+            {
+                return false;
+            }
+
+            preparedChain = new PreparedNextChain
+            {
+                Request = null,
+                NextLevel = randomNextLevel,
+                NextKey = randomNextKey,
+                Modifiers = _capturedModifiers ?? CreateDefaultNoFailModifiers(),
+                PlayerSettings = _capturedPlayerSettings ?? new PlayerSpecificSettings(),
+                Color = _capturedColorScheme,
+                Envs = _environmentsListModel,
+            };
+            return true;
         }
 
 
@@ -1679,11 +1822,11 @@ namespace BeatSurgeon.Gameplay
         /// <summary>
         /// Get a random level that hasn't been played recently
         /// </summary>
-        private BeatmapLevel GetRandomLevel()
+        private BeatmapLevel GetRandomLevel(float minimumSongDurationSeconds = 0f)
         {
             // Filter out recently played songs
             var availableToPlay = _availableLevels
-                .Where(l => !_playedLevelIds.Contains(l.levelID))
+                .Where(l => !_playedLevelIds.Contains(l.levelID) && (minimumSongDurationSeconds <= 0f || l.songDuration >= minimumSongDurationSeconds))
                 .ToList();
 
             // If all songs played, reset the history
@@ -1691,7 +1834,9 @@ namespace BeatSurgeon.Gameplay
             {
                 LogUtils.Debug(() => "GameplayManager: All songs played, resetting history");
                 _playedLevelIds.Clear();
-                availableToPlay = _availableLevels;
+                availableToPlay = _availableLevels
+                    .Where(l => minimumSongDurationSeconds <= 0f || l.songDuration >= minimumSongDurationSeconds)
+                    .ToList();
             }
 
             if (availableToPlay.Count == 0)

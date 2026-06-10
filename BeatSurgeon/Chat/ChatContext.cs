@@ -6,14 +6,16 @@ namespace BeatSurgeon.Chat
     {
         Unknown,
         NativeTwitch,
-        ChatPlex
+        ChatPlex,
+        ExternalApi
     }
 
     internal enum TriggerSource
     {
         Chat,
         ChannelPoints,
-        BitEvent
+        BitEvent,
+        ExternalIntegration
     }
 
     /// <summary>
