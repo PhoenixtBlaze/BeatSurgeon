@@ -8,7 +8,7 @@
 		<vertical child-control-height="false">
 
 		<!-- Tab selector host -->
-		<tab-selector tab-tag="saber-surgeon-tabs" />
+		<tab-selector tab-tag="saber-surgeon-tabs" select-cell="OnMainTabSelected" />
 
 		<!-- Tab strip area -->
 		<horizontal preferred-width="100" preferred-height="58" pad-top="4" pad="3">
@@ -216,56 +216,66 @@
 			</tab>
 			<!-- Special TAB: Supporter -->
 			<tab id="supporter-tab" tab-name="Supporter" tags="saber-surgeon-tabs">
-				<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
+				<vertical child-control-height="false" vertical-fit="PreferredSize">
+					<tab-selector tab-tag="supporter-subtabs" select-cell="OnSupporterSubtabSelected" />
+					<horizontal preferred-height="50" pad-top="2">
+						<tab tab-name="Commands" tags="supporter-subtabs">
+							<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
+								<toggle-setting text="Bit Effect"
+												value="BitEffectEnabled"
+												on-change="OnBitEffectChanged"
+												hover-hint="Enable supporter-only Bits and Cheer effects and commands"/>
 
-					<horizontal horizontal-fit="PreferredSize" spacing="2">
-						<text text="Supporter Effects"
-							  font-size="4.5"
-							  color="#FFCC44"
-							  align="MidlineLeft"
-							  font-style="Bold"/>
+								<toggle-setting text="Sub Effects"
+												value="SubEffectsEnabled"
+												on-change="OnSubEffectsChanged"
+												interactable="~subEffectsToggleInteractable"
+												hover-hint="Enable supporter-only Subscriber effects and commands for when viewers subscribe"/>
+
+								<toggle-setting text="Follow Effects"
+												value="FollowEffectsEnabled"
+												interactable="~followEffectsToggleInteractable"
+												on-change="OnFollowEffectsChanged"
+												hover-hint="Enable supporter-only follower message effects and commands when viewers follow"/>
+							</modifier-container>
+						</tab>
+						<tab id="supporter-effects-tab" tab-name="Effects" tags="supporter-subtabs">
+							<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
+								<horizontal horizontal-fit="PreferredSize" spacing="2">
+									<text text="Surgeon Fonts"
+										  font-size="4.5"
+										  color="#FFCC44"
+										  align="MidlineLeft"
+										  font-style="Bold"/>
+								</horizontal>
+
+								<dropdown-list-setting
+									id="bomb-font-dropdown"
+									text="Font Style"
+									value="bomb_font_selected"
+									choices="bomb_font_options"
+									apply-on-change="true"
+									hover-hint="Select the fonts that Beat surgeon will use for all the effects it does"/>
+
+								<horizontal child-force-expand-width="false">
+									<text id="bomb-font-preview"
+										  text="Preview Text"
+										  align="Center"
+										  font-size="5" />
+								</horizontal>
+
+								<dropdown-list-setting
+									id="bomb-explosion-effect-dropdown"
+									text="Bomb Explosion Effects"
+									value="bomb_explosion_effect_selected"
+									choices="bomb_explosion_effect_options"
+									apply-on-change="true"
+									on-change="OnBombExplosionEffectChanged"
+									hover-hint="Select the explosion effect used when bomb notes detonate"/>
+							</modifier-container>
+						</tab>
 					</horizontal>
-
-					<toggle-setting text="Bit Effect"
-									value="BitEffectEnabled"
-									on-change="OnBitEffectChanged"
-									hover-hint="Enable supporter-only Bits and Cheer effects and commands"/>
-
-					<toggle-setting text="Sub Effects"
-									value="SubEffectsEnabled"
-									on-change="OnSubEffectsChanged"
-								interactable="~subEffectsToggleInteractable"
-								hover-hint="Enable supporter-only Subscriber effects and commands for when viewers subscribe"/>
-
-					<toggle-setting text="Follow Effects"
-									value="FollowEffectsEnabled"
-									interactable="~followEffectsToggleInteractable"
-									on-change="OnFollowEffectsChanged"
-									hover-hint="Enable supporter-only follower message effects and commands when viewers follow"/>
-						<!-- Bomb Font Selection -->
-					<horizontal horizontal-fit="PreferredSize" spacing="2" pad-top="4">
-						<text text="Surgeon Fonts"
-							  font-size="4.5"
-							  color="#FFCC44"
-							  align="MidlineLeft"
-							  font-style="Bold"/>
-					</horizontal>
-
-					<dropdown-list-setting
-						id="bomb-font-dropdown"
-						text="Font Style"
-						value="bomb_font_selected"
-						choices="bomb_font_options"
-						apply-on-change="true"
-						hover-hint="Select the fonts that Beat surgeon will use for all the effects it does"/>
-
-					<horizontal child-force-expand-width="false">
-						<text id="bomb-font-preview"
-							  text="Preview Text"
-							  align="Center"
-							  font-size="5" />
-					</horizontal>
-				</modifier-container>
+				</vertical>
 			</tab>
 			<!-- TAB 3: Endless Mode(Disabled for now)  -->
 			<!--

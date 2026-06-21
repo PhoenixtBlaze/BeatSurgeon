@@ -21,6 +21,9 @@ namespace BeatSurgeon.HarmonyPatches
     {
         private static readonly LogUtil _log = LogUtil.GetLogger("BombNotePatch");
         private static BombNoteController _bombPrefab;
+        // Bundle-sourced bomb note visual (TwitchController Bomb node). Null until first load attempt.
+        private static GameObject _bundleBombTemplate;
+        private static bool _triedBundleBombLoad = false;
 
         // Reflection caches (avoid AccessTools.Field per note init)
         private static FieldInfo _noteColorField;
@@ -88,63 +91,73 @@ namespace BeatSurgeon.HarmonyPatches
 
             LogUtils.Debug(() => $"BombNotePatch: Marked note via {trigger} at {noteData.time:F3}");
 
+            SuspendGhostVisualController(gameNote);
+
             Color noteColor = visuals != null
                 ? TryGetNoteColor(visuals, noteData.colorType)
                 : Color.magenta;
 
-            CacheAndDisableNoteCube(
-                gameNote,
-                out var cubeMr,
-                out var circleMr,
-                out var arrowMr,
-                out var arrowGlowMr,
-                out var cubeWasEnabled,
-                out var circleWasEnabled,
-                out var arrowWasEnabled,
-                out var arrowGlowWasEnabled);
-
-            // Rent pooled bomb visual and cache the exact instance
+            // Rent pooled bomb visual and cache the exact instance.
+            // Prefer the TwitchController Bomb node from the bundle; fall back to the game's BombNoteController.
             int noteLayer = gameNote.gameObject.layer;
-            GameObject prefabGo = _bombPrefab != null ? _bombPrefab.gameObject : null;
+            GameObject prefabGo = _bundleBombTemplate ?? (_bombPrefab != null ? _bombPrefab.gameObject : null);
             var visualInst = BombVisualPool.Instance.Rent(gameNote.transform, noteLayer, noteColor, prefabGo);
 
+            BombNoteVisualGuard guard = null;
             try
             {
-                var watchdog = gameNote.gameObject.AddComponent<RendererWatchdog>();
-                watchdog.Init(gameNote.transform, 1.0f, visualInst.transform);
+                guard = gameNote.gameObject.AddComponent<BombNoteVisualGuard>();
+                guard.Init(gameNote.transform, visualInst.transform);
             }
             catch (Exception ex)
             {
-                LogUtils.Warn("BombNotePatch: Failed to start watchdog: " + ex.Message);
+                LogUtils.Warn("BombNotePatch: Failed to start bomb visual guard: " + ex.Message);
             }
 
-            // Give BombManager everything it needs to clear without Find()
-            BombManager.Instance.RegisterBombVisual(
-                gameNote,
-                visualInst,
-                cubeMr,
-                circleMr,
-                arrowMr,
-                arrowGlowMr,
-                cubeWasEnabled,
-                circleWasEnabled,
-                arrowWasEnabled,
-                arrowGlowWasEnabled
-            );
+            BombManager.Instance.RegisterBombVisual(gameNote, visualInst, guard);
 
             return true;
         }
 
+        private static void SuspendGhostVisualController(GameNoteController gameNote)
+        {
+            if (gameNote == null)
+            {
+                return;
+            }
+
+            var ghostController = gameNote.GetComponent<GhostVisualController>();
+            if (ghostController == null)
+            {
+                return;
+            }
+
+            UnityEngine.Object.Destroy(ghostController);
+            LogUtils.Debug(() => "BombNotePatch: Removed GhostVisualController from bomb note.");
+        }
+
         private static void CacheBombPrefabIfNeeded()
         {
-            if (_bombPrefab != null)
-                return;
+            // Try loading the bundle Bomb node from TwitchController first (preferred visual).
+            if (!_triedBundleBombLoad)
+            {
+                _triedBundleBombLoad = true;
+                _bundleBombTemplate = SurgeonEffectsBundleService.GetBombTemplate();
+                if (_bundleBombTemplate != null)
+                    LogUtils.Debug(() => "BombNotePatch: Using bundle Bomb template for note visual.");
+                else
+                    LogUtils.Warn("BombNotePatch: Bundle Bomb template unavailable – falling back to BombNoteController.");
+            }
 
-            _bombPrefab = Resources.FindObjectsOfTypeAll<BombNoteController>().FirstOrDefault();
-            if (_bombPrefab != null)
-                LogUtils.Debug(() => $"BombNotePatch: Cached BombNoteController prefab '{_bombPrefab.name}'");
-            else
-                LogUtils.Warn("BombNotePatch: No BombNoteController found – will use sphere fallback");
+            // Keep the game's BombNoteController as a fallback in case the bundle is missing.
+            if (_bombPrefab == null)
+            {
+                _bombPrefab = Resources.FindObjectsOfTypeAll<BombNoteController>().FirstOrDefault();
+                if (_bombPrefab != null)
+                    LogUtils.Debug(() => $"BombNotePatch: Cached BombNoteController fallback prefab '{_bombPrefab.name}'");
+                else
+                    LogUtils.Warn("BombNotePatch: No BombNoteController found – will use sphere fallback");
+            }
         }
 
         private static Color TryGetNoteColor(ColorNoteVisuals visuals, ColorType colorType)
@@ -195,86 +208,6 @@ namespace BeatSurgeon.HarmonyPatches
 
             return noteColor;
         }
-
-        private static void CacheAndDisableNoteCube(
-            GameNoteController gameNote,
-            out MeshRenderer cubeMr,
-            out MeshRenderer circleMr,
-            out MeshRenderer arrowMr,
-            out MeshRenderer arrowGlowMr,
-            out bool cubeWasEnabled,
-            out bool circleWasEnabled,
-            out bool arrowWasEnabled,
-            out bool arrowGlowWasEnabled)
-        {
-            cubeMr = null;
-            circleMr = null;
-            arrowMr = null;
-            arrowGlowMr = null;
-            cubeWasEnabled = false;
-            circleWasEnabled = false;
-            arrowWasEnabled = false;
-            arrowGlowWasEnabled = false;
-
-            var noteCube = gameNote.GetComponentsInChildren<Transform>(true)
-                .FirstOrDefault(t => t.name == "NoteCube");
-
-            if (noteCube == null)
-            {
-                LogUtils.Warn($"BombNotePatch: NoteCube not found under '{gameNote.name}'");
-                return;
-            }
-
-            cubeMr = noteCube.GetComponent<MeshRenderer>()
-                    ?? noteCube.GetComponentInChildren<MeshRenderer>(true);
-
-            if (cubeMr != null)
-            {
-                cubeWasEnabled = cubeMr.enabled;
-                cubeMr.enabled = false;
-            }
-
-            var circleT = noteCube.GetComponentsInChildren<Transform>(true)
-                .FirstOrDefault(t => t.name == "NoteCircleGlow");
-
-            circleMr = circleT != null
-                ? (circleT.GetComponent<MeshRenderer>() ?? circleT.GetComponentInChildren<MeshRenderer>(true))
-                : null;
-
-            if (circleMr != null)
-            {
-                circleWasEnabled = circleMr.enabled;
-                circleMr.enabled = false;
-            }
-
-            var arrowT = gameNote.GetComponentsInChildren<Transform>(true)
-                .FirstOrDefault(t => t.name == "NoteArrow");
-
-            arrowMr = arrowT != null
-                ? (arrowT.GetComponent<MeshRenderer>() ?? arrowT.GetComponentInChildren<MeshRenderer>(true))
-                : null;
-
-            if (arrowMr != null)
-            {
-                arrowWasEnabled = arrowMr.enabled;
-                arrowMr.enabled = false;
-            }
-
-            var arrowGlowT = gameNote.GetComponentsInChildren<Transform>(true)
-                .FirstOrDefault(t => t.name == "NoteArrowGlow");
-
-            arrowGlowMr = arrowGlowT != null
-                ? (arrowGlowT.GetComponent<MeshRenderer>() ?? arrowGlowT.GetComponentInChildren<MeshRenderer>(true))
-                : null;
-
-            if (arrowGlowMr != null)
-            {
-                arrowGlowWasEnabled = arrowGlowMr.enabled;
-                arrowGlowMr.enabled = false;
-            }
-        }
-
-
     }
 
     [HarmonyPatch(typeof(BeatmapObjectManager), "HandleNoteControllerNoteDidStartJump")]
@@ -380,7 +313,7 @@ namespace BeatSurgeon.HarmonyPatches
 
                 SpawnFlyingText(displayText, cutPoint);
 
-                BombManager.Instance.ClearBombVisuals();
+                BombManager.Instance.ClearBombVisuals(restoreOriginalRenderers: false);
             }
             catch (Exception ex)
             {

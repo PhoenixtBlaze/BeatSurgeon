@@ -154,6 +154,7 @@ namespace BeatSurgeon
                 mcfg.CpSlowerCooldownSeconds     = Math.Max(1, mcfg.CpSlowerCooldownSeconds);
                 mcfg.CpFlashbangCooldownSeconds  = Math.Max(1, mcfg.CpFlashbangCooldownSeconds);
                 if (!mcfg.CpCooldownsMigrated) mcfg.CpCooldownsMigrated = true;
+                Gameplay.BombExplosionEffectSettings.MigrateLoadedConfigOnLoad();
                 ScopedLog.Info("BeatSurgeon CP cooldown floor pass applied.");
 
                 ScopedLog.Info("Config loaded.");

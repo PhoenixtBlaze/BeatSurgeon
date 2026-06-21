@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using UnityEngine;
 
 namespace BeatSurgeon.Gameplay
@@ -43,9 +45,472 @@ namespace BeatSurgeon.Gameplay
         private static bool _triedSubscriberCanvasLoad = false;
         private static GameObject _cachedTrailCubeTemplate;
         private static bool _triedTrailCubeLoad = false;
+        private static GameObject _cachedBombTemplate;
+        private static bool _triedBombLoad = false;
         private static readonly Dictionary<string, Material> _cachedPreparedBurstMaterials = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<int, GameObject> _cachedGlitterTemplates = new Dictionary<int, GameObject>();
         private static readonly HashSet<int> _triedGlitterLoads = new HashSet<int>();
+        private static readonly Dictionary<string, GameObject> _cachedBombExplosionEmitterTemplates = new Dictionary<string, GameObject>(StringComparer.OrdinalIgnoreCase);
+        private static readonly HashSet<string> _triedBombExplosionEmitterLoads = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static AssetBundle _surgeonEffectsBundle;
+        private static GameObject _surgeonExplosionPrefabAsset;
+        private static string[] _surgeonEffectsAssetNames;
+        private static long _loadedSurgeonEffectsBundleTicks = -1;
+        private static long _loadedSurgeonEffectsBundleLength = -1;
+        private static string _loadedSurgeonEffectsBundleHash;
+
+        internal static string GetSurgeonEffectsBundlePath()
+        {
+            return Path.Combine(Environment.CurrentDirectory, "UserData", "BeatSurgeon", "Effects", "surgeoneffects");
+        }
+
+        internal static void EnsureSurgeonEffectsBundleFresh()
+        {
+            string bundlePath = GetSurgeonEffectsBundlePath();
+            if (!File.Exists(bundlePath))
+            {
+                return;
+            }
+
+            FileInfo bundleInfo = new FileInfo(bundlePath);
+            long bundleTicks = bundleInfo.LastWriteTimeUtc.Ticks;
+            long bundleLength = bundleInfo.Length;
+            string bundleHash = ComputeBundleContentHash(bundlePath);
+            if (_surgeonEffectsBundle != null
+                && _loadedSurgeonEffectsBundleLength == bundleLength
+                && string.Equals(_loadedSurgeonEffectsBundleHash, bundleHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            bool hadLoadedBundle = _surgeonEffectsBundle != null;
+            _loadedSurgeonEffectsBundleTicks = bundleTicks;
+            _loadedSurgeonEffectsBundleLength = bundleLength;
+            _loadedSurgeonEffectsBundleHash = bundleHash;
+
+            if (!hadLoadedBundle)
+            {
+                return;
+            }
+
+            Plugin.Log.Info(
+                "SurgeonEffectsBundleService: detected updated surgeoneffects bundle at "
+                + bundlePath
+                + " ("
+                + bundleLength
+                + " bytes, hash="
+                + (bundleHash ?? "unknown")
+                + ", "
+                + new DateTime(bundleTicks, DateTimeKind.Utc).ToString("u")
+                + "); reloading bundle-backed bomb effects.");
+            ResetCachedTemplate();
+            FireworksExplosionPool.ClearCachedInstances();
+            UnloadSurgeonEffectsBundle();
+        }
+
+        internal static string GetLoadedSurgeonEffectsBundleHash()
+        {
+            return _loadedSurgeonEffectsBundleHash;
+        }
+
+        private static string ComputeBundleContentHash(string bundlePath)
+        {
+            if (string.IsNullOrWhiteSpace(bundlePath) || !File.Exists(bundlePath))
+            {
+                return null;
+            }
+
+            try
+            {
+                using (FileStream stream = File.OpenRead(bundlePath))
+                using (SHA256 sha256 = SHA256.Create())
+                {
+                    byte[] hashBytes = sha256.ComputeHash(stream);
+                    var builder = new StringBuilder(hashBytes.Length * 2);
+                    for (int index = 0; index < hashBytes.Length; index++)
+                    {
+                        builder.Append(hashBytes[index].ToString("x2"));
+                    }
+
+                    return builder.ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("SurgeonEffectsBundleService: failed hashing surgeoneffects bundle: " + ex.Message);
+                return null;
+            }
+        }
+
+        private static void UnloadSurgeonEffectsBundle()
+        {
+            _surgeonExplosionPrefabAsset = null;
+            _surgeonEffectsAssetNames = null;
+
+            if (_surgeonEffectsBundle == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _surgeonEffectsBundle.Unload(true);
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("SurgeonEffectsBundleService: failed unloading surgeoneffects bundle: " + ex.Message);
+            }
+
+            _surgeonEffectsBundle = null;
+        }
+
+        private static bool EnsureSurgeonEffectsBundleLoaded()
+        {
+            EnsureSurgeonEffectsBundleFresh();
+
+            if (_surgeonEffectsBundle != null && _surgeonExplosionPrefabAsset != null)
+            {
+                return true;
+            }
+
+            string bundlePath = GetSurgeonEffectsBundlePath();
+            if (!File.Exists(bundlePath))
+            {
+                Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle not found at " + bundlePath);
+                return false;
+            }
+
+            try
+            {
+                _surgeonEffectsBundle = AssetBundle.LoadFromFile(bundlePath);
+                if (_surgeonEffectsBundle == null)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: failed to load surgeoneffects bundle at " + bundlePath);
+                    return false;
+                }
+
+                _surgeonEffectsAssetNames = _surgeonEffectsBundle.GetAllAssetNames();
+                if (_surgeonEffectsAssetNames == null || _surgeonEffectsAssetNames.Length == 0)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle did not expose any assets.");
+                    UnloadSurgeonEffectsBundle();
+                    return false;
+                }
+
+                string surgeonExplosionAssetName = ResolveBundleAssetName(
+                    _surgeonEffectsAssetNames,
+                    BundleRegistry.PrefabSurgeonExplosion);
+                if (string.IsNullOrWhiteSpace(surgeonExplosionAssetName))
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: SurgeonExplosion prefab not found in surgeoneffects bundle.");
+                    UnloadSurgeonEffectsBundle();
+                    return false;
+                }
+
+                _surgeonExplosionPrefabAsset = _surgeonEffectsBundle.LoadAsset<GameObject>(surgeonExplosionAssetName);
+                if (_surgeonExplosionPrefabAsset == null)
+                {
+                    Plugin.Log.Warn(
+                        "SurgeonEffectsBundleService: could not load SurgeonExplosion prefab asset '"
+                        + surgeonExplosionAssetName
+                        + "' from surgeoneffects bundle.");
+                    UnloadSurgeonEffectsBundle();
+                    return false;
+                }
+
+                FileInfo bundleInfo = new FileInfo(bundlePath);
+                _loadedSurgeonEffectsBundleTicks = bundleInfo.LastWriteTimeUtc.Ticks;
+                _loadedSurgeonEffectsBundleLength = bundleInfo.Length;
+                _loadedSurgeonEffectsBundleHash = ComputeBundleContentHash(bundlePath);
+
+                Plugin.Log.Info(
+                    "SurgeonEffectsBundleService: loaded surgeoneffects bundle from "
+                    + bundlePath
+                    + " using SurgeonExplosion asset '"
+                    + surgeonExplosionAssetName
+                    + "' ("
+                    + _loadedSurgeonEffectsBundleLength
+                    + " bytes, hash="
+                    + (_loadedSurgeonEffectsBundleHash ?? "unknown")
+                    + ").");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("SurgeonEffectsBundleService: error loading surgeoneffects bundle: " + ex.Message);
+                UnloadSurgeonEffectsBundle();
+                return false;
+            }
+        }
+
+        public static GameObject CreateBombExplosionInstanceFromBundle(string emitterName)
+        {
+            if (string.IsNullOrWhiteSpace(emitterName))
+            {
+                return null;
+            }
+
+            if (!EnsureSurgeonEffectsBundleLoaded())
+            {
+                return null;
+            }
+
+            bool preserveBundleAuthorship = UsesBundleAuthoredBombExplosionEmitter(emitterName);
+            GameObject instance = null;
+
+            if (string.Equals(emitterName, BundleRegistry.SurgeonExplosionRefs.ShockwaveCompositeEmitterName, StringComparison.OrdinalIgnoreCase))
+            {
+                instance = InstantiateShockwaveFromBundle(_surgeonExplosionPrefabAsset);
+                preserveBundleAuthorship = true;
+            }
+            else
+            {
+                Transform emitterChild = FindDirectChildByNormalizedName(_surgeonExplosionPrefabAsset.transform, emitterName)
+                    ?? FindDescendantByNormalizedName(_surgeonExplosionPrefabAsset.transform, emitterName)
+                    ?? _surgeonExplosionPrefabAsset.transform.Find(emitterName);
+
+                if (emitterChild != null)
+                {
+                    instance = UnityEngine.Object.Instantiate(emitterChild.gameObject);
+                    Plugin.Log.Info(
+                        "SurgeonEffectsBundleService: instantiated bomb explosion '"
+                        + emitterName
+                        + "' from SurgeonExplosion bundle child '"
+                        + emitterChild.name
+                        + "'.");
+                }
+            }
+
+            if (instance == null)
+            {
+                Plugin.Log.Warn(
+                    "SurgeonEffectsBundleService: bomb explosion emitter '"
+                    + emitterName
+                    + "' was not found in the loaded surgeoneffects bundle.");
+                return null;
+            }
+
+            instance.name = emitterName + "_BundleInstance";
+            ApplyBombExplosionInstanceSetup(instance, preserveBundleAuthorship);
+            if (preserveBundleAuthorship)
+            {
+                LogAuthoredEmitterSpawnDiagnostics(emitterName, instance);
+            }
+
+            return instance;
+        }
+
+        private static void LogAuthoredEmitterSpawnDiagnostics(string emitterName, GameObject instance)
+        {
+            if (instance == null)
+            {
+                return;
+            }
+
+            var details = new StringBuilder();
+            details.Append("SurgeonEffectsBundleService: authored spawn '")
+                .Append(emitterName)
+                .Append("' from bundle hash=")
+                .Append(_loadedSurgeonEffectsBundleHash ?? "unknown")
+                .Append(" (");
+
+            bool wroteDetail = false;
+            foreach (ParticleSystem particleSystem in instance.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (particleSystem == null)
+                {
+                    continue;
+                }
+
+                ParticleSystem.MainModule main = particleSystem.main;
+                string startColorText = DescribeStartColor(main.startColor);
+                ParticleSystemRenderer renderer = particleSystem.GetComponent<ParticleSystemRenderer>();
+                string renderMode = renderer != null ? renderer.renderMode.ToString() : "unknown";
+                string materialName = renderer != null && renderer.sharedMaterial != null
+                    ? renderer.sharedMaterial.name
+                    : "none";
+
+                if (wroteDetail)
+                {
+                    details.Append("; ");
+                }
+
+                details.Append(particleSystem.name)
+                    .Append(" duration=")
+                    .Append(main.duration.ToString("0.###"))
+                    .Append(" startDelay=")
+                    .Append(GetCurveMaximum(main.startDelay, 0f).ToString("0.###"))
+                    .Append(" startColor=")
+                    .Append(startColorText)
+                    .Append(" renderMode=")
+                    .Append(renderMode)
+                    .Append(" material=")
+                    .Append(materialName);
+                wroteDetail = true;
+            }
+
+            details.Append("). Reminder: rebuild surgeoneffects from Assets/Prefabs/SurgeonExplosion.prefab (Apply scene overrides to prefab first). Bundle file time="
+                + DescribeBundleFileTimestamp()
+                + ".");
+            Plugin.Log.Info(details.ToString());
+        }
+
+        private static string DescribeBundleFileTimestamp()
+        {
+            string bundlePath = GetSurgeonEffectsBundlePath();
+            if (!File.Exists(bundlePath))
+            {
+                return "missing";
+            }
+
+            return new FileInfo(bundlePath).LastWriteTimeUtc.ToString("u");
+        }
+
+        private static string DescribeStartColor(ParticleSystem.MinMaxGradient startColor)
+        {
+            switch (startColor.mode)
+            {
+                case ParticleSystemGradientMode.Color:
+                    return FormatColor(startColor.color);
+                case ParticleSystemGradientMode.TwoColors:
+                    return FormatColor(startColor.colorMin) + "->" + FormatColor(startColor.colorMax);
+                default:
+                    return startColor.mode.ToString();
+            }
+        }
+
+        private static string FormatColor(Color color)
+        {
+            return "("
+                + color.r.ToString("0.###")
+                + ","
+                + color.g.ToString("0.###")
+                + ","
+                + color.b.ToString("0.###")
+                + ","
+                + color.a.ToString("0.###")
+                + ")";
+        }
+
+        private static float GetCurveMaximum(ParticleSystem.MinMaxCurve curve, float fallback)
+        {
+            switch (curve.mode)
+            {
+                case ParticleSystemCurveMode.Constant:
+                    return curve.constant;
+                case ParticleSystemCurveMode.TwoConstants:
+                    return Mathf.Max(curve.constantMin, curve.constantMax);
+                default:
+                    return fallback;
+            }
+        }
+
+        public static GameObject GetBombExplosionEmitterTemplate(string emitterName)
+        {
+            return CreateBombExplosionInstanceFromBundle(emitterName);
+        }
+
+        /// <summary>
+        /// Loads and caches the Bomb node from the TwitchController prefab in the surgeoneffects bundle.
+        /// This is the mesh + particle emitter used as the note visual when a !bomb or !bmsg is armed.
+        /// Returns null if the bundle or node is unavailable; callers should fall back to BombNoteController.
+        /// </summary>
+        public static GameObject GetBombTemplate()
+        {
+            if (_cachedBombTemplate != null)
+            {
+                return _cachedBombTemplate;
+            }
+
+            if (_triedBombLoad)
+            {
+                return null;
+            }
+
+            _triedBombLoad = true;
+
+            try
+            {
+                string bundlePath = GetSurgeonEffectsBundlePath();
+                if (!File.Exists(bundlePath))
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle not found at " + bundlePath + " (bomb template).");
+                    return null;
+                }
+
+                var bundle = AssetBundle.LoadFromFile(bundlePath);
+                if (bundle == null)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: failed to load surgeoneffects bundle for bomb template.");
+                    return null;
+                }
+
+                try
+                {
+                    string[] assets = bundle.GetAllAssetNames();
+                    if (assets == null || assets.Length == 0)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: surgeoneffects bundle exposed no assets (bomb template).");
+                        return null;
+                    }
+
+                    string twitchControllerAssetName = ResolveBundleAssetName(assets, BundleRegistry.PrefabTwitchController);
+                    GameObject twitchControllerPrefab = string.IsNullOrWhiteSpace(twitchControllerAssetName)
+                        ? null
+                        : bundle.LoadAsset<GameObject>(twitchControllerAssetName);
+                    if (twitchControllerPrefab == null)
+                    {
+                        Plugin.Log.Warn("SurgeonEffectsBundleService: could not load TwitchController prefab for Bomb template.");
+                        return null;
+                    }
+
+                    Transform bombTransform = twitchControllerPrefab.transform.Find(BundleRegistry.TwitchControllerRefs.BombNodePath)
+                        ?? FindDescendantByNormalizedName(twitchControllerPrefab.transform, BundleRegistry.TwitchControllerRefs.BombNodeName);
+                    if (bombTransform == null)
+                    {
+                        Plugin.Log.Warn(
+                            "SurgeonEffectsBundleService: Bomb node '"
+                            + BundleRegistry.TwitchControllerRefs.BombNodePath
+                            + "' was not found on the loaded TwitchController prefab asset.");
+                        return null;
+                    }
+
+                    var templateRoot = UnityEngine.Object.Instantiate(bombTransform.gameObject);
+                    UnityEngine.Object.DontDestroyOnLoad(templateRoot);
+                    templateRoot.transform.SetParent(null, false);
+                    templateRoot.name = "BeatSurgeonBombTemplate";
+                    templateRoot.SetActive(false);
+
+                    _cachedBombTemplate = templateRoot;
+                    LogUtils.Debug(() =>
+                        "SurgeonEffectsBundleService: cached Bomb template from path='"
+                        + BundleRegistry.TwitchControllerRefs.BombNodePath
+                        + "'.");
+
+                    return _cachedBombTemplate;
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn("SurgeonEffectsBundleService: error loading Bomb template: " + ex.Message);
+                }
+                finally
+                {
+                    try { bundle.Unload(false); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("SurgeonEffectsBundleService: unexpected bomb template load error: " + ex.Message);
+            }
+
+            return null;
+        }
+
+        internal static bool UsesBundleAuthoredBombExplosionEmitter(string emitterName)
+        {
+            return string.Equals(emitterName, BundleRegistry.SurgeonExplosionRefs.LightningEmitterName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(emitterName, BundleRegistry.SurgeonExplosionRefs.ShockwaveCompositeEmitterName, StringComparison.OrdinalIgnoreCase);
+        }
 
         public static void ResetCachedTemplate()
         {
@@ -111,6 +576,14 @@ namespace BeatSurgeon.Gameplay
                 _cachedTrailCubeTemplate = null;
                 _triedTrailCubeLoad = false;
 
+                if (_cachedBombTemplate != null)
+                {
+                    UnityEngine.Object.Destroy(_cachedBombTemplate);
+                }
+
+                _cachedBombTemplate = null;
+                _triedBombLoad = false;
+
                 foreach (var cachedBitEmitter in _cachedBitEmitterTemplates.Values)
                 {
                     if (cachedBitEmitter == null)
@@ -140,6 +613,18 @@ namespace BeatSurgeon.Gameplay
 
                 _cachedGlitterTemplates.Clear();
                 _triedGlitterLoads.Clear();
+
+                foreach (var bombExplosionTemplate in _cachedBombExplosionEmitterTemplates.Values)
+                {
+                    if (bombExplosionTemplate != null)
+                    {
+                        UnityEngine.Object.Destroy(bombExplosionTemplate);
+                    }
+                }
+
+                _cachedBombExplosionEmitterTemplates.Clear();
+                _triedBombExplosionEmitterLoads.Clear();
+                UnloadSurgeonEffectsBundle();
             }
             catch { }
         }
@@ -2244,6 +2729,255 @@ namespace BeatSurgeon.Gameplay
                 if (!string.IsNullOrWhiteSpace(match))
                 {
                     return match;
+                }
+            }
+
+            return null;
+        }
+
+        private static GameObject InstantiateShockwaveFromBundle(GameObject surgeonExplosionPrefabAsset)
+        {
+            if (surgeonExplosionPrefabAsset == null)
+            {
+                return null;
+            }
+
+            Transform surgeonExplosionRoot = surgeonExplosionPrefabAsset.transform;
+            Transform shockwaveRoot = FindDirectChildByNormalizedName(
+                    surgeonExplosionRoot,
+                    BundleRegistry.SurgeonExplosionRefs.ShockwaveCompositeEmitterName)
+                ?? FindDescendantByNormalizedName(
+                    surgeonExplosionRoot,
+                    BundleRegistry.SurgeonExplosionRefs.ShockwaveCompositeEmitterName);
+            if (shockwaveRoot != null)
+            {
+                Plugin.Log.Info(
+                    "SurgeonEffectsBundleService: instantiated shockwave from SurgeonExplosion bundle child '"
+                    + shockwaveRoot.name
+                    + "'.");
+                return UnityEngine.Object.Instantiate(shockwaveRoot.gameObject);
+            }
+
+            Transform outerEmitter = FindDirectChildByNormalizedName(
+                    surgeonExplosionRoot,
+                    BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveOuterEmitterName)
+                ?? FindDescendantByNormalizedName(
+                    surgeonExplosionRoot,
+                    BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveOuterEmitterName);
+            Transform innerEmitter = FindDirectChildByNormalizedName(
+                    surgeonExplosionRoot,
+                    BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveInnerEmitterName)
+                ?? FindDescendantByNormalizedName(
+                    surgeonExplosionRoot,
+                    BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveInnerEmitterName);
+            if (outerEmitter != null && innerEmitter != null)
+            {
+                GameObject instance = new GameObject(BundleRegistry.SurgeonExplosionRefs.ShockwaveCompositeEmitterName);
+                CloneBombExplosionEmitterBranch(outerEmitter, surgeonExplosionRoot, instance.transform);
+                CloneBombExplosionEmitterBranch(innerEmitter, surgeonExplosionRoot, instance.transform);
+                foreach (Transform child in instance.transform)
+                {
+                    if (child != null)
+                    {
+                        child.gameObject.SetActive(true);
+                    }
+                }
+
+                Plugin.Log.Info(
+                    "SurgeonEffectsBundleService: instantiated shockwave from SurgeonExplosion bundle emitters '"
+                    + outerEmitter.name
+                    + "' and '"
+                    + innerEmitter.name
+                    + "'.");
+                return instance;
+            }
+
+            if (_surgeonEffectsAssetNames != null)
+            {
+                string shockwavePrefabAssetName = ResolveBundleAssetName(
+                    _surgeonEffectsAssetNames,
+                    BundleRegistry.PrefabSeismicShockwave);
+                if (!string.IsNullOrWhiteSpace(shockwavePrefabAssetName) && _surgeonEffectsBundle != null)
+                {
+                    GameObject shockwavePrefab = _surgeonEffectsBundle.LoadAsset<GameObject>(shockwavePrefabAssetName);
+                    if (shockwavePrefab != null)
+                    {
+                        Plugin.Log.Info(
+                            "SurgeonEffectsBundleService: instantiated shockwave from bundle prefab '"
+                            + shockwavePrefabAssetName
+                            + "'.");
+                        return UnityEngine.Object.Instantiate(shockwavePrefab);
+                    }
+                }
+            }
+
+            Plugin.Log.Warn(
+                "SurgeonEffectsBundleService: shockwave emitters were not found on SurgeonExplosion or in the seismic prefab.");
+            return null;
+        }
+
+        private static bool IsShockwaveEmitterName(string transformName)
+        {
+            if (string.IsNullOrWhiteSpace(transformName))
+            {
+                return false;
+            }
+
+            return NormalizeSelectionToken(transformName) == NormalizeSelectionToken(BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveOuterEmitterName)
+                || NormalizeSelectionToken(transformName) == NormalizeSelectionToken(BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveInnerEmitterName);
+        }
+
+        private static GameObject TryCreateShockwaveCompositeTemplate(
+            Transform surgeonExplosionRoot,
+            AssetBundle bundle,
+            string[] assets)
+        {
+            if (surgeonExplosionRoot == null)
+            {
+                return null;
+            }
+
+            Transform sourceRoot = surgeonExplosionRoot;
+            if (bundle != null && assets != null)
+            {
+                string shockwavePrefabAssetName = ResolveBundleAssetName(assets, BundleRegistry.PrefabSeismicShockwave);
+                if (!string.IsNullOrWhiteSpace(shockwavePrefabAssetName))
+                {
+                    GameObject shockwavePrefab = bundle.LoadAsset<GameObject>(shockwavePrefabAssetName);
+                    if (shockwavePrefab != null)
+                    {
+                        sourceRoot = shockwavePrefab.transform;
+                    }
+                }
+            }
+
+            Transform outerEmitter = FindDirectChildByNormalizedName(
+                sourceRoot,
+                BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveOuterEmitterName)
+                ?? FindDescendantByNormalizedName(
+                    sourceRoot,
+                    BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveOuterEmitterName)
+                ?? FindDirectChildByNormalizedName(
+                    surgeonExplosionRoot,
+                    BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveOuterEmitterName)
+                ?? FindDescendantByNormalizedName(
+                    surgeonExplosionRoot,
+                    BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveOuterEmitterName);
+            Transform innerEmitter = FindDirectChildByNormalizedName(
+                sourceRoot,
+                BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveInnerEmitterName)
+                ?? FindDescendantByNormalizedName(
+                    sourceRoot,
+                    BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveInnerEmitterName)
+                ?? FindDirectChildByNormalizedName(
+                    surgeonExplosionRoot,
+                    BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveInnerEmitterName)
+                ?? FindDescendantByNormalizedName(
+                    surgeonExplosionRoot,
+                    BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveInnerEmitterName);
+
+            if (outerEmitter == null || innerEmitter == null)
+            {
+                Plugin.Log.Warn(
+                    "SurgeonEffectsBundleService: shockwave emitters '"
+                    + BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveOuterEmitterName
+                    + "' and '"
+                    + BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveInnerEmitterName
+                    + "' were not found as direct children.");
+                return null;
+            }
+
+            var templateRoot = new GameObject(
+                "BeatSurgeonBombExplosionTemplate_"
+                + BundleRegistry.SurgeonExplosionRefs.ShockwaveCompositeEmitterName);
+            CloneBombExplosionEmitterBranch(outerEmitter, sourceRoot, templateRoot.transform);
+            CloneBombExplosionEmitterBranch(innerEmitter, sourceRoot, templateRoot.transform);
+            return templateRoot;
+        }
+
+        private static void CloneBombExplosionEmitterBranch(
+            Transform sourceBranch,
+            Transform sourceParent,
+            Transform templateRoot)
+        {
+            if (sourceBranch == null || templateRoot == null)
+            {
+                return;
+            }
+
+            GameObject clone = UnityEngine.Object.Instantiate(sourceBranch.gameObject, templateRoot, false);
+            clone.name = sourceBranch.name;
+            if (sourceParent != null)
+            {
+                clone.transform.localPosition = sourceBranch.localPosition;
+                clone.transform.localRotation = sourceBranch.localRotation;
+                clone.transform.localScale = sourceBranch.localScale;
+            }
+            else
+            {
+                clone.transform.localPosition = Vector3.zero;
+                clone.transform.localRotation = Quaternion.identity;
+                clone.transform.localScale = Vector3.one;
+            }
+
+            clone.SetActive(false);
+        }
+
+        private static void ApplyBombExplosionInstanceSetup(GameObject instance, bool preserveBundleAuthorship)
+        {
+            if (instance == null)
+            {
+                return;
+            }
+
+            instance.transform.SetParent(null, false);
+
+            DisableNonParticleRenderers(instance);
+            if (preserveBundleAuthorship)
+            {
+                VrVfxMaterialHelper.PrepareBundleBombExplosionForVr(
+                    instance,
+                    "SurgeonEffectsBundleService bomb explosion instance");
+            }
+            else
+            {
+                VrVfxMaterialHelper.PrepareBombExplosionRenderers(
+                    instance,
+                    "SurgeonEffectsBundleService bomb explosion instance");
+            }
+
+            foreach (ParticleSystem particleSystem in instance.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (particleSystem == null)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    ParticleSystem.MainModule main = particleSystem.main;
+                    main.cullingMode = ParticleSystemCullingMode.AlwaysSimulate;
+                    particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                }
+                catch { }
+            }
+
+            instance.SetActive(false);
+        }
+
+        private static Transform FindDirectChildByNormalizedName(Transform root, string targetName)
+        {
+            if (root == null || string.IsNullOrWhiteSpace(targetName))
+            {
+                return null;
+            }
+
+            string normalizedTarget = NormalizeSelectionToken(targetName);
+            foreach (Transform child in root)
+            {
+                if (NormalizeSelectionToken(child.name) == normalizedTarget)
+                {
+                    return child;
                 }
             }
 

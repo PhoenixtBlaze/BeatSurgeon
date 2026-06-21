@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using AssetBundleLoadingTools.Utilities;
 using UnityEngine;
@@ -33,9 +34,27 @@ namespace BeatSurgeon.Gameplay
             "water"
         };
 
+        private static readonly string[] ForcedSafeParticleShaderNames =
+        {
+            "Custom/SimpleLightning",
+            "Custom/TeslaLightning"
+        };
+
+        internal static readonly string[] SuppressedBundleRepairShaderNames =
+        {
+            "SeismicParticle/ProceduralBand",
+            "Custom/SimpleLightning",
+            "Custom/TeslaLightning"
+        };
+
         private static Material _safeParticleMaterialBase;
 
         internal static void RepairShaders(GameObject root, string context)
+        {
+            RepairShaders(root, context, null);
+        }
+
+        internal static void RepairShaders(GameObject root, string context, string[] suppressedMissingShaderNames)
         {
             if (root == null)
             {
@@ -47,7 +66,13 @@ namespace BeatSurgeon.Gameplay
                 var result = ShaderRepair.FixShadersOnGameObject(root);
                 if (!result.AllShadersReplaced && result.MissingShaderNames.Count > 0)
                 {
-                    Plugin.Log.Warn(context + ": shader repair missing replacements for " + string.Join(", ", result.MissingShaderNames.Distinct()));
+                    string[] missingShaderNames = result.MissingShaderNames
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                    if (!ShouldSuppressRepairWarning(missingShaderNames, suppressedMissingShaderNames))
+                    {
+                        Plugin.Log.Warn(context + ": shader repair missing replacements for " + string.Join(", ", missingShaderNames));
+                    }
                 }
             }
             catch (Exception ex)
@@ -180,7 +205,7 @@ namespace BeatSurgeon.Gameplay
 
         internal static Material CreateForcedSafeParticleMaterial(Material sourceMaterial, Texture fallbackTexture = null)
         {
-            Texture resolvedFallbackTexture = fallbackTexture ?? GetBestAvailableTexture(sourceMaterial);
+            Texture resolvedFallbackTexture = fallbackTexture ?? SafeGetBestAvailableTexture(sourceMaterial);
 
             Material material = CreateDeterministicTransparentParticleMaterial(sourceMaterial, "_BeatSurgeonForcedSafe");
             if (material == null)
@@ -195,12 +220,27 @@ namespace BeatSurgeon.Gameplay
                         CopyCommonParticleProperties(sourceMaterial, material);
                     }
                 }
-                else if (sourceMaterial != null)
+                else
                 {
-                    material = new Material(sourceMaterial)
+                    Shader shader = Shader.Find("Particles/Standard Unlit")
+                        ?? Shader.Find("Particles/Alpha Blended")
+                        ?? Shader.Find("Sprites/Default");
+                    if (shader == null)
                     {
-                        name = sourceMaterial.name + "_BeatSurgeonForcedSafeFallback"
+                        return null;
+                    }
+
+                    material = new Material(shader)
+                    {
+                        name = sourceMaterial != null
+                            ? sourceMaterial.name + "_BeatSurgeonForcedSafeFallback"
+                            : "BeatSurgeonForcedSafeParticle"
                     };
+
+                    if (sourceMaterial != null)
+                    {
+                        CopyCommonParticleProperties(sourceMaterial, material);
+                    }
                 }
             }
 
@@ -293,6 +333,563 @@ namespace BeatSurgeon.Gameplay
             return CanPreserveSourceMaterial(sourceMaterial);
         }
 
+        internal static bool ShouldForceSafeParticleShader(Shader shader)
+        {
+            return ShouldForceSafeParticleShader(shader != null ? shader.name : null);
+        }
+
+        internal static bool ShouldForceSafeParticleShader(string shaderName)
+        {
+            if (IsBrokenShaderName(shaderName))
+            {
+                return true;
+            }
+
+            return ForcedSafeParticleShaderNames.Any(forcedName =>
+                string.Equals(shaderName, forcedName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        internal static bool IsBrokenShader(Shader shader)
+        {
+            return shader == null || !shader.isSupported || IsBrokenShaderName(shader.name);
+        }
+
+        private static bool IsBrokenShaderName(string shaderName)
+        {
+            return string.IsNullOrWhiteSpace(shaderName)
+                || string.Equals(shaderName, InvalidShaderName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static void PrepareBombExplosionRenderers(
+            GameObject root,
+            string context,
+            ParticleSystemRenderer referenceRenderer = null)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            ParticleSystemRenderer reference = referenceRenderer ?? FindVanillaParticleRenderer();
+            foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null)
+                {
+                    continue;
+                }
+
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+
+                if (renderer is ParticleSystemRenderer particleRenderer)
+                {
+                    bool preservedAuthoredLayout = PrepareBombExplosionParticleRenderer(particleRenderer, reference, context);
+                    if (!preservedAuthoredLayout)
+                    {
+                        SyncParticleRendererStereoState(particleRenderer, reference);
+                    }
+
+                    HardenParticleRendererStereoCulling(particleRenderer);
+                    EnsureMeshParticleRendererReady(particleRenderer);
+                }
+            }
+        }
+
+        internal static void PrepareBundleBombExplosionForVr(GameObject root, string context)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null)
+                {
+                    continue;
+                }
+
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+
+                if (renderer is ParticleSystemRenderer particleRenderer)
+                {
+                    HardenParticleRendererStereoCulling(particleRenderer);
+                    EnsureMeshParticleRendererReady(particleRenderer);
+                }
+            }
+        }
+
+        internal static bool PrepareBombExplosionParticleRenderer(
+            ParticleSystemRenderer particleRenderer,
+            ParticleSystemRenderer referenceRenderer,
+            string context)
+        {
+            if (particleRenderer == null)
+            {
+                return false;
+            }
+
+            bool preservedAuthoredLayout = false;
+
+            try
+            {
+                Material[] materials = particleRenderer.sharedMaterials;
+                if (materials == null || materials.Length == 0)
+                {
+                    Material fallbackMaterial = CreateBillboardBombExplosionMaterial(
+                        null,
+                        referenceRenderer,
+                        null,
+                        Color.white,
+                        context,
+                        out bool preservedFallbackMaterial);
+                    preservedAuthoredLayout |= preservedFallbackMaterial;
+                    if (fallbackMaterial != null)
+                    {
+                        particleRenderer.sharedMaterial = fallbackMaterial;
+                    }
+
+                    return preservedAuthoredLayout;
+                }
+
+                Material[] preparedMaterials = new Material[materials.Length];
+                for (int index = 0; index < materials.Length; index++)
+                {
+                    preparedMaterials[index] = PrepareBombExplosionMaterial(
+                        materials[index],
+                        context,
+                        referenceRenderer,
+                        particleRenderer,
+                        out bool preservedMaterial)
+                        ?? CreateBillboardBombExplosionMaterial(
+                            materials[index],
+                            referenceRenderer,
+                            SafeGetBestAvailableTexture(materials[index]),
+                            SafeGetMaterialColor(materials[index]),
+                            context,
+                            out preservedMaterial);
+                    preservedAuthoredLayout |= preservedMaterial;
+                }
+
+                particleRenderer.sharedMaterials = preparedMaterials;
+
+                Material preparedTrailMaterial = PrepareBombExplosionMaterial(
+                    particleRenderer.trailMaterial,
+                    context + " trail",
+                    referenceRenderer,
+                    particleRenderer,
+                    out bool preservedTrailMaterial);
+                if (preparedTrailMaterial != null)
+                {
+                    particleRenderer.trailMaterial = preparedTrailMaterial;
+                    preservedAuthoredLayout |= preservedTrailMaterial;
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn(context + ": failed preparing bomb explosion particle renderer '" + particleRenderer.name + "': " + ex.Message);
+            }
+
+            return preservedAuthoredLayout;
+        }
+
+        private static Material PrepareBombExplosionMaterial(
+            Material sourceMaterial,
+            string context,
+            ParticleSystemRenderer referenceRenderer,
+            ParticleSystemRenderer ownerRenderer,
+            out bool preservedAuthoredMaterial)
+        {
+            preservedAuthoredMaterial = false;
+            bool isMeshRenderer = ownerRenderer != null
+                && ownerRenderer.renderMode == ParticleSystemRenderMode.Mesh;
+            Texture fallbackTexture = SafeGetBestAvailableTexture(sourceMaterial);
+            Color fallbackColor = SafeGetMaterialColor(sourceMaterial);
+
+            Material preparedMaterial = isMeshRenderer
+                ? CreateMeshBombExplosionMaterial(sourceMaterial, fallbackTexture, fallbackColor, out preservedAuthoredMaterial)
+                : CreateBillboardBombExplosionMaterial(
+                    sourceMaterial,
+                    referenceRenderer,
+                    fallbackTexture,
+                    fallbackColor,
+                    context,
+                    out preservedAuthoredMaterial);
+
+            if (preparedMaterial == null)
+            {
+                return null;
+            }
+
+            if (preservedAuthoredMaterial)
+            {
+                ApplyMinimalVrParticleTweaks(preparedMaterial);
+            }
+            else
+            {
+                ApplySharedParticleDefaults(preparedMaterial, fallbackTexture, preserveTint: true);
+            }
+
+            return preparedMaterial;
+        }
+
+        private static Material CreateMeshBombExplosionMaterial(
+            Material sourceMaterial,
+            Texture fallbackTexture,
+            Color fallbackColor,
+            out bool preservedAuthoredMaterial)
+        {
+            preservedAuthoredMaterial = false;
+            if (CanPreserveSourceMaterial(sourceMaterial))
+            {
+                preservedAuthoredMaterial = true;
+                return new Material(sourceMaterial)
+                {
+                    name = sourceMaterial.name + "_BeatSurgeonMeshVfx"
+                };
+            }
+
+            Shader shader = Shader.Find("Particles/Standard Unlit")
+                ?? Shader.Find("Particles/Alpha Blended")
+                ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended");
+            if (shader == null)
+            {
+                return CreateBillboardBombExplosionMaterial(
+                    sourceMaterial,
+                    null,
+                    fallbackTexture,
+                    fallbackColor,
+                    "mesh fallback",
+                    out preservedAuthoredMaterial);
+            }
+
+            Material material = new Material(shader)
+            {
+                name = (sourceMaterial != null ? sourceMaterial.name : "MeshParticle") + "_BeatSurgeonMeshVfx"
+            };
+
+            if (sourceMaterial != null)
+            {
+                CopyCommonParticleProperties(sourceMaterial, material);
+            }
+
+            ApplyFallbackVisibleColor(material, fallbackColor, fallbackTexture);
+            ApplyDeterministicParticleBlend(material);
+            return material;
+        }
+
+        private static Material CreateBillboardBombExplosionMaterial(
+            Material sourceMaterial,
+            ParticleSystemRenderer referenceRenderer,
+            Texture fallbackTexture,
+            Color fallbackColor,
+            string context,
+            out bool preservedAuthoredMaterial)
+        {
+            preservedAuthoredMaterial = false;
+            if (CanPreserveSourceMaterial(sourceMaterial))
+            {
+                preservedAuthoredMaterial = true;
+                return new Material(sourceMaterial)
+                {
+                    name = sourceMaterial.name + "_BeatSurgeonBillboardVfx"
+                };
+            }
+
+            Material referenceMaterial = referenceRenderer != null ? referenceRenderer.sharedMaterial : null;
+            if (referenceMaterial != null && HasUsableShader(referenceMaterial))
+            {
+                Material material = new Material(referenceMaterial)
+                {
+                    name = (sourceMaterial != null ? sourceMaterial.name : "BillboardParticle") + "_BeatSurgeonBillboardVfx"
+                };
+
+                if (sourceMaterial != null)
+                {
+                    CopyCommonParticleProperties(sourceMaterial, material);
+                }
+
+                ApplyFallbackVisibleColor(material, fallbackColor, fallbackTexture);
+                return material;
+            }
+
+            Material forcedSafeMaterial = CreateForcedSafeParticleMaterial(sourceMaterial, fallbackTexture);
+            if (forcedSafeMaterial != null && IsBrokenShader(forcedSafeMaterial.shader))
+            {
+                Plugin.Log.Warn(context + ": bomb explosion billboard material still has a broken shader after forced-safe fallback.");
+                return null;
+            }
+
+            ApplyFallbackVisibleColor(forcedSafeMaterial, fallbackColor, fallbackTexture);
+            return forcedSafeMaterial;
+        }
+
+        private static void ApplyFallbackVisibleColor(Material material, Color fallbackColor, Texture fallbackTexture)
+        {
+            if (material == null)
+            {
+                return;
+            }
+
+            if (fallbackTexture != null && MaterialSupportsTextureAssignment(material))
+            {
+                TryAssignTexture(material, fallbackTexture);
+            }
+
+            if (fallbackColor.a <= 0.01f && fallbackColor.maxColorComponent <= 0.01f)
+            {
+                fallbackColor = Color.white;
+            }
+
+            TrySetColorIfDefault(material, "_TintColor", fallbackColor);
+            TrySetColorIfDefault(material, "_Color", fallbackColor);
+            TrySetColorIfDefault(material, "_BaseColor", fallbackColor);
+        }
+
+        private static Color SafeGetMaterialColor(Material sourceMaterial)
+        {
+            if (sourceMaterial == null || IsBrokenShader(sourceMaterial.shader))
+            {
+                return Color.white;
+            }
+
+            if (TryGetPreferredVisibleColor(sourceMaterial, out Color preferredColor))
+            {
+                return preferredColor;
+            }
+
+            return Color.white;
+        }
+
+        private static Texture SafeGetBestAvailableTexture(Material sourceMaterial)
+        {
+            if (sourceMaterial == null)
+            {
+                return null;
+            }
+
+            if (!IsBrokenShader(sourceMaterial.shader))
+            {
+                return GetBestAvailableTexture(sourceMaterial);
+            }
+
+            string[] commonTextureProperties =
+            {
+                "_MainTex",
+                "_BaseMap",
+                "_EmissionMap",
+                "_AlphaTex",
+                "_MaskTex",
+                "_DetailAlbedoMap"
+            };
+
+            foreach (string propertyName in commonTextureProperties)
+            {
+                try
+                {
+                    if (!sourceMaterial.HasProperty(propertyName))
+                    {
+                        continue;
+                    }
+
+                    Texture texture = sourceMaterial.GetTexture(propertyName);
+                    if (texture != null)
+                    {
+                        return texture;
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        private static void EnsureMeshParticleRendererReady(ParticleSystemRenderer particleRenderer)
+        {
+            if (particleRenderer == null || particleRenderer.renderMode != ParticleSystemRenderMode.Mesh)
+            {
+                return;
+            }
+
+            try
+            {
+                particleRenderer.enabled = true;
+                particleRenderer.forceRenderingOff = false;
+
+                if (particleRenderer.mesh == null)
+                {
+                    MeshFilter meshFilter = particleRenderer.GetComponent<MeshFilter>();
+                    if (meshFilter != null && meshFilter.sharedMesh != null)
+                    {
+                        particleRenderer.mesh = meshFilter.sharedMesh;
+                    }
+                }
+
+                if (particleRenderer.meshCount > 0)
+                {
+                    Mesh[] meshes = new Mesh[particleRenderer.meshCount];
+                    particleRenderer.GetMeshes(meshes);
+                    if (meshes.All(mesh => mesh == null))
+                    {
+                        Plugin.Log.Warn(
+                            "VrVfxMaterialHelper: mesh particle renderer '"
+                            + particleRenderer.name
+                            + "' has no assigned mesh.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn(
+                    "VrVfxMaterialHelper: failed preparing mesh particle renderer '"
+                    + particleRenderer.name
+                    + "': "
+                    + ex.Message);
+            }
+        }
+
+        private static bool UsesBillboardStyleVertexStreams(ParticleSystemRenderMode renderMode)
+        {
+            return renderMode == ParticleSystemRenderMode.Billboard
+                || renderMode == ParticleSystemRenderMode.Stretch
+                || renderMode == ParticleSystemRenderMode.HorizontalBillboard
+                || renderMode == ParticleSystemRenderMode.VerticalBillboard;
+        }
+
+        internal static void SyncParticleRendererStereoState(
+            ParticleSystemRenderer particleRenderer,
+            ParticleSystemRenderer referenceRenderer)
+        {
+            if (particleRenderer == null || referenceRenderer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                bool syncLayout = UsesBillboardStyleVertexStreams(particleRenderer.renderMode)
+                    && UsesBillboardStyleVertexStreams(referenceRenderer.renderMode);
+
+                if (syncLayout)
+                {
+                    particleRenderer.alignment = referenceRenderer.alignment;
+                    particleRenderer.normalDirection = referenceRenderer.normalDirection;
+                    particleRenderer.allowRoll = referenceRenderer.allowRoll;
+                }
+
+                particleRenderer.maskInteraction = referenceRenderer.maskInteraction;
+                particleRenderer.enableGPUInstancing = referenceRenderer.enableGPUInstancing;
+                particleRenderer.sortingFudge = referenceRenderer.sortingFudge;
+                particleRenderer.renderingLayerMask = referenceRenderer.renderingLayerMask;
+                particleRenderer.lightProbeUsage = referenceRenderer.lightProbeUsage;
+                particleRenderer.reflectionProbeUsage = referenceRenderer.reflectionProbeUsage;
+                particleRenderer.motionVectorGenerationMode = referenceRenderer.motionVectorGenerationMode;
+
+                if (!syncLayout)
+                {
+                    return;
+                }
+
+                var activeVertexStreams = new List<ParticleSystemVertexStream>(referenceRenderer.activeVertexStreamsCount);
+                referenceRenderer.GetActiveVertexStreams(activeVertexStreams);
+                if (activeVertexStreams.Count > 0)
+                {
+                    particleRenderer.SetActiveVertexStreams(activeVertexStreams);
+                }
+
+                if (particleRenderer.trailMaterial != null)
+                {
+                    var activeTrailVertexStreams = new List<ParticleSystemVertexStream>(referenceRenderer.activeTrailVertexStreamsCount);
+                    referenceRenderer.GetActiveTrailVertexStreams(activeTrailVertexStreams);
+                    if (activeTrailVertexStreams.Count > 0)
+                    {
+                        particleRenderer.SetActiveTrailVertexStreams(activeTrailVertexStreams);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("VrVfxMaterialHelper: failed syncing stereo renderer state for '" + particleRenderer.name + "': " + ex.Message);
+            }
+        }
+
+        internal static void HardenParticleRendererStereoCulling(ParticleSystemRenderer particleRenderer)
+        {
+            if (particleRenderer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                particleRenderer.enabled = true;
+                particleRenderer.forceRenderingOff = false;
+                particleRenderer.allowOcclusionWhenDynamic = false;
+                particleRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                particleRenderer.receiveShadows = false;
+
+                Bounds localBounds = particleRenderer.localBounds;
+                float minimumBoundsSize = EstimateMinimumParticleBoundsSize(particleRenderer.GetComponent<ParticleSystem>());
+                Vector3 expandedSize = new Vector3(
+                    Mathf.Max(localBounds.size.x, minimumBoundsSize),
+                    Mathf.Max(localBounds.size.y, minimumBoundsSize),
+                    Mathf.Max(localBounds.size.z, minimumBoundsSize));
+                particleRenderer.localBounds = new Bounds(localBounds.center, expandedSize);
+
+                ParticleSystem particleSystem = particleRenderer.GetComponent<ParticleSystem>();
+                if (particleSystem != null)
+                {
+                    ParticleSystem.MainModule main = particleSystem.main;
+                    main.cullingMode = ParticleSystemCullingMode.AlwaysSimulate;
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("VrVfxMaterialHelper: failed hardening stereo culling for '" + particleRenderer.name + "': " + ex.Message);
+            }
+        }
+
+        private static float EstimateMinimumParticleBoundsSize(ParticleSystem particleSystem)
+        {
+            if (particleSystem == null)
+            {
+                return 12f;
+            }
+
+            try
+            {
+                ParticleSystem.MainModule main = particleSystem.main;
+                float lifetime = GetCurveMaximum(main.startLifetime, 1f);
+                float speed = GetCurveMaximum(main.startSpeed, 2f);
+                float size = main.startSize3D
+                    ? Mathf.Max(
+                        GetCurveMaximum(main.startSizeX, 0.5f),
+                        GetCurveMaximum(main.startSizeY, 0.5f),
+                        GetCurveMaximum(main.startSizeZ, 0.5f))
+                    : GetCurveMaximum(main.startSize, 0.5f);
+
+                return Mathf.Clamp((speed * Mathf.Max(0.5f, lifetime)) + (size * 4f) + 2f, 12f, 36f);
+            }
+            catch
+            {
+                return 12f;
+            }
+        }
+
+        private static float GetCurveMaximum(ParticleSystem.MinMaxCurve curve, float fallback)
+        {
+            switch (curve.mode)
+            {
+                case ParticleSystemCurveMode.Constant:
+                    return curve.constantMax;
+                case ParticleSystemCurveMode.TwoConstants:
+                    return Mathf.Max(curve.constantMin, curve.constantMax);
+                default:
+                    return Mathf.Max(fallback, curve.constantMax);
+            }
+        }
+
         internal static Texture GetBestAvailableTexture(Material sourceMaterial)
         {
             if (sourceMaterial == null)
@@ -300,11 +897,20 @@ namespace BeatSurgeon.Gameplay
                 return null;
             }
 
+            if (IsBrokenShader(sourceMaterial.shader))
+            {
+                return SafeGetBestAvailableTexture(sourceMaterial);
+            }
+
             try
             {
-                if (sourceMaterial.mainTexture != null)
+                if (sourceMaterial.HasProperty("_MainTex"))
                 {
-                    return sourceMaterial.mainTexture;
+                    Texture mainTexture = sourceMaterial.GetTexture("_MainTex");
+                    if (mainTexture != null)
+                    {
+                        return mainTexture;
+                    }
                 }
             }
             catch { }
@@ -401,7 +1007,7 @@ namespace BeatSurgeon.Gameplay
             TryCopyFloat(sourceMaterial, destinationMaterial, "_Cutoff");
 
             Texture bestTexture = GetBestAvailableTexture(sourceMaterial);
-            if (bestTexture != null)
+            if (bestTexture != null && MaterialSupportsTextureAssignment(destinationMaterial))
             {
                 TryAssignTexture(destinationMaterial, bestTexture);
             }
@@ -452,12 +1058,44 @@ namespace BeatSurgeon.Gameplay
 
             if (fallbackTexture == null)
             {
-                fallbackTexture = GetBestAvailableTexture(material);
+                fallbackTexture = SafeGetBestAvailableTexture(material);
             }
 
-            if (material.mainTexture == null && fallbackTexture != null)
+            if (fallbackTexture != null && MaterialSupportsTextureAssignment(material))
             {
-                material.mainTexture = fallbackTexture;
+                TryAssignTexture(material, fallbackTexture);
+            }
+
+            ApplyMinimalVrParticleTweaks(material);
+
+            if (!preserveTint)
+            {
+                try
+                {
+                    if (material.HasProperty("_TintColor"))
+                    {
+                        Color tint = material.GetColor("_TintColor");
+                        if (tint.maxColorComponent <= 0f || tint.a <= 0f)
+                        {
+                            material.SetColor("_TintColor", Color.white);
+                        }
+                    }
+
+                    NormalizeVisibleColor(material, "_Color");
+                    NormalizeVisibleColor(material, "_BaseColor");
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn("VrVfxMaterialHelper: Failed to normalize particle tint: " + ex.Message);
+                }
+            }
+        }
+
+        private static void ApplyMinimalVrParticleTweaks(Material material)
+        {
+            if (material == null)
+            {
+                return;
             }
 
             try
@@ -472,21 +1110,6 @@ namespace BeatSurgeon.Gameplay
                     material.SetFloat("_ZWrite", 0f);
                 }
 
-                if (!preserveTint && material.HasProperty("_TintColor"))
-                {
-                    Color tint = material.GetColor("_TintColor");
-                    if (tint.maxColorComponent <= 0f || tint.a <= 0f)
-                    {
-                        material.SetColor("_TintColor", Color.white);
-                    }
-                }
-
-                if (!preserveTint)
-                {
-                    NormalizeVisibleColor(material, "_Color");
-                    NormalizeVisibleColor(material, "_BaseColor");
-                }
-
                 if (material.renderQueue < 3000)
                 {
                     material.renderQueue = 3100;
@@ -494,8 +1117,18 @@ namespace BeatSurgeon.Gameplay
             }
             catch (Exception ex)
             {
-                Plugin.Log.Warn("VrVfxMaterialHelper: Failed to apply shared particle defaults: " + ex.Message);
+                Plugin.Log.Warn("VrVfxMaterialHelper: Failed to apply minimal VR particle tweaks: " + ex.Message);
             }
+        }
+
+        private static bool MaterialSupportsTextureAssignment(Material material)
+        {
+            if (material == null)
+            {
+                return false;
+            }
+
+            return material.HasProperty("_MainTex") || material.HasProperty("_BaseMap");
         }
 
         private static void ApplySharedVisualDefaults(Material material, Texture fallbackTexture)
@@ -510,12 +1143,10 @@ namespace BeatSurgeon.Gameplay
                 fallbackTexture = GetBestAvailableTexture(material);
             }
 
-            if (material.mainTexture == null && fallbackTexture != null)
+            if (MaterialSupportsTextureAssignment(material))
             {
-                material.mainTexture = fallbackTexture;
+                TryAssignTexture(material, fallbackTexture);
             }
-
-            TryAssignTexture(material, fallbackTexture);
 
             try
             {
@@ -541,7 +1172,7 @@ namespace BeatSurgeon.Gameplay
 
         private static void TryAssignTexture(Material material, Texture texture)
         {
-            if (material == null || texture == null)
+            if (material == null || texture == null || !MaterialSupportsTextureAssignment(material))
             {
                 return;
             }
@@ -563,15 +1194,6 @@ namespace BeatSurgeon.Gameplay
                 }
                 catch { }
             }
-
-            try
-            {
-                if (material.mainTexture == null)
-                {
-                    material.mainTexture = texture;
-                }
-            }
-            catch { }
         }
 
         private static Material GetSafeParticleMaterialBase()
@@ -654,7 +1276,7 @@ namespace BeatSurgeon.Gameplay
             if (path.Contains("burn")) score += 100;
             if (path.Contains("dust")) score += 100;
             if (path.Contains("core")) score += 50;
-            if (renderer.sharedMaterial != null && renderer.sharedMaterial.mainTexture != null) score += 25;
+            if (renderer.sharedMaterial != null && GetBestAvailableTexture(renderer.sharedMaterial) != null) score += 25;
             if (renderer.sharedMaterial != null && IsLikelyParticleShader(renderer.sharedMaterial.shader?.name)) score += 100;
 
             return score;

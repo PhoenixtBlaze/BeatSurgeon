@@ -1,4 +1,5 @@
-﻿using System;
+﻿using BeatSurgeon.Twitch;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -14,6 +15,7 @@ namespace BeatSurgeon.Gameplay
 
         private GameObject _explosionPrefab;
         private readonly Queue<GameObject> _pool = new Queue<GameObject>();
+        private readonly Dictionary<string, Queue<GameObject>> _emitterPools = new Dictionary<string, Queue<GameObject>>(StringComparer.OrdinalIgnoreCase);
         private Transform _gameplayVfxAnchor;
         private ParticleSystemRenderer _referenceBombParticleRenderer;
 
@@ -31,53 +33,244 @@ namespace BeatSurgeon.Gameplay
 
         private void Awake()
         {
-            LoadAssetBundle();
         }
 
         private void LoadAssetBundle()
         {
-            if (_explosionPrefab != null) return;
-
-            string bundlePath = Path.Combine(Environment.CurrentDirectory, "UserData", "BeatSurgeon", "Effects", "surgeoneffects");
-            if (!File.Exists(bundlePath)) return;
-
-            try
-            {
-                var bundle = AssetBundle.LoadFromFile(bundlePath);
-                if (bundle == null) return;
-
-                _explosionPrefab = bundle.LoadAsset<GameObject>(BundleRegistry.PrefabSurgeonExplosion)
-                    ?? bundle.LoadAsset<GameObject>("SurgeonExplosion");
-                if (_explosionPrefab != null)
-                {
-                    VrVfxMaterialHelper.RepairShaders(_explosionPrefab, "FireworksExplosionPool prefab");
-                }
-
-                bundle.Unload(false);
-            }
-            catch (System.Exception ex)
-            {
-                Plugin.Log.Error($"FireworksExplosionPool: Bundle error: {ex.Message}");
-            }
+            // Full SurgeonExplosion prefab load is no longer required for per-emitter bomb VFX.
         }
 
         public void Spawn(Vector3 position, Color baseColor, int burstCount = 220, float life = 1.6f)
         {
+            SpawnForSelection(BombExplosionEffectSettings.GetSelectedOption(), position, baseColor, life, attachToGameplayAnchor: true);
+        }
+
+        internal void SpawnPreview(string selection, Vector3 position)
+        {
+            Color fireworkColor = EntitlementsState.HasVisualsAccess
+                ? (BeatSurgeon.Plugin.Settings?.BombGradientStart ?? Color.red)
+                : Color.red;
+
+            SpawnForSelection(
+                BombExplosionEffectSettings.NormalizeOption(selection),
+                position,
+                fireworkColor,
+                life: 2.0f,
+                attachToGameplayAnchor: false);
+        }
+
+        internal void SpawnForSelection(string selection, Vector3 position, Color baseColor, float life, bool attachToGameplayAnchor)
+        {
+            string emitterName = BombExplosionEffectSettings.GetEmitterNameForOption(selection);
+            if (!SpawnEmitterByName(emitterName, position, baseColor, life, attachToGameplayAnchor))
+            {
+                SpawnEmitterByName(
+                    BundleRegistry.SurgeonExplosionRefs.SparkEmitterName,
+                    position,
+                    baseColor,
+                    life,
+                    attachToGameplayAnchor);
+            }
+        }
+
+        private bool SpawnEmitterByName(string emitterName, Vector3 position, Color baseColor, float life, bool attachToGameplayAnchor)
+        {
+            GameObject explosion = GetOrCreateEmitterInstance(emitterName);
+            if (explosion == null)
+            {
+                return false;
+            }
+
+            PlayExplosionInstance(explosion, emitterName, position, baseColor, life, attachToGameplayAnchor);
+            return true;
+        }
+
+        private void SpawnFullExplosionPrefab(Vector3 position, Color baseColor, float life, bool attachToGameplayAnchor)
+        {
             if (_explosionPrefab == null)
             {
                 LoadAssetBundle();
-                if (_explosionPrefab == null) return;
+                if (_explosionPrefab == null)
+                {
+                    return;
+                }
             }
 
             GameObject explosion = GetOrCreateInstance();
-            AttachToGameplayVfxAnchor(explosion);
+            PlayExplosionInstance(explosion, null, position, baseColor, life, attachToGameplayAnchor);
+        }
+
+        private void PlayExplosionInstance(
+            GameObject explosion,
+            string emitterName,
+            Vector3 position,
+            Color baseColor,
+            float life,
+            bool attachToGameplayAnchor)
+        {
+            if (explosion == null)
+            {
+                return;
+            }
+
+            if (attachToGameplayAnchor)
+            {
+                AttachToGameplayVfxAnchor(explosion);
+            }
+            else if (explosion.transform.parent != null)
+            {
+                explosion.transform.SetParent(null, false);
+            }
+
+            bool preserveAuthoredAppearance = UsesAuthoredBombExplosionAppearance(emitterName, explosion);
+
             explosion.transform.position = position;
-            explosion.transform.rotation = Quaternion.identity;
-            explosion.transform.localScale = Vector3.one;
+            if (!preserveAuthoredAppearance)
+            {
+                explosion.transform.rotation = Quaternion.identity;
+                explosion.transform.localScale = Vector3.one;
+            }
 
-            SyncToGameplayVfxLayer(explosion);
+            if (attachToGameplayAnchor)
+            {
+                SyncToGameplayVfxLayer(explosion);
+            }
 
-            // Create Rainbow Gradient
+            Gradient rainbowGradient = preserveAuthoredAppearance ? null : CreateRainbowGradient();
+            explosion.SetActive(true);
+
+            var systems = explosion.GetComponentsInChildren<ParticleSystem>(true);
+            float maxScheduledDelay = 0f;
+            foreach (var ps in systems)
+            {
+                if (ps == null || !ps.gameObject.activeSelf)
+                {
+                    continue;
+                }
+
+                if (!preserveAuthoredAppearance)
+                {
+                    var main = ps.main;
+                    main.startColor = new ParticleSystem.MinMaxGradient(rainbowGradient);
+                }
+
+                if (preserveAuthoredAppearance)
+                {
+                    PlayAuthoredParticleSystem(ps, ref maxScheduledDelay);
+                }
+                else
+                {
+                    PlayPreparedParticleSystem(ps, position, ref maxScheduledDelay);
+                }
+            }
+
+            StartCoroutine(DespawnAfter(explosion, Mathf.Max(2.5f, maxScheduledDelay + life), attachToGameplayAnchor));
+        }
+
+        private static bool UsesAuthoredBombExplosionAppearance(string emitterName, GameObject explosion)
+        {
+            if (SurgeonEffectsBundleService.UsesBundleAuthoredBombExplosionEmitter(emitterName))
+            {
+                return true;
+            }
+
+            if (explosion == null)
+            {
+                return false;
+            }
+
+            foreach (ParticleSystem particleSystem in explosion.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (particleSystem == null)
+                {
+                    continue;
+                }
+
+                string particleName = particleSystem.name ?? string.Empty;
+                if (particleName.IndexOf(BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveOuterEmitterName, StringComparison.OrdinalIgnoreCase) >= 0
+                    || particleName.IndexOf(BundleRegistry.SurgeonExplosionRefs.SeismicShockwaveInnerEmitterName, StringComparison.OrdinalIgnoreCase) >= 0
+                    || particleName.IndexOf(BundleRegistry.SurgeonExplosionRefs.LightningEmitterName, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+
+                ParticleSystemRenderer renderer = particleSystem.GetComponent<ParticleSystemRenderer>();
+                if (renderer != null && renderer.renderMode == ParticleSystemRenderMode.Mesh)
+                {
+                    return true;
+                }
+
+                if (particleSystem.trails.enabled)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void PlayAuthoredParticleSystem(ParticleSystem particleSystem, ref float maxScheduledDelay)
+        {
+            if (particleSystem == null)
+            {
+                return;
+            }
+
+            particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            particleSystem.Play(true);
+
+            ParticleSystem.MainModule main = particleSystem.main;
+            float startDelay = GetCurveMaximum(main.startDelay, 0f);
+            float duration = Mathf.Max(main.duration, 0f);
+            float lifetime = GetCurveMaximum(main.startLifetime, 1f);
+            float totalTime = startDelay + duration + lifetime;
+            if (totalTime > maxScheduledDelay)
+            {
+                maxScheduledDelay = totalTime;
+            }
+        }
+
+        private void PlayPreparedParticleSystem(ParticleSystem particleSystem, Vector3 worldPosition, ref float maxScheduledDelay)
+        {
+            if (particleSystem == null)
+            {
+                return;
+            }
+
+            particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+            float scheduledDelay = 0f;
+            if (TryEmitConfiguredBursts(particleSystem, worldPosition, out scheduledDelay))
+            {
+                if (scheduledDelay > maxScheduledDelay)
+                {
+                    maxScheduledDelay = scheduledDelay;
+                }
+
+                return;
+            }
+
+            particleSystem.Play(true);
+
+            var emission = particleSystem.emission;
+            bool hasContinuousEmission = emission.enabled
+                && (emission.rateOverTime.constantMax > 0f
+                    || emission.rateOverTimeMultiplier > 0f
+                    || emission.rateOverDistance.constantMax > 0f
+                    || emission.rateOverDistanceMultiplier > 0f);
+
+            if (!hasContinuousEmission)
+            {
+                int fallbackCount = Mathf.Clamp(
+                    Mathf.RoundToInt(particleSystem.main.maxParticles * 0.35f),
+                    32,
+                    220);
+                EmitParticles(particleSystem, worldPosition, fallbackCount);
+            }
+        }
+
+        private static Gradient CreateRainbowGradient()
+        {
             Gradient rainbowGradient = new Gradient();
             rainbowGradient.SetKeys(
                 new GradientColorKey[] {
@@ -91,34 +284,92 @@ namespace BeatSurgeon.Gameplay
                 },
                 new GradientAlphaKey[] { new GradientAlphaKey(1.0f, 0.0f), new GradientAlphaKey(0.0f, 1.0f) }
             );
+            return rainbowGradient;
+        }
 
-            explosion.SetActive(true);
+        private GameObject GetOrCreateEmitterInstance(string emitterName)
+        {
+            SurgeonEffectsBundleService.EnsureSurgeonEffectsBundleFresh();
 
-            var systems = explosion.GetComponentsInChildren<ParticleSystem>(true);
-            float maxScheduledDelay = 0f;
-            foreach (var ps in systems)
+            if (SurgeonEffectsBundleService.UsesBundleAuthoredBombExplosionEmitter(emitterName))
             {
-                var main = ps.main;
+                return SurgeonEffectsBundleService.CreateBombExplosionInstanceFromBundle(emitterName);
+            }
 
-                // Force base color to white so rainbow tint works
-                // Use MinMaxGradient to apply rainbow
-                main.startColor = new ParticleSystem.MinMaxGradient(rainbowGradient);
+            if (!_emitterPools.TryGetValue(emitterName, out Queue<GameObject> pool))
+            {
+                pool = new Queue<GameObject>();
+                _emitterPools[emitterName] = pool;
+            }
 
-                ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-
-                float scheduledDelay = 0f;
-                if (!TryEmitConfiguredBursts(ps, position, out scheduledDelay))
+            while (pool.Count > 0)
+            {
+                var pooled = pool.Dequeue();
+                if (pooled != null)
                 {
-                    ps.Play(true);
-                }
-
-                if (scheduledDelay > maxScheduledDelay)
-                {
-                    maxScheduledDelay = scheduledDelay;
+                    return pooled;
                 }
             }
 
-            StartCoroutine(DespawnAfter(explosion, Mathf.Max(2.5f, maxScheduledDelay + life)));
+            return SurgeonEffectsBundleService.CreateBombExplosionInstanceFromBundle(emitterName);
+        }
+
+        private System.Collections.IEnumerator DespawnAfter(GameObject go, float seconds, bool attachToGameplayAnchor)
+        {
+            yield return new WaitForSeconds(seconds);
+            if (go == null)
+            {
+                yield break;
+            }
+
+            go.SetActive(false);
+
+            string emitterName = ResolveEmitterPoolName(go.name);
+            if (SurgeonEffectsBundleService.UsesBundleAuthoredBombExplosionEmitter(emitterName))
+            {
+                Destroy(go);
+                yield break;
+            }
+
+            if (attachToGameplayAnchor)
+            {
+                _pool.Enqueue(go);
+                yield break;
+            }
+
+            if (!string.IsNullOrWhiteSpace(emitterName))
+            {
+                if (!_emitterPools.TryGetValue(emitterName, out Queue<GameObject> pool))
+                {
+                    pool = new Queue<GameObject>();
+                    _emitterPools[emitterName] = pool;
+                }
+
+                pool.Enqueue(go);
+                yield break;
+            }
+
+            Destroy(go);
+        }
+
+        private static string ResolveEmitterPoolName(string instanceName)
+        {
+            if (string.IsNullOrWhiteSpace(instanceName))
+            {
+                return null;
+            }
+
+            string[] knownEmitters = BundleRegistry.SurgeonExplosionRefs.BombExplosionEmitterNames;
+
+            foreach (string emitterName in knownEmitters)
+            {
+                if (instanceName.IndexOf(emitterName, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return emitterName;
+                }
+            }
+
+            return null;
         }
 
         internal bool Prewarm()
@@ -138,7 +389,7 @@ namespace BeatSurgeon.Gameplay
                 return false;
             }
 
-            PrepareExplosionInstance(explosion);
+            PrepareExplosionInstance(explosion, null);
             explosion.transform.SetParent(null, false);
             explosion.SetActive(false);
 
@@ -169,36 +420,69 @@ namespace BeatSurgeon.Gameplay
 
             var newObj = Instantiate(_explosionPrefab);
             newObj.SetActive(false);
-            PrepareExplosionInstance(newObj);
+            PrepareExplosionInstance(newObj, null);
             return newObj;
         }
 
-        private void PrepareExplosionInstance(GameObject explosion)
+        internal static void ClearCachedInstances()
+        {
+            if (_instance == null)
+            {
+                return;
+            }
+
+            _instance.ClearCachedInstancesInternal();
+        }
+
+        private void ClearCachedInstancesInternal()
+        {
+            foreach (Queue<GameObject> pool in _emitterPools.Values)
+            {
+                while (pool.Count > 0)
+                {
+                    GameObject pooled = pool.Dequeue();
+                    if (pooled != null)
+                    {
+                        Destroy(pooled);
+                    }
+                }
+            }
+
+            _emitterPools.Clear();
+
+            while (_pool.Count > 0)
+            {
+                GameObject pooled = _pool.Dequeue();
+                if (pooled != null)
+                {
+                    Destroy(pooled);
+                }
+            }
+
+            _referenceBombParticleRenderer = null;
+            _gameplayVfxAnchor = null;
+        }
+
+        private void PrepareExplosionInstance(GameObject explosion, string emitterName)
         {
             if (explosion == null)
             {
                 return;
             }
 
-            VrVfxMaterialHelper.RepairShaders(explosion, "FireworksExplosionPool instance");
-            ParticleSystemRenderer referenceBombParticleRenderer = GetReferenceBombParticleRenderer();
-
-            var renderers = explosion.GetComponentsInChildren<Renderer>(true);
-
-            foreach (var renderer in renderers)
+            if (SurgeonEffectsBundleService.UsesBundleAuthoredBombExplosionEmitter(emitterName)
+                || UsesAuthoredBombExplosionAppearance(emitterName, explosion))
             {
-                if (renderer == null)
-                {
-                    continue;
-                }
-
-                if (renderer is ParticleSystemRenderer)
-                {
-                    RebindParticleMaterialShader((ParticleSystemRenderer)renderer, referenceBombParticleRenderer);
-                    SyncStereoRendererState((ParticleSystemRenderer)renderer, referenceBombParticleRenderer);
-                    HardenStereoCulling((ParticleSystemRenderer)renderer);
-                }
+                VrVfxMaterialHelper.PrepareBundleBombExplosionForVr(
+                    explosion,
+                    "FireworksExplosionPool authored instance");
+                return;
             }
+
+            VrVfxMaterialHelper.PrepareBombExplosionRenderers(
+                explosion,
+                "FireworksExplosionPool instance",
+                GetReferenceBombParticleRenderer());
         }
 
         private void AttachToGameplayVfxAnchor(GameObject explosion)
@@ -661,13 +945,6 @@ namespace BeatSurgeon.Gameplay
             return transform.parent == null
                 ? transform.name
                 : GetTransformPath(transform.parent) + "/" + transform.name;
-        }
-
-        private System.Collections.IEnumerator DespawnAfter(GameObject go, float seconds)
-        {
-            yield return new WaitForSeconds(seconds);
-            go.SetActive(false);
-            _pool.Enqueue(go);
         }
 
         // Stubs

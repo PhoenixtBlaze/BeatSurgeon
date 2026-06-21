@@ -15,7 +15,8 @@
     <DebugSymbols>true</DebugSymbols>
     <DebugType>portable</DebugType>
     <LocalRefsDir Condition="Exists('..\Refs')">..\Refs</LocalRefsDir>
-    <BeatSaberDir>$(LocalRefsDir)</BeatSaberDir>
+    <BeatSaberDir Condition="'$(LocalRefsDir)' != ''">$(LocalRefsDir)</BeatSaberDir>
+    <BeatSaberDir Condition="'$(BeatSaberDir)' == ''">F:\Games\BSManager\BSInstances\1.40.8_Test</BeatSaberDir>
     <AppOutputBase>$(MSBuildProjectDirectory)\</AppOutputBase>
     <!--<PathMap>$(AppOutputBase)=X:\$(AssemblyName)\</PathMap>-->
     <ErrorReport>prompt</ErrorReport>
@@ -118,7 +119,7 @@
     </Reference>
     <Reference Include="ChatPlexSDK_BS, Version=6.4.2.0, Culture=en, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>F:\Games\BSManager\BSInstances\1.40.8_Test\Plugins\ChatPlexSDK_BS.dll</HintPath>
+      <HintPath>$(BeatSaberDir)\Plugins\ChatPlexSDK_BS.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="Colors, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
@@ -158,7 +159,7 @@
     </Reference>
     <Reference Include="PlaylistManager, Version=1.7.3.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>F:\Games\BSManager\BSInstances\1.40.8_Test\Plugins\PlaylistManager.dll</HintPath>
+      <HintPath>$(BeatSaberDir)\Plugins\PlaylistManager.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="SongCore, Version=3.15.3.0, Culture=neutral, processorArchitecture=MSIL">
@@ -348,6 +349,7 @@
     <Compile Include="Gameplay\GlitterLoopEmitterManager.cs" />
     <Compile Include="Gameplay\BitParticleEmitterPool.cs" />
     <Compile Include="Gameplay\VrVfxMaterialHelper.cs" />
+    <Compile Include="Gameplay\BombExplosionEffectSettings.cs" />
     <Compile Include="Gameplay\BombFontPreloadService.cs" />
     <Compile Include="Gameplay\GameplayManager.cs" />
     <Compile Include="Gameplay\RankedMapDetectionService.cs" />
@@ -357,7 +359,7 @@
     <Compile Include="Gameplay\LookAtCamera.cs" />
     <Compile Include="Gameplay\NoteUtils.cs" />
     <Compile Include="Gameplay\RainbowManager.cs" />
-    <Compile Include="Gameplay\RendererWatchdog.cs" />
+    <Compile Include="Gameplay\BombNoteVisualGuard.cs" />
     <Compile Include="Gameplay\BeatSurgeonTextMover.cs" />
     <Compile Include="Gameplay\SongRequest.cs" />
     <Compile Include="Gameplay\GlitterManager.cs" />
@@ -482,11 +484,11 @@
   <PropertyGroup>
     <PostBuildEvent>
 		  REM Copy UserData to game install
-		  robocopy "$(TargetDir)..\UserData" "I:\SteamLibrary\steamapps\common\Beat Saber\UserData" /E
+		  robocopy "$(TargetDir)..\UserData" "$(BeatSaberDir)\UserData" /E
 		  IF %ERRORLEVEL% LEQ 1 SET ERRORLEVEL=0
 
 		  REM Copy BeatSurgeon.dll to Plugins; fall back to IPA\Pending\Plugins if the game is running (DLL locked)
-		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='I:\SteamLibrary\steamapps\common\Beat Saber\Plugins\BeatSurgeon.dll'; $pend='I:\SteamLibrary\steamapps\common\Beat Saber\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -> Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -> IPA\Pending\Plugins (game running - will apply on next start)' }"
+		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='$(BeatSaberDir)\Plugins\BeatSurgeon.dll'; $pend='$(BeatSaberDir)\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -> Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -> IPA\Pending\Plugins (game running - will apply on next start)' }"
 		  IF %ERRORLEVEL% NEQ 0 EXIT %ERRORLEVEL%
 	  </PostBuildEvent>
   </PropertyGroup>

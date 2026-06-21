@@ -89,6 +89,7 @@ namespace BeatSurgeon
         public virtual float FlyingTextTravelSeconds { get; set; } = 4.0f;
         public virtual float BombSpawnDistance { get; set; } = 20.0f;
         public virtual string BombFontType { get; set; } = "Default";
+        public virtual string BombExplosionEffectType { get; set; } = "Sparks";
         public virtual string BombFireworksTextureType { get; set; }
         public virtual Color BombGradientStart { get; set; } = Color.blue;
         public virtual Color BombGradientEnd { get; set; } = Color.red;

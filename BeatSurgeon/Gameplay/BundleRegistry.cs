@@ -7,6 +7,7 @@ namespace BeatSurgeon.Gameplay
         // ── PREFABS (top-level, loaded via AssetBundleMap)
         public const string PrefabAssetBundleMap    = "assets/prefabs/assetbundlemap.prefab";
         public const string PrefabSurgeonExplosion  = "assets/prefabs/surgeonexplosion.prefab";
+        public const string PrefabSeismicShockwave  = "assets/seismicshockwaveemitter/prefabs/pf_seismicshockwaveparticleemitter.prefab";
         public const string PrefabTwitchController  = "assets/prefabs/twitchcontroller.prefab";
 
         // ── MATERIALS (kept for reference)
@@ -55,6 +56,9 @@ namespace BeatSurgeon.Gameplay
             public const string BitsHyperCubeNodeName = "BitsHyperCube";
             public const string SubHyperCubeNodeName = "SubHyperCube";
             public const string TrailNodeName = "TrailCube";
+            public const string BombNodeName = "Bomb";
+            public const string BombParticlesNodeName = "BombParticles";
+            public const string BombNodePath = "Bits/BitsHyperCube/Bomb";
             public const string BitsBurstEmitterName = "BitsHyperCubeBurst";
             public const string SubBurstEmitterName = "SubHyperCubeBurst";
             public const string FollowerCanvasRootName = "FollowerListCanvas";
@@ -138,6 +142,19 @@ namespace BeatSurgeon.Gameplay
             public const string SparkEmitterName    = "Sparks";
             public const string HeartEmitterName    = "Hearts";
             public const string FlameEmitterName    = "Flame";
+            public const string LightningEmitterName = "Lightning";
+            public const string ShockwaveCompositeEmitterName = "Shockwave";
+            public const string SeismicShockwaveOuterEmitterName = "PE_OuterShockwaveRing";
+            public const string SeismicShockwaveInnerEmitterName = "PE_InnerFireBand";
+
+            public static readonly string[] BombExplosionEmitterNames =
+            {
+                SparkEmitterName,
+                HeartEmitterName,
+                FlameEmitterName,
+                LightningEmitterName,
+                ShockwaveCompositeEmitterName
+            };
 
             // New denomination-mapped glitter emitters added to SurgeonExplosion
             public const string Glitter1EmitterName     = "Glitter1";

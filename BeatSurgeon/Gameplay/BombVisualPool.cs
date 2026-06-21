@@ -39,6 +39,7 @@ namespace BeatSurgeon.Gameplay
 
             inst.gameObject.SetActive(true);
             inst.ApplyColor(color);
+            inst.PlayParticleSystems();
 
             return inst;
         }
@@ -145,6 +146,21 @@ namespace BeatSurgeon.Gameplay
         public void CacheRenderers()
         {
             _renderers = GetComponentsInChildren<Renderer>(true);
+        }
+
+        public void PlayParticleSystems()
+        {
+            var systems = GetComponentsInChildren<ParticleSystem>(true);
+            foreach (var ps in systems)
+            {
+                if (ps == null) continue;
+                try
+                {
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Play(true);
+                }
+                catch { }
+            }
         }
 
         public void ApplyColor(Color noteColor)

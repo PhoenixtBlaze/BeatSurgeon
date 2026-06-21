@@ -408,6 +408,244 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
+        private static readonly List<object> BombExplosionEffectOptionsList =
+            new List<object>(Gameplay.BombExplosionEffectSettings.AllOptions);
+
+        [UIValue("bomb_explosion_effect_options")]
+        public List<object> BombExplosionEffectOptions => BombExplosionEffectOptionsList;
+
+        [UIValue("bomb_explosion_effect_selected")]
+        public string BombExplosionEffectSelected
+        {
+            get => Gameplay.BombExplosionEffectSettings.GetSelectedOption();
+            set
+            {
+                Gameplay.BombExplosionEffectSettings.SetSelectedOption(value);
+                NotifyPropertyChanged(nameof(BombExplosionEffectSelected));
+                if (_bombExplosionPreviewActive)
+                {
+                    PlayBombExplosionPreviewBurst();
+                }
+            }
+        }
+
+        [UIAction("OnBombExplosionEffectChanged")]
+        private void OnBombExplosionEffectChanged(string value)
+        {
+            BombExplosionEffectSelected = value;
+        }
+
+        [UIComponent("supporter-effects-tab")]
+        private Tab _supporterEffectsTab;
+
+        [UIComponent("bomb-explosion-effect-dropdown")]
+        private DropDownListSetting _bombExplosionEffectDropdown;
+
+        private Coroutine _bombExplosionPreviewMonitorCoroutine;
+        private int _mainTabIndex;
+        private int _supporterSubtabIndex;
+        private bool _bombExplosionPreviewActive;
+        private GameObject _bombExplosionPreviewAnchor;
+        private Coroutine _bombExplosionPreviewCoroutine;
+        private const float BombExplosionPreviewForwardOffset = -0.70f;
+        private const float BombExplosionPreviewRightOffset = 0f;
+        private const float BombExplosionPreviewUpOffset = -0.70f;
+        private const float BombExplosionPreviewCubeScale = 0.12f;
+        private const float BombExplosionPreviewIntervalSeconds = 2.5f;
+
+        [UIAction("OnMainTabSelected")]
+        private void OnMainTabSelected(object segmentedControl, int index)
+        {
+            _mainTabIndex = index;
+            UpdateBombExplosionPreviewState();
+        }
+
+        [UIAction("OnSupporterSubtabSelected")]
+        private void OnSupporterSubtabSelected(object segmentedControl, int index)
+        {
+            _supporterSubtabIndex = index;
+            UpdateBombExplosionPreviewState();
+        }
+
+        private bool ShouldShowBombExplosionPreview()
+        {
+            if (!SupporterTabVisible)
+            {
+                return false;
+            }
+
+            return _bombExplosionEffectDropdown != null
+                && _bombExplosionEffectDropdown.gameObject.activeInHierarchy;
+        }
+
+        private void StartBombExplosionPreviewMonitor()
+        {
+            StopBombExplosionPreviewMonitor();
+            _bombExplosionPreviewMonitorCoroutine = StartCoroutine(BombExplosionPreviewMonitorRoutine());
+        }
+
+        private void StopBombExplosionPreviewMonitor()
+        {
+            if (_bombExplosionPreviewMonitorCoroutine != null)
+            {
+                StopCoroutine(_bombExplosionPreviewMonitorCoroutine);
+                _bombExplosionPreviewMonitorCoroutine = null;
+            }
+        }
+
+        private IEnumerator BombExplosionPreviewMonitorRoutine()
+        {
+            while (true)
+            {
+                UpdateBombExplosionPreviewState();
+                yield return new WaitForSeconds(0.2f);
+            }
+        }
+
+        private void UpdateBombExplosionPreviewState()
+        {
+            bool shouldShow = ShouldShowBombExplosionPreview();
+            if (shouldShow == _bombExplosionPreviewActive)
+            {
+                if (shouldShow)
+                {
+                    UpdateBombExplosionPreviewAnchorTransform();
+                }
+
+                return;
+            }
+
+            _bombExplosionPreviewActive = shouldShow;
+            SetBombExplosionPreviewAnchorVisible(shouldShow);
+
+            if (shouldShow)
+            {
+                StartBombExplosionPreview();
+            }
+            else
+            {
+                StopBombExplosionPreview();
+            }
+        }
+
+        private void EnsureBombExplosionPreviewAnchor()
+        {
+            if (_bombExplosionPreviewAnchor != null)
+            {
+                return;
+            }
+
+            _bombExplosionPreviewAnchor = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            _bombExplosionPreviewAnchor.name = "BeatSurgeonBombExplosionPreviewAnchor";
+
+            var collider = _bombExplosionPreviewAnchor.GetComponent<Collider>();
+            if (collider != null)
+            {
+                Destroy(collider);
+            }
+
+            var renderer = _bombExplosionPreviewAnchor.GetComponent<MeshRenderer>();
+            if (renderer != null)
+            {
+                Shader shader = Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
+                if (shader != null)
+                {
+                    renderer.material = new Material(shader) { color = Color.white };
+                }
+            }
+
+            _bombExplosionPreviewAnchor.transform.localScale = Vector3.one * BombExplosionPreviewCubeScale;
+            _bombExplosionPreviewAnchor.SetActive(false);
+        }
+
+        private void UpdateBombExplosionPreviewAnchorTransform()
+        {
+            if (_bombExplosionPreviewAnchor == null || transform == null)
+            {
+                return;
+            }
+
+            _bombExplosionPreviewAnchor.transform.position =
+                transform.position
+                + transform.forward * BombExplosionPreviewForwardOffset
+                + transform.right * BombExplosionPreviewRightOffset
+                + transform.up * BombExplosionPreviewUpOffset;
+            _bombExplosionPreviewAnchor.transform.rotation = transform.rotation;
+        }
+
+        private void SetBombExplosionPreviewAnchorVisible(bool visible)
+        {
+            EnsureBombExplosionPreviewAnchor();
+            if (_bombExplosionPreviewAnchor == null)
+            {
+                return;
+            }
+
+            if (visible)
+            {
+                UpdateBombExplosionPreviewAnchorTransform();
+            }
+
+            _bombExplosionPreviewAnchor.SetActive(visible);
+        }
+
+        private void StartBombExplosionPreview()
+        {
+            if (!ShouldShowBombExplosionPreview())
+            {
+                return;
+            }
+
+            StopBombExplosionPreview();
+            _bombExplosionPreviewCoroutine = StartCoroutine(BombExplosionPreviewRoutine());
+        }
+
+        private void StopBombExplosionPreview()
+        {
+            if (_bombExplosionPreviewCoroutine != null)
+            {
+                StopCoroutine(_bombExplosionPreviewCoroutine);
+                _bombExplosionPreviewCoroutine = null;
+            }
+        }
+
+        private IEnumerator BombExplosionPreviewRoutine()
+        {
+            yield return new WaitForSeconds(0.15f);
+
+            while (_bombExplosionPreviewActive)
+            {
+                PlayBombExplosionPreviewBurst();
+                yield return new WaitForSeconds(BombExplosionPreviewIntervalSeconds);
+            }
+        }
+
+        private void PlayBombExplosionPreviewBurst()
+        {
+            if (!_bombExplosionPreviewActive || _bombExplosionPreviewAnchor == null || !SupporterTabVisible)
+            {
+                return;
+            }
+
+            UpdateBombExplosionPreviewAnchorTransform();
+            Gameplay.FireworksExplosionPool.Instance.SpawnPreview(
+                BombExplosionEffectSelected,
+                _bombExplosionPreviewAnchor.transform.position);
+        }
+
+        private void CleanupBombExplosionPreview()
+        {
+            StopBombExplosionPreviewMonitor();
+            StopBombExplosionPreview();
+            _bombExplosionPreviewActive = false;
+
+            if (_bombExplosionPreviewAnchor != null)
+            {
+                Destroy(_bombExplosionPreviewAnchor);
+                _bombExplosionPreviewAnchor = null;
+            }
+        }
+
         [UIValue("multiplayerEnable")]
         public bool MultiplayerEnable
         {
@@ -464,11 +702,34 @@ namespace BeatSurgeon.UI.Controllers
 
         // === Lifecycle / visual updates ===
 
+        [UIAction("#post-parse")]
+        public void PostParse()
+        {
+            EnsureAllTabSelectorsSetup();
+        }
+
+        private void EnsureAllTabSelectorsSetup()
+        {
+            if (transform == null)
+            {
+                return;
+            }
+
+            foreach (var selector in transform.GetComponentsInChildren<TabSelector>(true))
+            {
+                selector.Setup();
+            }
+        }
 
         protected override void DidActivate(bool firstActivation, bool addedToHierarchy, bool screenSystemEnabling)
         {
             base.DidActivate(firstActivation, addedToHierarchy, screenSystemEnabling);
             ActiveInstance = this;
+
+            if (firstActivation)
+            {
+                EnsureAllTabSelectorsSetup();
+            }
 
             RefreshSupporterUiState();
             _ = RefreshFontDropdownAsync();
@@ -620,12 +881,15 @@ namespace BeatSurgeon.UI.Controllers
             ApplySupportPlatformLogos();
             BeginSupportPlatformLogoLoads();
             RefreshSupporterUiState();
-            
-
+            _ = RefreshFontDropdownAsync();
+            SyncBombExplosionEffectDropdown();
+            StartBombExplosionPreviewMonitor();
         }
 
         protected override void DidDeactivate(bool removedFromHierarchy, bool screenSystemDisabling)
         {
+            CleanupBombExplosionPreview();
+
             if (removedFromHierarchy && ReferenceEquals(ActiveInstance, this))
             {
                 ActiveInstance = null;
@@ -686,6 +950,8 @@ namespace BeatSurgeon.UI.Controllers
             NotifyPropertyChanged(nameof(SupportButtonText));
             NotifyPropertyChanged(nameof(SupportButtonHoverHint));
             UpdateSupportUI();
+            UpdateBombExplosionPreviewState();
+
             NotifyPropertyChanged(nameof(BitEffectEnabled));
             NotifyPropertyChanged(nameof(SubEffectsEnabled));
             NotifyPropertyChanged(nameof(SubEffectsToggleInteractable));
@@ -742,6 +1008,20 @@ namespace BeatSurgeon.UI.Controllers
                 NotifyPropertyChanged(nameof(BombFontSelected));
                 UpdateFontPreview();
             });
+        }
+
+        private void SyncBombExplosionEffectDropdown()
+        {
+            if (_bombExplosionEffectDropdown == null)
+            {
+                NotifyPropertyChanged(nameof(BombExplosionEffectSelected));
+                return;
+            }
+
+            _bombExplosionEffectDropdown.Values = BombExplosionEffectOptionsList;
+            _bombExplosionEffectDropdown.UpdateChoices();
+            _bombExplosionEffectDropdown.Value = Gameplay.BombExplosionEffectSettings.GetSelectedOption();
+            NotifyPropertyChanged(nameof(BombExplosionEffectSelected));
         }
 
         [UIAction("OnFlashbangButtonClicked")]

@@ -46,15 +46,8 @@ namespace BeatSurgeon.Gameplay
 
         private struct BombVisualState
         {
-            public BombVisualInstance Visual;   // <-- CHANGE THISS
-            public MeshRenderer CubeRenderer;
-            public MeshRenderer CircleRenderer;
-            public MeshRenderer ArrowRenderer;
-            public MeshRenderer ArrowGlowRenderer;
-            public bool CubeWasEnabled;
-            public bool CircleWasEnabled;
-            public bool ArrowWasEnabled;
-            public bool ArrowGlowWasEnabled;
+            public BombVisualInstance Visual;
+            public BombNoteVisualGuard Guard;
         }
 
         private readonly Dictionary<GameNoteController, BombVisualState> _activeBombVisuals
@@ -159,18 +152,10 @@ namespace BeatSurgeon.Gameplay
 
 
 
-        // NEW: Call this from BombNotePatch to track the visual
         internal void RegisterBombVisual(
             GameNoteController controller,
             BombVisualInstance visual,
-            MeshRenderer cubeRenderer,
-            MeshRenderer circleRenderer,
-            MeshRenderer arrowRenderer,
-            MeshRenderer arrowGlowRenderer,
-            bool cubeWasEnabled,
-            bool circleWasEnabled,
-            bool arrowWasEnabled,
-            bool arrowGlowWasEnabled)
+            BombNoteVisualGuard guard)
         {
             if (controller == null || _activeBombVisuals.ContainsKey(controller))
                 return;
@@ -178,14 +163,7 @@ namespace BeatSurgeon.Gameplay
             _activeBombVisuals[controller] = new BombVisualState
             {
                 Visual = visual,
-                CubeRenderer = cubeRenderer,
-                CircleRenderer = circleRenderer,
-                ArrowRenderer = arrowRenderer,
-                ArrowGlowRenderer = arrowGlowRenderer,
-                CubeWasEnabled = cubeWasEnabled,
-                CircleWasEnabled = circleWasEnabled,
-                ArrowWasEnabled = arrowWasEnabled,
-                ArrowGlowWasEnabled = arrowGlowWasEnabled
+                Guard = guard
             };
         }
 
@@ -246,22 +224,15 @@ namespace BeatSurgeon.Gameplay
             {
                 var state = kvp.Value;
 
-                // Return pooled visual (no Transform.Find needed)
+                if (state.Guard != null)
+                {
+                    state.Guard.Stop(restoreOriginalRenderers);
+                }
+
                 if (state.Visual != null)
+                {
                     BombVisualPool.Instance.Return(state.Visual);
-
-                // Restore renderers (no Transform.Find needed)
-                if (state.CubeRenderer != null)
-                    state.CubeRenderer.enabled = restoreOriginalRenderers && state.CubeWasEnabled;
-
-                if (state.CircleRenderer != null)
-                    state.CircleRenderer.enabled = restoreOriginalRenderers && state.CircleWasEnabled;
-
-                if (state.ArrowRenderer != null)
-                    state.ArrowRenderer.enabled = restoreOriginalRenderers && state.ArrowWasEnabled;
-
-                if (state.ArrowGlowRenderer != null)
-                    state.ArrowGlowRenderer.enabled = restoreOriginalRenderers && state.ArrowGlowWasEnabled;
+                }
             }
 
             _activeBombVisuals.Clear();
