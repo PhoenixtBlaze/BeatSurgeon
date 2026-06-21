@@ -378,3 +378,13 @@ scripts_list.txt
 web_results.txt
 .github
 data
+_*
+tools*
+customplatform.txt
+apireadme.md
+mirror_extra.txt
+mirrorstage_analysis.txt
+mono_compare.txt
+mono_raw.txt
+parent_name.txt
+.venv
