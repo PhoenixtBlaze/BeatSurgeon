@@ -1,10 +1,19 @@
-﻿using System.Text.RegularExpressions;
+﻿using System;
+using System.Net.Http;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine.Networking;
 
 namespace BeatSurgeon.Integrations
 {
     internal static class BeatSaverClient
     {
+        private static readonly HttpClient _http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(10)
+        };
+
         // GameplayManager already uses this style (regex, no JSON dependency) [file:29]
         private static readonly Regex HashRegex =
             new Regex("\"hash\"\\s*:\\s*\"([0-9a-fA-F]{40})\"", RegexOptions.Compiled);
@@ -20,6 +29,43 @@ namespace BeatSurgeon.Integrations
 
         internal static UnityWebRequest GetMapMetadata(string key)
             => UnityWebRequest.Get($"https://api.beatsaver.com/maps/id/{key}");
+
+        internal static async Task<string> ResolveMapHashAsync(string key, CancellationToken ct)
+        {
+            string normalizedKey = (key ?? string.Empty).Trim().TrimStart('!');
+            if (string.IsNullOrWhiteSpace(normalizedKey))
+            {
+                return null;
+            }
+
+            try
+            {
+                using (var response = await _http.GetAsync($"https://api.beatsaver.com/maps/id/{normalizedKey}", ct).ConfigureAwait(false))
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return null;
+                    }
+
+                    string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    Match hm = HashRegex.Match(json);
+                    if (!hm.Success)
+                    {
+                        return null;
+                    }
+
+                    return hm.Groups[1].Value.ToLowerInvariant();
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         internal static bool TryParse(string json, out string hashLower, out string downloadUrl, out string songName, out string levelAuthor)
         {

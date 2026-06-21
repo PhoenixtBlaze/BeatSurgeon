@@ -34,6 +34,13 @@ namespace BeatSurgeon.HarmonyPatches
         {
             try
             {
+                // Note controllers are pooled and recycled mid-song. If a previous bomb was missed
+                // (not cut), its disabled renderers and attached bomb visual child carry forward onto
+                // this controller. Always clean up stale state BEFORE the early-out checks.
+                var gameNote = noteController as GameNoteController ?? __instance.GetComponentInParent<GameNoteController>();
+                if (gameNote != null)
+                    BombManager.Instance.TryClearStaleVisual(gameNote);
+
                 // Only create bombs while the bomb window is active
                 if (!BombManager.IsBombWindowActive)
                     return;
@@ -42,7 +49,6 @@ namespace BeatSurgeon.HarmonyPatches
             if (!BombManager.IsEligibleBombNote(noteData))
                 return;
 
-            var gameNote = noteController as GameNoteController ?? __instance.GetComponentInParent<GameNoteController>();
             if (gameNote == null)
             {
                 LogUtils.Warn("BombNotePatch: No GameNoteController found for noteController type '" + (noteController != null ? noteController.GetType().Name : "<null>") + "'");
@@ -81,8 +87,6 @@ namespace BeatSurgeon.HarmonyPatches
                     + requeuedDenomination);
             }
 
-            CacheBombPrefabIfNeeded();
-
             bool isBomb = BombManager.Instance.MarkNoteAsBomb(noteData);
             if (!isBomb)
             {
@@ -91,6 +95,7 @@ namespace BeatSurgeon.HarmonyPatches
 
             LogUtils.Debug(() => $"BombNotePatch: Marked note via {trigger} at {noteData.time:F3}");
 
+            CacheBombPrefabIfNeeded();
             SuspendGhostVisualController(gameNote);
 
             Color noteColor = visuals != null
@@ -313,6 +318,8 @@ namespace BeatSurgeon.HarmonyPatches
 
                 SpawnFlyingText(displayText, cutPoint);
 
+                // Do not restore original note renderers on cut. The note is being destroyed
+                // by the cut animation and restoring them causes a ghost arrow flash.
                 BombManager.Instance.ClearBombVisuals(restoreOriginalRenderers: false);
             }
             catch (Exception ex)

@@ -155,6 +155,16 @@ namespace BeatSurgeon
         public virtual bool AutoPauseOnMapEnd { get; set; } = true;
         public virtual bool DebugMode { get; set; } = false;
 
+        // --- Seamless Transition (Endless mode only) ---
+        // When enabled, Endless mode splices the next map's notes + audio into the live, still-running
+        // GameCore instead of reloading scenes, so there is no black screen and cubes never stop.
+        // This ONLY affects Endless mode; normal (non-endless) maps always use stock GameplayCore.
+        public virtual bool SeamlessTransitionEnabled { get; set; } = true;
+        // Duration (seconds) of the audio crossfade between the outgoing and incoming song.
+        public virtual float SeamlessCrossfadeSeconds { get; set; } = 3.0f;
+        // Where in the next map to begin ("start 1 minute in" => 60). Parameterized for future control.
+        public virtual float SeamlessStartOffsetSeconds { get; set; } = 60.0f;
+
         // --- Effects selection ---
         // Optional: exact asset name/path inside the surgeoneffects bundle to use (e.g. "assets/prefabs/outlineparticles.prefab")
         public virtual string PreferredOutlineAssetName { get; set; } = string.Empty;
@@ -170,6 +180,13 @@ namespace BeatSurgeon
         public virtual float OutlineMaterialBrightness { get; set; } = 0.0f;
         // Controls the outline mesh opacity. 0 keeps the outline mesh active but fully invisible.
         public virtual float OutlineMaterialAlpha { get; set; } = 0.0f;
+
+        // --- Integration API ---
+        public virtual bool IntegrationApiEnabled { get; set; } = true;
+        public virtual int IntegrationApiPort { get; set; } = 47832;
+        public virtual string IntegrationApiAuthToken { get; set; } = string.Empty;
+        public virtual bool IntegrationApiAuthTokenIssued { get; set; } = false;
+        public virtual bool IntegrationApiRespectChatPermissions { get; set; } = false;
 
         // --- Multiplayer ---
         public virtual string MpClientId { get; set; } = string.Empty;

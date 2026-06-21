@@ -32,7 +32,6 @@ namespace BeatSurgeon.Gameplay
         private const float BombRearmDelaySeconds = 0.25f; // rearm shortly after clearing
         private float _nextRearmTime;
 
-
         // --- State ---
         public static bool BombArmed { get; private set; }
         public static string CurrentBomberName { get; private set; } = "Unknown";
@@ -56,7 +55,6 @@ namespace BeatSurgeon.Gameplay
         // Pending bomb requests; each entry must eventually become exactly one cut bomb.
         private readonly Queue<BombRequest> _pendingBombRequests = new Queue<BombRequest>();
 
-
         public static bool IsBombWindowActive
         {
             get
@@ -66,7 +64,6 @@ namespace BeatSurgeon.Gameplay
                 return _instance._bombNotes.Count > 0 || _instance._pendingBombRequests.Count > 0;
             }
         }
-
 
         public static BombManager Instance
         {
@@ -149,9 +146,6 @@ namespace BeatSurgeon.Gameplay
             return true;
         }
 
-
-
-
         internal void RegisterBombVisual(
             GameNoteController controller,
             BombVisualInstance visual,
@@ -166,8 +160,6 @@ namespace BeatSurgeon.Gameplay
                 Guard = guard
             };
         }
-
-
 
         public bool TryConsumeBomb(NoteData noteData, out string bomber)
         {
@@ -214,6 +206,30 @@ namespace BeatSurgeon.Gameplay
             return noteData != null && _bombNotes.ContainsKey(noteData);
         }
 
+        // Cleans up stale bomb visual state from a previously missed bomb on a recycled note controller.
+        // Beat Saber pools GameNoteControllers and reuses them within the same song. If a bomb note is
+        // missed (not cut), ClearBombVisuals is never called for that specific note, leaving disabled
+        // renderers and an attached bomb visual child on the recycled controller. This must be called
+        // at the top of HandleNoteControllerDidInit so the recycled controller starts clean.
+        internal void TryClearStaleVisual(GameNoteController controller)
+        {
+            if (controller == null) return;
+            if (!_activeBombVisuals.TryGetValue(controller, out var state)) return;
+
+            LogUtils.Debug(() => $"BombManager: Clearing stale bomb visual on recycled controller '{controller.name}'");
+
+            if (state.Guard != null)
+            {
+                state.Guard.Stop(restoreOriginalRenderers: true);
+            }
+
+            if (state.Visual != null)
+            {
+                BombVisualPool.Instance.Return(state.Visual);
+            }
+
+            _activeBombVisuals.Remove(controller);
+        }
 
         // OPTIMIZED: Clears only known active visuals
         public void ClearBombVisuals(bool restoreOriginalRenderers = true)
@@ -238,7 +254,6 @@ namespace BeatSurgeon.Gameplay
             _activeBombVisuals.Clear();
             LogUtils.Debug(() => "BombManager: Visuals cleared.");
         }
-
 
         private bool IsInMap()
         {
@@ -292,8 +307,6 @@ namespace BeatSurgeon.Gameplay
                 }
             }
         }
-
-
 
         public void Shutdown()
         {

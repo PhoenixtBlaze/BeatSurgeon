@@ -25,7 +25,8 @@ namespace BeatSurgeon.Chat
         ProcessorRejected,
         ExecutionFailed,
         Cancelled,
-        RankedMap
+        RankedMap,
+        InsufficientEntitlement
     }
 
     internal sealed class CommandExecutionResult
@@ -266,6 +267,12 @@ namespace BeatSurgeon.Chat
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.CommandDisabled);
             }
 
+            /*
+            bool isSongRequestCommand = string.Equals(normalized, "!sr", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "!bsr", StringComparison.OrdinalIgnoreCase);
+
+            if (!isSongRequestCommand && RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking)
+            */
             if (RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking)
             {
                 _log.Command(ctx.Username, normalized, false, "RankedMapBlocked");
@@ -282,6 +289,18 @@ namespace BeatSurgeon.Chat
             {
                 _log.Command(ctx.Username, normalized, false, "InsufficientPermission");
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.InsufficientPermission);
+            }
+
+            if (source == TriggerSource.ExternalIntegration)
+            {
+                PluginConfig integrationConfig = PluginConfig.Instance;
+                if (integrationConfig != null
+                    && integrationConfig.IntegrationApiRespectChatPermissions
+                    && !CommandRuntimeSettings.IsChatCommandAllowed(ctx))
+                {
+                    _log.Command(ctx.Username, normalized, false, "InsufficientPermission");
+                    return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.InsufficientPermission);
+                }
             }
 
             if (source != TriggerSource.BitEvent &&
@@ -314,7 +333,10 @@ namespace BeatSurgeon.Chat
             catch (InvalidOperationException ex)
             {
                 _log.Warn("Command '" + normalized + "' rejected: " + ex.Message);
-                return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.ProcessorRejected);
+                CommandRejectReason reason = LooksLikeEntitlementFailure(ex.Message)
+                    ? CommandRejectReason.InsufficientEntitlement
+                    : CommandRejectReason.ProcessorRejected;
+                return CommandExecutionResult.Rejected(commandKey, source, reason);
             }
             catch (OperationCanceledException)
             {
@@ -687,6 +709,19 @@ namespace BeatSurgeon.Chat
             }
 
             return normalizedCommand + original.Substring(suffixStart);
+        }
+
+        private static bool LooksLikeEntitlementFailure(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return false;
+            }
+
+            return message.IndexOf("entitlement", StringComparison.OrdinalIgnoreCase) >= 0
+                || message.IndexOf("Tier 1", StringComparison.OrdinalIgnoreCase) >= 0
+                || message.IndexOf("logged-in Twitch or Patreon", StringComparison.OrdinalIgnoreCase) >= 0
+                || message.IndexOf("Supporter tab", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
     }

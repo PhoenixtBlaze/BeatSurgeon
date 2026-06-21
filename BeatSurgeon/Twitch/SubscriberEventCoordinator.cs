@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeatSurgeon.Chat;
 using BeatSurgeon.Gameplay;
+using BeatSurgeon.Integration;
 using BeatSurgeon.Utils;
 using Zenject;
 
@@ -15,13 +16,19 @@ namespace BeatSurgeon.Twitch
         private readonly TwitchEventSubClient _eventSubClient;
         private readonly GameplayManager _gameplayManager;
         private readonly DeferredEventQueue _deferredEventQueue;
+        private readonly AutomaticEffectDedupService _dedupService;
 
         [Inject]
-        public SubscriberEventCoordinator(TwitchEventSubClient eventSubClient, GameplayManager gameplayManager, DeferredEventQueue deferredEventQueue)
+        public SubscriberEventCoordinator(
+            TwitchEventSubClient eventSubClient,
+            GameplayManager gameplayManager,
+            DeferredEventQueue deferredEventQueue,
+            AutomaticEffectDedupService dedupService)
         {
             _eventSubClient = eventSubClient;
             _gameplayManager = gameplayManager;
             _deferredEventQueue = deferredEventQueue;
+            _dedupService = dedupService;
         }
 
         public void Initialize()
@@ -49,6 +56,19 @@ namespace BeatSurgeon.Twitch
             string displayName = GetDisplayName(notification);
 
             string tierLabel = TierToLabel(notification.Tier);
+            string eventKind = string.IsNullOrWhiteSpace(notification.EventSubKind) ? "sub" : notification.EventSubKind;
+
+            string dedupKey = AutomaticEffectDedupService.BuildSubscriptionKey(
+                "twitch",
+                notification.UserId,
+                displayName,
+                eventKind);
+
+            if (!_dedupService.TryClaim(dedupKey, AutomaticEffectOrigin.EventSub))
+            {
+                _log.Debug("Subscription event skipped — duplicate automatic effect for " + displayName + ".");
+                return;
+            }
 
             string deferredReason = GetDeferredReason();
             if (deferredReason != null)

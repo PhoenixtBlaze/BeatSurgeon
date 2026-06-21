@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using BeatSurgeon.Gameplay;
+using BeatSurgeon.Integration;
 using BeatSurgeon.Twitch;
 using BeatSurgeon.Utils;
 using Zenject;
@@ -29,6 +30,7 @@ namespace BeatSurgeon.Chat
         private readonly TwitchApiClient _apiClient;
         private readonly CommandHandler _commandHandler;
         private readonly DeferredEventQueue _deferredEventQueue;
+        private readonly AutomaticEffectDedupService _dedupService;
         private readonly ConcurrentQueue<ChatContext> _commandQueue = new ConcurrentQueue<ChatContext>();
         private readonly SemaphoreSlim _commandQueueSignal;
         private readonly TimeSpan _commandDispatchInterval;
@@ -61,16 +63,23 @@ namespace BeatSurgeon.Chat
                 TwitchAuthManager.Instance,
                 TwitchApiClient.Instance,
                 CommandHandler.Instance,
+                null,
                 null));
 
         [Inject]
-        public ChatManager(TwitchAuthManager authManager, TwitchApiClient apiClient, CommandHandler commandHandler, DeferredEventQueue deferredEventQueue)
+        public ChatManager(
+            TwitchAuthManager authManager,
+            TwitchApiClient apiClient,
+            CommandHandler commandHandler,
+            DeferredEventQueue deferredEventQueue,
+            AutomaticEffectDedupService dedupService)
         {
             _instance = this;
             _authManager = authManager;
             _apiClient = apiClient;
             _commandHandler = commandHandler;
             _deferredEventQueue = deferredEventQueue;
+            _dedupService = dedupService;
 
             int maxPerSecond = Math.Max(1, PluginConfig.Instance?.MaxCommandsPerSecond ?? 3);
             _commandDispatchInterval = TimeSpan.FromSeconds(1d / maxPerSecond);
@@ -516,30 +525,41 @@ namespace BeatSurgeon.Chat
 
             if (ctx.Bits > 0)
             {
-                ChatContext bitEventCtx = CreateBitEventContext(ctx);
-                if (bitEventCtx != null)
+                string dedupKey = AutomaticEffectDedupService.BuildCheerKey("twitch", string.Empty, ctx.SenderName, ctx.Bits);
+                bool claimed = _dedupService == null
+                    || _dedupService.TryClaim(dedupKey, AutomaticEffectOrigin.TwitchChat);
+
+                if (!claimed)
                 {
-                    bool isInGameplay = GameplayManager.GetInstance()?.IsInMap ?? false;
-                    bool isRankedGameplayBlocked = isInGameplay && RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking;
-                    if (_deferredEventQueue != null && (!isInGameplay || isRankedGameplayBlocked))
+                    _log.Debug("Bits event skipped — duplicate automatic effect for " + ctx.SenderName + ".");
+                }
+                else
+                {
+                    ChatContext bitEventCtx = CreateBitEventContext(ctx);
+                    if (bitEventCtx != null)
                     {
-                        _deferredEventQueue.Enqueue(new DeferredEventEntry(
-                            EventKind.Bits,
-                            ctx.SenderName,
-                            ctx.Bits,
-                            DateTime.UtcNow));
-                        _log.Debug(
-                            "[BeatSurgeon] Bits event deferred for "
-                            + ctx.SenderName
-                            + " ("
-                            + ctx.Bits
-                            + " bits) — "
-                            + (isRankedGameplayBlocked ? "ranked gameplay is active or still checking" : "not in gameplay")
-                            + ".");
-                    }
-                    else
-                    {
-                        TryEnqueueCommandContext(bitEventCtx);
+                        bool isInGameplay = GameplayManager.GetInstance()?.IsInMap ?? false;
+                        bool isRankedGameplayBlocked = isInGameplay && RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking;
+                        if (_deferredEventQueue != null && (!isInGameplay || isRankedGameplayBlocked))
+                        {
+                            _deferredEventQueue.Enqueue(new DeferredEventEntry(
+                                EventKind.Bits,
+                                ctx.SenderName,
+                                ctx.Bits,
+                                DateTime.UtcNow));
+                            _log.Debug(
+                                "[BeatSurgeon] Bits event deferred for "
+                                + ctx.SenderName
+                                + " ("
+                                + ctx.Bits
+                                + " bits) — "
+                                + (isRankedGameplayBlocked ? "ranked gameplay is active or still checking" : "not in gameplay")
+                                + ".");
+                        }
+                        else
+                        {
+                            TryEnqueueCommandContext(bitEventCtx);
+                        }
                     }
                 }
             }

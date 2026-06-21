@@ -601,46 +601,50 @@ namespace BeatSurgeon.UI.Controllers
                 yield break;
             }
 
-            // Use reflection to access the private standardGameplaySceneInfo field
-            var gameplaySceneInfoField = typeof(StandardLevelScenesTransitionSetupDataSO).GetField("_standardGameplaySceneInfo",
+            // Resolve scene names: try 1.40.8 private SceneInfo fields first,
+            // fall back to the 1.43+ public `scenes` string collection via reflection.
+            string gameplaySceneName;
+            string gameCoreSceneName;
+
+            var gameplaySceneInfoField = typeof(StandardLevelScenesTransitionSetupDataSO).GetField(
+                "_standardGameplaySceneInfo",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var gameCoreSceneInfoField = typeof(StandardLevelScenesTransitionSetupDataSO).GetField(
+                "_gameCoreSceneInfo",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-            if (gameplaySceneInfoField == null)
+            if (gameplaySceneInfoField != null && gameCoreSceneInfoField != null)
             {
-                Plugin.Log.Error("Could not find _standardGameplaySceneInfo field!");
-                yield break;
+                var gameplaySceneInfo = gameplaySceneInfoField.GetValue(standardLevelScenesTransitionSetupData) as SceneInfo;
+                var gameCoreSceneInfo = gameCoreSceneInfoField.GetValue(standardLevelScenesTransitionSetupData) as SceneInfo;
+
+                if (gameplaySceneInfo == null) { Plugin.Log.Error("gameplaySceneInfo was null!"); yield break; }
+                if (gameCoreSceneInfo == null) { Plugin.Log.Error("gameCoreSceneInfo was null!"); yield break; }
+
+                gameplaySceneName = gameplaySceneInfo.sceneName;
+                gameCoreSceneName = gameCoreSceneInfo.sceneName;
             }
-
-            var gameplaySceneInfo = gameplaySceneInfoField.GetValue(standardLevelScenesTransitionSetupData) as SceneInfo;
-            if (gameplaySceneInfo == null)
+            else
             {
-                Plugin.Log.Error("gameplaySceneInfo was null!");
-                yield break;
-            }
+                var scenesProperty = typeof(StandardLevelScenesTransitionSetupDataSO).GetProperty(
+                    "scenes",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
 
-            // Use reflection to access the private gameCoreSceneInfo field
-            var gameCoreSceneInfoField = typeof(StandardLevelScenesTransitionSetupDataSO).GetField("_gameCoreSceneInfo",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                if (scenesProperty == null) { Plugin.Log.Error("Could not find scenes field or property on StandardLevelScenesTransitionSetupDataSO!"); yield break; }
 
-            if (gameCoreSceneInfoField == null)
-            {
-                Plugin.Log.Error("Could not find _gameCoreSceneInfo field!");
-                yield break;
-            }
+                var sceneNames = scenesProperty.GetValue(standardLevelScenesTransitionSetupData) as System.Collections.Generic.IEnumerable<string>;
+                if (sceneNames == null) { Plugin.Log.Error("scenes property was null or wrong type!"); yield break; }
 
-            var gameCoreSceneInfo = gameCoreSceneInfoField.GetValue(standardLevelScenesTransitionSetupData) as SceneInfo;
-            if (gameCoreSceneInfo == null)
-            {
-                Plugin.Log.Error("gameCoreSceneInfo was null!");
-                yield break;
+                gameplaySceneName = sceneNames.FirstOrDefault(s => s.Contains("StandardGameplay")) ?? "StandardGameplay";
+                gameCoreSceneName = sceneNames.FirstOrDefault(s => s.Contains("GameCore")) ?? "GameCore";
             }
 
             // Load GameCore scene first
-            var gameCoreLoad = SceneManager.LoadSceneAsync(gameCoreSceneInfo.sceneName, LoadSceneMode.Additive);
+            var gameCoreLoad = SceneManager.LoadSceneAsync(gameCoreSceneName, LoadSceneMode.Additive);
             yield return gameCoreLoad;
 
             // Load StandardGameplay scene
-            var gameplayLoad = SceneManager.LoadSceneAsync(gameplaySceneInfo.sceneName, LoadSceneMode.Additive);
+            var gameplayLoad = SceneManager.LoadSceneAsync(gameplaySceneName, LoadSceneMode.Additive);
             yield return gameplayLoad;
 
             LogUtils.Debug(() => "Gameplay scenes loaded, extracting note prefabs...");
@@ -743,8 +747,8 @@ namespace BeatSurgeon.UI.Controllers
             LogUtils.Debug(() => "Preview notes created successfully!");
 
             // Unload the gameplay scenes
-            SceneManager.UnloadSceneAsync(gameplaySceneInfo.sceneName);
-            SceneManager.UnloadSceneAsync(gameCoreSceneInfo.sceneName);
+            SceneManager.UnloadSceneAsync(gameplaySceneName);
+            SceneManager.UnloadSceneAsync(gameCoreSceneName);
 
             GameObject.Destroy(noteTemplate);
 
