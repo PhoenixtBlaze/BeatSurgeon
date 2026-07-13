@@ -36,8 +36,21 @@ namespace BeatSurgeon.Gameplay
 
         private static readonly string[] ForcedSafeParticleShaderNames =
         {
+            // Bundle shaders that do not support Beat Saber's Single Pass Instanced protocol.
             "Custom/SimpleLightning",
-            "Custom/TeslaLightning"
+            "Custom/TeslaLightning",
+            // SeismicParticle/ProceduralBand is intentionally NOT force-replaced. Shockwave's
+            // authored ring/fire-band look depends on that procedural shader; swapping it for
+            // Custom/SimpleLit in gameplay made the explosion spawn but render invisible.
+            // Sprites/Default does not use the SPI eye-index TexCoord that Beat Saber's
+            // Custom/CustomParticles emits. Child glow particles on Lightning use this shader
+            // and must be replaced so they render in both eyes.
+            "Sprites/Default",
+            // Standard Unity fallback shaders assigned at menu-preload time when no SPI-capable
+            // reference renderer is available. ApplyStereoStateAtPlay replaces them at play time.
+            "Particles/Standard Unlit",
+            "Particles/Alpha Blended",
+            "Legacy Shaders/Particles/Alpha Blended"
         };
 
         internal static readonly string[] SuppressedBundleRepairShaderNames =
@@ -296,6 +309,510 @@ namespace BeatSurgeon.Gameplay
             return material;
         }
 
+        /// <summary>
+        /// Creates a play-time replacement material for billboard particles whose shaders are not
+        /// SPI-capable.  The replacement is a clone of the reference renderer's material
+        /// (typically Custom/CustomParticles) so SPI vertex streams work correctly.  The authored
+        /// tint is recovered from <paramref name="sourceMaterial"/> and force-applied to
+        /// <c>_TintColor</c>, overwriting the reference clone's default value.  This ensures that
+        /// colours preserved via the <c>_Color</c> property (written by the _TintColor → _Color
+        /// bridge in CopyCommonParticleProperties during menu-time prep) are correctly restored.
+        /// </summary>
+        internal static Material CreateForcedSafeBillboardReplacement(
+            Material sourceMaterial,
+            ParticleSystemRenderer referenceRenderer,
+            ParticleSystem ownerParticleSystem = null)
+        {
+            if (referenceRenderer?.sharedMaterial == null || !HasUsableShader(referenceRenderer.sharedMaterial))
+            {
+                return null;
+            }
+
+            // Sprites/Default encodes appearance in particle vertex color with no atlas texture.
+            // Cloning the vanilla bomb reference material would apply the Sparkle texture and
+            // make authored Lightning/glow particles look like vanilla bomb sparkles.
+            if (UsesSpritesDefaultShader(sourceMaterial?.shader))
+            {
+                return CreateAuthoredSpiParticleMaterial(
+                    sourceMaterial,
+                    referenceRenderer.sharedMaterial.shader,
+                    referenceMaterial: null,
+                    vertexColorDrivenTintOverride: GetApproximateAuthoredStartColor(ownerParticleSystem));
+            }
+
+            Texture fallbackTexture = GetBestAvailableTexture(sourceMaterial);
+            bool sourceUsesAuthoredTexture = HasAuthoredParticleTexture(sourceMaterial);
+            Color resolvedTint = sourceUsesAuthoredTexture
+                ? Color.white
+                : ownerParticleSystem != null
+                    ? ResolveAuthoredSpiVisibleColor(
+                        sourceMaterial,
+                        GetApproximateAuthoredStartColor(ownerParticleSystem))
+                    : SafeGetMaterialColor(sourceMaterial);
+
+            Material safemat = new Material(referenceRenderer.sharedMaterial)
+            {
+                name = (sourceMaterial?.name ?? "VfxParticle") + "_BeatSurgeonBillboardVfx"
+            };
+
+            if (sourceMaterial != null)
+            {
+                CopyCommonParticleProperties(sourceMaterial, safemat);
+            }
+
+            if (!LooksLikeUnsetVisibleColor(resolvedTint))
+            {
+                ApplySpiVisibleTint(safemat, resolvedTint);
+            }
+
+            if (fallbackTexture != null && MaterialSupportsTextureAssignment(safemat))
+            {
+                TryAssignTexture(safemat, fallbackTexture);
+            }
+
+            ApplyMinimalVrParticleTweaks(safemat);
+            return safemat;
+        }
+
+        /// <summary>
+        /// Builds an SPI-capable material from the authored source without inheriting the vanilla
+        /// bomb reference material's texture/tint defaults.
+        /// </summary>
+        internal static Material CreateAuthoredSpiParticleMaterial(
+            Material sourceMaterial,
+            Shader spiShader,
+            Material referenceMaterial = null,
+            Color? vertexColorDrivenTintOverride = null)
+        {
+            if (sourceMaterial == null || spiShader == null)
+            {
+                return null;
+            }
+
+            int sourceRenderQueue = sourceMaterial.renderQueue;
+            Material spiMaterial = new Material(spiShader)
+            {
+                name = sourceMaterial.name + "_BeatSurgeonAuthoredSpi"
+            };
+
+            CopyCommonParticleProperties(sourceMaterial, spiMaterial);
+
+            bool sourceUsesSpritesDefault = UsesSpritesDefaultShader(sourceMaterial.shader);
+            Texture authoredTexture = GetBestAvailableTexture(sourceMaterial);
+            if (authoredTexture == null)
+            {
+                if (sourceUsesSpritesDefault)
+                {
+                    // Preserve hard-sprite / vertex-color look; do not borrow vanilla Sparkle.
+                    authoredTexture = Texture2D.whiteTexture;
+                }
+                else if (referenceMaterial != null)
+                {
+                    authoredTexture = GetBestAvailableTexture(referenceMaterial);
+                }
+            }
+
+            if (authoredTexture != null && MaterialSupportsTextureAssignment(spiMaterial))
+            {
+                TryAssignTexture(spiMaterial, authoredTexture);
+            }
+
+            Color resolvedTint = ResolveAuthoredSpiVisibleColor(
+                sourceMaterial,
+                vertexColorDrivenTintOverride);
+            ApplySpiVisibleTint(spiMaterial, resolvedTint);
+
+            ApplyMinimalVrParticleTweaks(spiMaterial);
+            if (sourceRenderQueue > 0)
+            {
+                spiMaterial.renderQueue = sourceRenderQueue;
+            }
+
+            return spiMaterial;
+        }
+
+        /// <summary>
+        /// Builds a play-time material for atlas-textured billboard emitters (Flame, Hearts, Sparks).
+        /// Do not clone vanilla Custom/CustomParticles here: that shader path is tuned for grayscale
+        /// sparkle masks * tint (Lightning/vanilla bombs). Authored Flame/Heart atlases are full RGB
+        /// and render as flat white silhouettes under that path even when _MainTex is assigned.
+        /// Use the same deterministic transparent particle material as bit-atlas emitters so texture
+        /// RGB is preserved, then rely on SyncParticleRendererStereoState for SPI streams.
+        /// </summary>
+        internal static Material CreateTexturedSpiParticleMaterial(
+            Material sourceMaterial,
+            ParticleSystemRenderer referenceRenderer)
+        {
+            if (sourceMaterial == null)
+            {
+                return null;
+            }
+
+            Texture authoredTexture = GetBestAvailableTexture(sourceMaterial);
+            Material spiMaterial = CreateForcedSafeParticleMaterial(sourceMaterial, authoredTexture);
+            if (spiMaterial == null)
+            {
+                // Last-resort: bare SPI shader with authored texture. Prefer color fidelity over this.
+                Shader spiShader = referenceRenderer?.sharedMaterial != null
+                    ? referenceRenderer.sharedMaterial.shader
+                    : null;
+                spiMaterial = CreateAuthoredSpiParticleMaterial(
+                    sourceMaterial,
+                    spiShader,
+                    referenceMaterial: null,
+                    vertexColorDrivenTintOverride: Color.white);
+            }
+
+            if (spiMaterial == null)
+            {
+                return null;
+            }
+
+            spiMaterial.name = sourceMaterial.name + "_BeatSurgeonTexturedSpi";
+            if (authoredTexture != null && MaterialSupportsTextureAssignment(spiMaterial))
+            {
+                TryAssignTexture(spiMaterial, authoredTexture);
+            }
+
+            ApplySpiVisibleTint(spiMaterial, Color.white);
+            ApplyMinimalVrParticleTweaks(spiMaterial);
+            return spiMaterial;
+        }
+
+        /// <summary>
+        /// Prepares trail-based particle emitters (Lightning) for SPI stereo without altering
+        /// authored render mode or layout. Clones the SPI material from the authored source,
+        /// assigns it to both particle and trail slots, then syncs only stereo vertex streams.
+        /// </summary>
+        internal static void PrepareTrailParticleStereoAtPlay(
+            ParticleSystemRenderer particleRenderer,
+            ParticleSystemRenderer referenceRenderer)
+        {
+            if (particleRenderer == null || referenceRenderer == null)
+            {
+                return;
+            }
+
+            ParticleSystem particleSystem = particleRenderer.GetComponent<ParticleSystem>();
+            if (particleSystem == null || !particleSystem.trails.enabled)
+            {
+                return;
+            }
+
+            Material sourceMaterial = particleRenderer.sharedMaterial;
+            bool sourceUsesSpritesDefault = UsesSpritesDefaultShader(sourceMaterial?.shader);
+            bool sourceUsesAuthoredTexture = HasAuthoredParticleTexture(sourceMaterial);
+            Color authoredStartColor = GetApproximateAuthoredStartColor(particleSystem);
+            Material spiMaterial;
+            if (sourceUsesSpritesDefault)
+            {
+                Shader spiShader = referenceRenderer.sharedMaterial != null
+                    ? referenceRenderer.sharedMaterial.shader
+                    : null;
+                spiMaterial = CreateAuthoredSpiParticleMaterial(
+                    sourceMaterial,
+                    spiShader,
+                    referenceMaterial: null,
+                    vertexColorDrivenTintOverride: authoredStartColor);
+            }
+            else if (sourceUsesAuthoredTexture)
+            {
+                spiMaterial = CreateTexturedSpiParticleMaterial(sourceMaterial, referenceRenderer);
+            }
+            else
+            {
+                Shader spiShader = referenceRenderer.sharedMaterial != null
+                    ? referenceRenderer.sharedMaterial.shader
+                    : null;
+                spiMaterial = CreateAuthoredSpiParticleMaterial(
+                    sourceMaterial,
+                    spiShader,
+                    referenceMaterial: referenceRenderer.sharedMaterial,
+                    vertexColorDrivenTintOverride: authoredStartColor);
+            }
+            if (spiMaterial != null)
+            {
+                particleRenderer.sharedMaterial = spiMaterial;
+                particleRenderer.trailMaterial = spiMaterial;
+            }
+
+            particleRenderer.enableGPUInstancing = false;
+            SyncParticleRendererStereoState(
+                particleRenderer,
+                referenceRenderer,
+                preserveAuthoredLayout: true,
+                preserveAuthoredVertexStreams: sourceUsesAuthoredTexture);
+            HardenParticleRendererStereoCulling(particleRenderer);
+
+            Texture appliedTexture = particleRenderer.sharedMaterial != null
+                ? GetBestAvailableTexture(particleRenderer.sharedMaterial)
+                : null;
+            Color appliedTint = particleRenderer.sharedMaterial != null
+                && particleRenderer.sharedMaterial.HasProperty("_TintColor")
+                ? particleRenderer.sharedMaterial.GetColor("_TintColor")
+                : Color.white;
+            Plugin.Log.Info(
+                "VrVfxMaterialHelper: Prepared authored trail stereo for '"
+                + particleRenderer.name
+                + "' materialPath="
+                + (sourceUsesSpritesDefault
+                    ? "spritesDefault"
+                    : sourceUsesAuthoredTexture
+                        ? "texturedRgbSafe"
+                        : "authoredSpi")
+                + " shader='"
+                + (particleRenderer.sharedMaterial != null && particleRenderer.sharedMaterial.shader != null
+                    ? particleRenderer.sharedMaterial.shader.name
+                    : "<missing>")
+                + "' texture='"
+                + (appliedTexture != null ? appliedTexture.name : "<missing>")
+                + "' tint=("
+                + appliedTint.r.ToString("F2")
+                + ","
+                + appliedTint.g.ToString("F2")
+                + ","
+                + appliedTint.b.ToString("F2")
+                + ","
+                + appliedTint.a.ToString("F2")
+                + ") startColor=("
+                + authoredStartColor.r.ToString("F2")
+                + ","
+                + authoredStartColor.g.ToString("F2")
+                + ","
+                + authoredStartColor.b.ToString("F2")
+                + ","
+                + authoredStartColor.a.ToString("F2")
+                + ") renderMode="
+                + particleRenderer.renderMode
+                + " trailMaterial="
+                + (particleRenderer.trailMaterial != null ? "set" : "null")
+                + ".");
+        }
+
+        /// <summary>
+        /// Prepares mesh-mode particle emitters (Shockwave rings) for SPI stereo.
+        /// SeismicParticle/ProceduralBand is authored without Single Pass Instanced support, so it
+        /// renders in one eye. Replace it with Custom/SimpleLit (same path as the bomb mesh) while
+        /// baking ProceduralBand's _Tint / _Alpha / _Intensity into a visible transparent color so
+        /// the rings stay cyan/blue instead of disappearing like the earlier bare SimpleLit swap.
+        /// </summary>
+        internal static void PrepareMeshParticleStereoAtPlay(
+            ParticleSystemRenderer particleRenderer,
+            ParticleSystemRenderer referenceRenderer)
+        {
+            if (particleRenderer == null
+                || particleRenderer.renderMode != ParticleSystemRenderMode.Mesh)
+            {
+                return;
+            }
+
+            EnsureMeshParticleRendererReady(particleRenderer);
+
+            Material[] materials = particleRenderer.sharedMaterials;
+            if (materials != null && materials.Length > 0)
+            {
+                bool replacedMaterial = false;
+                for (int index = 0; index < materials.Length; index++)
+                {
+                    Material sourceMaterial = materials[index];
+                    if (sourceMaterial == null || !NeedsMeshParticleSpiReplacement(sourceMaterial.shader))
+                    {
+                        continue;
+                    }
+
+                    Material spiMaterial = CreateMeshParticleSpiMaterial(sourceMaterial);
+                    if (spiMaterial == null)
+                    {
+                        continue;
+                    }
+
+                    materials[index] = spiMaterial;
+                    replacedMaterial = true;
+                }
+
+                if (replacedMaterial)
+                {
+                    particleRenderer.sharedMaterials = materials;
+                }
+            }
+
+            particleRenderer.enableGPUInstancing = false;
+            if (referenceRenderer != null)
+            {
+                try
+                {
+                    particleRenderer.renderingLayerMask = referenceRenderer.renderingLayerMask;
+                    particleRenderer.lightProbeUsage = referenceRenderer.lightProbeUsage;
+                    particleRenderer.reflectionProbeUsage = referenceRenderer.reflectionProbeUsage;
+                    particleRenderer.motionVectorGenerationMode = referenceRenderer.motionVectorGenerationMode;
+                }
+                catch { }
+            }
+
+            HardenParticleRendererStereoCulling(particleRenderer);
+
+            Material applied = particleRenderer.sharedMaterial;
+            Color appliedColor = Color.white;
+            if (applied != null)
+            {
+                if (applied.HasProperty("_Color"))
+                {
+                    appliedColor = applied.GetColor("_Color");
+                }
+                else if (applied.HasProperty("_SimpleColor"))
+                {
+                    appliedColor = applied.GetColor("_SimpleColor");
+                }
+            }
+
+            Plugin.Log.Info(
+                "VrVfxMaterialHelper: Prepared mesh particle stereo for '"
+                + particleRenderer.name
+                + "' shader='"
+                + (applied != null && applied.shader != null ? applied.shader.name : "<missing>")
+                + "' color=("
+                + appliedColor.r.ToString("F2")
+                + ","
+                + appliedColor.g.ToString("F2")
+                + ","
+                + appliedColor.b.ToString("F2")
+                + ","
+                + appliedColor.a.ToString("F2")
+                + ") mesh="
+                + (particleRenderer.mesh != null ? particleRenderer.mesh.name : "<missing>")
+                + ".");
+        }
+
+        private static bool NeedsMeshParticleSpiReplacement(Shader shader)
+        {
+            if (shader == null || !shader.isSupported || IsBrokenShaderName(shader.name))
+            {
+                return true;
+            }
+
+            string shaderName = shader.name ?? string.Empty;
+            return string.Equals(shaderName, "SeismicParticle/ProceduralBand", StringComparison.OrdinalIgnoreCase)
+                || shaderName.IndexOf("ProceduralBand", StringComparison.OrdinalIgnoreCase) >= 0
+                || shaderName.IndexOf("FogLighting", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static Material CreateMeshParticleSpiMaterial(Material sourceMaterial)
+        {
+            Shader spiShader = Shader.Find("Custom/SimpleLit")
+                ?? Shader.Find("Particles/Standard Unlit")
+                ?? Shader.Find("Legacy Shaders/Particles/Alpha Blended")
+                ?? Shader.Find("Standard");
+            if (spiShader == null)
+            {
+                return null;
+            }
+
+            Color visibleColor = ResolveProceduralBandVisibleColor(sourceMaterial);
+            Material spiMaterial = new Material(spiShader)
+            {
+                name = (sourceMaterial != null ? sourceMaterial.name : "MeshParticle") + "_BeatSurgeonMeshSpi"
+            };
+
+            if (spiMaterial.HasProperty("_Color"))
+            {
+                spiMaterial.SetColor("_Color", visibleColor);
+            }
+
+            if (spiMaterial.HasProperty("_SimpleColor"))
+            {
+                spiMaterial.SetColor("_SimpleColor", visibleColor);
+            }
+
+            if (spiMaterial.HasProperty("_BaseColor"))
+            {
+                spiMaterial.SetColor("_BaseColor", visibleColor);
+            }
+
+            if (spiMaterial.HasProperty("_TintColor"))
+            {
+                spiMaterial.SetColor("_TintColor", visibleColor);
+            }
+
+            if (spiMaterial.HasProperty("_EmissionColor"))
+            {
+                // Keep a mild emission so high-intensity shockwave rings stay readable after
+                // clamping HDR ProceduralBand intensity into SDR SimpleLit color space.
+                Color emission = visibleColor * 0.75f;
+                emission.a = visibleColor.a;
+                spiMaterial.SetColor("_EmissionColor", emission);
+            }
+
+            ApplyDeterministicParticleBlend(spiMaterial);
+            ApplyMinimalVrParticleTweaks(spiMaterial);
+            return spiMaterial;
+        }
+
+        private static Color ResolveProceduralBandVisibleColor(Material sourceMaterial)
+        {
+            if (sourceMaterial == null)
+            {
+                return new Color(0.05f, 0.86f, 1f, 0.95f);
+            }
+
+            Color tint = Color.white;
+            if (sourceMaterial.HasProperty("_Tint"))
+            {
+                tint = sourceMaterial.GetColor("_Tint");
+            }
+            else if (sourceMaterial.HasProperty("_Color"))
+            {
+                tint = sourceMaterial.GetColor("_Color");
+            }
+            else if (sourceMaterial.HasProperty("_TintColor"))
+            {
+                tint = sourceMaterial.GetColor("_TintColor");
+            }
+
+            float alpha = 1f;
+            if (sourceMaterial.HasProperty("_Alpha"))
+            {
+                alpha = Mathf.Clamp01(sourceMaterial.GetFloat("_Alpha"));
+            }
+            else
+            {
+                alpha = Mathf.Clamp01(tint.a);
+            }
+
+            float intensity = 1f;
+            if (sourceMaterial.HasProperty("_Intensity"))
+            {
+                intensity = Mathf.Max(0.1f, sourceMaterial.GetFloat("_Intensity"));
+            }
+
+            // ProceduralBand uses HDR intensity (often 3-6.5). SimpleLit is SDR, so compress.
+            float gain = Mathf.Clamp(intensity * 0.35f, 0.55f, 1.75f);
+            Color visible = new Color(
+                Mathf.Clamp01(tint.r * gain),
+                Mathf.Clamp01(tint.g * gain),
+                Mathf.Clamp01(tint.b * gain),
+                alpha);
+
+            if (LooksLikeUnsetVisibleColor(visible) || visible.maxColorComponent < 0.05f)
+            {
+                return new Color(0.05f, 0.86f, 1f, Mathf.Max(alpha, 0.7f));
+            }
+
+            return visible;
+        }
+
+        private static void EnsureColorVertexStream(List<ParticleSystemVertexStream> vertexStreams)
+        {
+            if (vertexStreams == null)
+            {
+                return;
+            }
+
+            if (!vertexStreams.Contains(ParticleSystemVertexStream.Color))
+            {
+                vertexStreams.Add(ParticleSystemVertexStream.Color);
+            }
+        }
+
         internal static Material CreateSafeVisualMaterial(Material sourceMaterial, Texture fallbackTexture = null)
         {
             Texture resolvedFallbackTexture = fallbackTexture ?? GetBestAvailableTexture(sourceMaterial);
@@ -331,6 +848,118 @@ namespace BeatSurgeon.Gameplay
         internal static bool HasUsableShader(Material sourceMaterial)
         {
             return CanPreserveSourceMaterial(sourceMaterial);
+        }
+
+        private static bool UsesSpritesDefaultShader(Shader shader)
+        {
+            return shader != null
+                && string.Equals(shader.name, "Sprites/Default", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasAuthoredParticleTexture(Material sourceMaterial)
+        {
+            if (sourceMaterial == null || UsesSpritesDefaultShader(sourceMaterial.shader))
+            {
+                return false;
+            }
+
+            Texture texture = GetBestAvailableTexture(sourceMaterial);
+            return texture != null && texture != Texture2D.whiteTexture;
+        }
+
+        /// <summary>
+        /// Approximates the visible base color a particle system authors via its Start Color
+        /// module, so it can be baked into SPI material tint when Custom/CustomParticles does
+        /// not reproduce vertex-color multiplication reliably.
+        /// </summary>
+        private static Color GetApproximateAuthoredStartColor(ParticleSystem particleSystem)
+        {
+            if (particleSystem == null)
+            {
+                return Color.white;
+            }
+
+            try
+            {
+                ParticleSystem.MinMaxGradient startColor = particleSystem.main.startColor;
+                switch (startColor.mode)
+                {
+                    case ParticleSystemGradientMode.Color:
+                        return startColor.color;
+                    case ParticleSystemGradientMode.TwoColors:
+                        return Color.Lerp(startColor.colorMin, startColor.colorMax, 0.5f);
+                    case ParticleSystemGradientMode.Gradient:
+                        return startColor.gradient != null ? startColor.gradient.Evaluate(0f) : Color.white;
+                    case ParticleSystemGradientMode.TwoGradients:
+                        Color gradientMinColor = startColor.gradientMin != null ? startColor.gradientMin.Evaluate(0f) : Color.white;
+                        Color gradientMaxColor = startColor.gradientMax != null ? startColor.gradientMax.Evaluate(0f) : Color.white;
+                        return Color.Lerp(gradientMinColor, gradientMaxColor, 0.5f);
+                    case ParticleSystemGradientMode.RandomColor:
+                        return startColor.gradient != null ? startColor.gradient.Evaluate(0.5f) : Color.white;
+                    default:
+                        return Color.white;
+                }
+            }
+            catch
+            {
+                return Color.white;
+            }
+        }
+
+        private static Color ResolveAuthoredSpiVisibleColor(
+            Material sourceMaterial,
+            Color? particleStartColor)
+        {
+            if (HasAuthoredParticleTexture(sourceMaterial))
+            {
+                // Atlas-textured emitters (Flame, Hearts, Sparks) are authored via texture only.
+                if (sourceMaterial != null
+                    && TryGetPreferredVisibleColor(sourceMaterial, out Color materialTint)
+                    && !LooksLikeUnsetVisibleColor(materialTint))
+                {
+                    return materialTint;
+                }
+
+                return Color.white;
+            }
+
+            Color startColor = particleStartColor ?? Color.white;
+            bool sourceUsesSpritesDefault = UsesSpritesDefaultShader(sourceMaterial?.shader);
+
+            Color materialTintFromSource = Color.white;
+            if (sourceMaterial != null && TryGetPreferredVisibleColor(sourceMaterial, out Color preferredTint))
+            {
+                materialTintFromSource = preferredTint;
+            }
+
+            if (sourceUsesSpritesDefault || LooksLikeUnsetVisibleColor(materialTintFromSource))
+            {
+                return startColor;
+            }
+
+            return new Color(
+                materialTintFromSource.r * startColor.r,
+                materialTintFromSource.g * startColor.g,
+                materialTintFromSource.b * startColor.b,
+                Mathf.Clamp01(materialTintFromSource.a * startColor.a));
+        }
+
+        private static void ApplySpiVisibleTint(Material material, Color tint)
+        {
+            if (material == null)
+            {
+                return;
+            }
+
+            if (material.HasProperty("_TintColor"))
+            {
+                material.SetColor("_TintColor", tint);
+            }
+
+            if (material.HasProperty("_Color"))
+            {
+                material.SetColor("_Color", tint);
+            }
         }
 
         internal static bool ShouldForceSafeParticleShader(Shader shader)
@@ -749,7 +1378,7 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
-        private static bool UsesBillboardStyleVertexStreams(ParticleSystemRenderMode renderMode)
+        internal static bool UsesBillboardStyleVertexStreams(ParticleSystemRenderMode renderMode)
         {
             return renderMode == ParticleSystemRenderMode.Billboard
                 || renderMode == ParticleSystemRenderMode.Stretch
@@ -759,7 +1388,9 @@ namespace BeatSurgeon.Gameplay
 
         internal static void SyncParticleRendererStereoState(
             ParticleSystemRenderer particleRenderer,
-            ParticleSystemRenderer referenceRenderer)
+            ParticleSystemRenderer referenceRenderer,
+            bool preserveAuthoredLayout = false,
+            bool preserveAuthoredVertexStreams = false)
         {
             if (particleRenderer == null || referenceRenderer == null)
             {
@@ -770,24 +1401,71 @@ namespace BeatSurgeon.Gameplay
             {
                 bool syncLayout = UsesBillboardStyleVertexStreams(particleRenderer.renderMode)
                     && UsesBillboardStyleVertexStreams(referenceRenderer.renderMode);
+                bool renderModesMatch = particleRenderer.renderMode == referenceRenderer.renderMode;
+                bool keepAuthoredVertexStreams = preserveAuthoredVertexStreams
+                    || (preserveAuthoredLayout && !renderModesMatch);
 
-                if (syncLayout)
+                if (syncLayout && !preserveAuthoredLayout)
                 {
                     particleRenderer.alignment = referenceRenderer.alignment;
                     particleRenderer.normalDirection = referenceRenderer.normalDirection;
                     particleRenderer.allowRoll = referenceRenderer.allowRoll;
                 }
 
-                particleRenderer.maskInteraction = referenceRenderer.maskInteraction;
-                particleRenderer.enableGPUInstancing = referenceRenderer.enableGPUInstancing;
-                particleRenderer.sortingFudge = referenceRenderer.sortingFudge;
-                particleRenderer.renderingLayerMask = referenceRenderer.renderingLayerMask;
-                particleRenderer.lightProbeUsage = referenceRenderer.lightProbeUsage;
-                particleRenderer.reflectionProbeUsage = referenceRenderer.reflectionProbeUsage;
-                particleRenderer.motionVectorGenerationMode = referenceRenderer.motionVectorGenerationMode;
+                if (!preserveAuthoredLayout)
+                {
+                    particleRenderer.maskInteraction = referenceRenderer.maskInteraction;
+                    particleRenderer.sortingFudge = referenceRenderer.sortingFudge;
+                    particleRenderer.renderingLayerMask = referenceRenderer.renderingLayerMask;
+                    particleRenderer.lightProbeUsage = referenceRenderer.lightProbeUsage;
+                    particleRenderer.reflectionProbeUsage = referenceRenderer.reflectionProbeUsage;
+                    particleRenderer.motionVectorGenerationMode = referenceRenderer.motionVectorGenerationMode;
+                }
+
+                ParticleSystem particleSystemForTrails = particleRenderer.GetComponent<ParticleSystem>();
+                bool hasTrails = particleSystemForTrails != null && particleSystemForTrails.trails.enabled;
+                // GPU instancing on trail ribbons breaks SPI stereo for effects like Lightning.
+                particleRenderer.enableGPUInstancing = hasTrails
+                    ? false
+                    : referenceRenderer.enableGPUInstancing;
 
                 if (!syncLayout)
                 {
+                    return;
+                }
+
+                if (keepAuthoredVertexStreams)
+                {
+                    var authoredVertexStreams = new List<ParticleSystemVertexStream>(particleRenderer.activeVertexStreamsCount);
+                    particleRenderer.GetActiveVertexStreams(authoredVertexStreams);
+                    if (authoredVertexStreams.Count > 0)
+                    {
+                        EnsureColorVertexStream(authoredVertexStreams);
+                        particleRenderer.SetActiveVertexStreams(authoredVertexStreams);
+                    }
+
+                    if (hasTrails)
+                    {
+                        Material sharedMaterial = particleRenderer.sharedMaterial;
+                        if (particleRenderer.trailMaterial == null && sharedMaterial != null)
+                        {
+                            particleRenderer.trailMaterial = sharedMaterial;
+                        }
+
+                        var authoredTrailVertexStreams = new List<ParticleSystemVertexStream>(particleRenderer.activeTrailVertexStreamsCount);
+                        particleRenderer.GetActiveTrailVertexStreams(authoredTrailVertexStreams);
+                        if (authoredTrailVertexStreams.Count == 0)
+                        {
+                            authoredTrailVertexStreams = new List<ParticleSystemVertexStream>(authoredVertexStreams);
+                        }
+
+                        EnsureColorVertexStream(authoredTrailVertexStreams);
+                        if (authoredTrailVertexStreams.Count > 0)
+                        {
+                            particleRenderer.SetActiveTrailVertexStreams(authoredTrailVertexStreams);
+                        }
+                    }
+
                     return;
                 }
 
@@ -795,13 +1473,33 @@ namespace BeatSurgeon.Gameplay
                 referenceRenderer.GetActiveVertexStreams(activeVertexStreams);
                 if (activeVertexStreams.Count > 0)
                 {
+                    EnsureColorVertexStream(activeVertexStreams);
                     particleRenderer.SetActiveVertexStreams(activeVertexStreams);
                 }
 
-                if (particleRenderer.trailMaterial != null)
+                if (hasTrails)
                 {
-                    var activeTrailVertexStreams = new List<ParticleSystemVertexStream>(referenceRenderer.activeTrailVertexStreamsCount);
-                    referenceRenderer.GetActiveTrailVertexStreams(activeTrailVertexStreams);
+                    Material sharedMaterial = particleRenderer.sharedMaterial;
+                    if (particleRenderer.trailMaterial == null && sharedMaterial != null)
+                    {
+                        particleRenderer.trailMaterial = sharedMaterial;
+                    }
+
+                    ParticleSystemRenderer trailReference = referenceRenderer;
+                    var activeTrailVertexStreams = new List<ParticleSystemVertexStream>(trailReference.activeTrailVertexStreamsCount);
+                    trailReference.GetActiveTrailVertexStreams(activeTrailVertexStreams);
+                    if (activeTrailVertexStreams.Count == 0)
+                    {
+                        activeTrailVertexStreams = new List<ParticleSystemVertexStream>(trailReference.activeVertexStreamsCount);
+                        trailReference.GetActiveVertexStreams(activeTrailVertexStreams);
+                    }
+
+                    if (activeTrailVertexStreams.Count == 0)
+                    {
+                        activeTrailVertexStreams = new List<ParticleSystemVertexStream>(activeVertexStreams);
+                    }
+
+                    EnsureColorVertexStream(activeTrailVertexStreams);
                     if (activeTrailVertexStreams.Count > 0)
                     {
                         particleRenderer.SetActiveTrailVertexStreams(activeTrailVertexStreams);
@@ -990,6 +1688,11 @@ namespace BeatSurgeon.Gameplay
                 && context.IndexOf("TrailCube", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        internal static void CopyCommonParticlePropertiesPublic(Material sourceMaterial, Material destinationMaterial)
+        {
+            CopyCommonParticleProperties(sourceMaterial, destinationMaterial);
+        }
+
         private static void CopyCommonParticleProperties(Material sourceMaterial, Material destinationMaterial)
         {
             if (sourceMaterial == null || destinationMaterial == null)
@@ -1014,6 +1717,28 @@ namespace BeatSurgeon.Gameplay
 
             TryCopyTextureScaleAndOffset(sourceMaterial, destinationMaterial, "_MainTex");
             TryCopyTextureScaleAndOffset(sourceMaterial, destinationMaterial, "_BaseMap");
+
+            // When the source shader defines _TintColor but the destination shader does not
+            // (e.g. Particles/Standard Unlit used as a menu-time fallback), the authored tint
+            // would be silently dropped. Preserve it in _Color so it can be recovered when
+            // the material is later replaced with Custom/CustomParticles at play time.
+            try
+            {
+                if (sourceMaterial.HasProperty("_TintColor")
+                    && !destinationMaterial.HasProperty("_TintColor")
+                    && destinationMaterial.HasProperty("_Color"))
+                {
+                    Color srcTint = sourceMaterial.GetColor("_TintColor");
+                    bool tintIsUnset = srcTint.maxColorComponent <= 0.01f || srcTint.a <= 0.01f
+                        || (Mathf.Abs(srcTint.r - 1f) <= 0.01f && Mathf.Abs(srcTint.g - 1f) <= 0.01f
+                            && Mathf.Abs(srcTint.b - 1f) <= 0.01f && Mathf.Abs(srcTint.a - 1f) <= 0.01f);
+                    if (!tintIsUnset)
+                    {
+                        destinationMaterial.SetColor("_Color", srcTint);
+                    }
+                }
+            }
+            catch { }
         }
 
         private static void CopyCommonVisualProperties(Material sourceMaterial, Material destinationMaterial)

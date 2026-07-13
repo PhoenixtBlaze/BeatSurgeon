@@ -67,7 +67,7 @@ namespace BeatSurgeon.Gameplay
                 return false;
             }
 
-            TextMeshProUGUI warmupText = CreateMessageText("Warmup");
+            TextMeshProUGUI warmupText = CreateMessageText("Warmup", applyOutline: false);
             if (warmupText == null)
             {
                 return false;
@@ -207,7 +207,7 @@ namespace BeatSurgeon.Gameplay
             messageRect.position = endingWorldPosition;
         }
 
-        private TextMeshProUGUI CreateMessageText(string displayText)
+        private TextMeshProUGUI CreateMessageText(string displayText, bool applyOutline = true)
         {
             if (_activeCanvasInstance == null)
             {
@@ -279,20 +279,6 @@ namespace BeatSurgeon.Gameplay
                 return null;
             }
 
-            float desiredOutline = 0.2f;
-            Color desiredOutlineColor = Color.black;
-            bool outlineApplied = false;
-            try
-            {
-                text.outlineColor = desiredOutlineColor;
-                text.outlineWidth = desiredOutline;
-                outlineApplied = true;
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Warn("FollowerMessageManager: outline apply failed, will retry later: " + ex.Message);
-            }
-
             Vector2 preferredSize = text.GetPreferredValues(
                 displayText,
                 Mathf.Max(64f, maxTextWidth - (text.margin.x + text.margin.z)),
@@ -310,9 +296,14 @@ namespace BeatSurgeon.Gameplay
                 Plugin.Log.Warn("FollowerMessageManager: ForceMeshUpdate failed: " + ex.Message);
             }
 
-            if (!outlineApplied)
+            if (applyOutline)
             {
-                StartCoroutine(TryApplyOutlineWhenReady(text, desiredOutline, desiredOutlineColor));
+                const float desiredOutline = 0.2f;
+                Color desiredOutlineColor = Color.black;
+                if (!TryApplyTextOutline(text, desiredOutline, desiredOutlineColor))
+                {
+                    StartCoroutine(TryApplyOutlineWhenReady(text, desiredOutline, desiredOutlineColor));
+                }
             }
 
             return text;
@@ -425,45 +416,51 @@ namespace BeatSurgeon.Gameplay
             return _gameplayManager != null && _gameplayManager.IsInMap;
         }
 
+        private static bool TryApplyTextOutline(TextMeshProUGUI text, float desiredOutline, Color desiredColor)
+        {
+            if (text == null || text.font == null)
+            {
+                return false;
+            }
+
+            Material material = text.fontMaterial;
+            if (material == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                text.outlineColor = desiredColor;
+                text.outlineWidth = desiredOutline;
+                text.SetAllDirty();
+                text.ForceMeshUpdate();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn("FollowerMessageManager: outline apply failed, will retry later: " + ex.Message);
+                return false;
+            }
+        }
+
         private IEnumerator TryApplyOutlineWhenReady(TextMeshProUGUI text, float desiredOutline, Color desiredColor, int maxFrames = 30)
         {
             int attempts = 0;
             while (text != null && attempts < maxFrames)
             {
-                var mat = text.fontSharedMaterial ?? text.fontMaterial;
-                if (text.font != null && mat != null)
+                if (TryApplyTextOutline(text, desiredOutline, desiredColor))
                 {
-                    try
-                    {
-                        text.outlineColor = desiredColor;
-                        text.outlineWidth = desiredOutline;
-                        text.SetAllDirty();
-                        text.ForceMeshUpdate();
-                        yield break;
-                    }
-                    catch (Exception ex)
-                    {
-                        Plugin.Log.Warn("FollowerMessageManager: deferred outline apply failed: " + ex.Message);
-                    }
+                    yield break;
                 }
 
                 attempts++;
                 yield return null;
             }
 
-            try
+            if (text != null && !TryApplyTextOutline(text, desiredOutline, desiredColor))
             {
-                if (text != null)
-                {
-                    text.outlineColor = desiredColor;
-                    text.outlineWidth = desiredOutline;
-                    text.SetAllDirty();
-                    text.ForceMeshUpdate();
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Warn("FollowerMessageManager: final outline apply failed: " + ex.Message);
+                Plugin.Log.Warn("FollowerMessageManager: final outline apply failed after deferred retries.");
             }
         }
 

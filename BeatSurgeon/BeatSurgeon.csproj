@@ -14,9 +14,6 @@
     <FileAlignment>512</FileAlignment>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>portable</DebugType>
-    <LocalRefsDir Condition="Exists('..\Refs')">..\Refs</LocalRefsDir>
-    <BeatSaberDir Condition="'$(LocalRefsDir)' != ''">$(LocalRefsDir)</BeatSaberDir>
-    <BeatSaberDir Condition="'$(BeatSaberDir)' == ''">F:\Games\BSManager\BSInstances\1.40.8_Test</BeatSaberDir>
     <AppOutputBase>$(MSBuildProjectDirectory)\</AppOutputBase>
     <!--<PathMap>$(AppOutputBase)=X:\$(AssemblyName)\</PathMap>-->
     <ErrorReport>prompt</ErrorReport>
@@ -49,127 +46,127 @@
   <ItemGroup>
     <Reference Include="0Harmony, Version=2.10.2.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Libs\0Harmony.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Libs\0Harmony.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="AdditionalContentModel.Interfaces, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\AdditionalContentModel.Interfaces.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\AdditionalContentModel.Interfaces.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="AssetBundleLoadingTools, Version=1.1.10.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\AssetBundleLoadingTools.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Plugins\AssetBundleLoadingTools.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BeatmapCore, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BeatmapCore.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\BeatmapCore.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BeatSaber.GameSettings, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BeatSaber.GameSettings.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\BeatSaber.GameSettings.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BeatSaber.ViewSystem, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BeatSaber.ViewSystem.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\BeatSaber.ViewSystem.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BeatSaberPlaylistsLib, Version=1.7.2.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Libs\BeatSaberPlaylistsLib.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Libs\BeatSaberPlaylistsLib.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BeatSaberPlus_Chat, Version=6.4.2.0, Culture=en, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\BeatSaberPlus_Chat.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Plugins\BeatSaberPlus_Chat.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BeatSaverDownloader, Version=6.0.7.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\BeatSaverDownloader.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Plugins\BeatSaverDownloader.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BeatSaverSharp, Version=3.4.5.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Libs\BeatSaverSharp.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Libs\BeatSaverSharp.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BGLib.DotnetExtension, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BGLib.DotnetExtension.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\BGLib.DotnetExtension.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BGLib.UnityExtension, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BGLib.UnityExtension.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\BGLib.UnityExtension.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BSML, Version=1.12.5.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\BSML.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Plugins\BSML.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BS_Utils, Version=1.14.2.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\BS_Utils.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Plugins\BS_Utils.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="ChatPlexSDK_BS, Version=6.4.2.0, Culture=en, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\ChatPlexSDK_BS.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Plugins\ChatPlexSDK_BS.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="Colors, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\Colors.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\Colors.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="DataModels, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\DataModels.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\DataModels.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="GameplayCore, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\GameplayCore.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\GameplayCore.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="HMRendering, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\HMRendering.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\HMRendering.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="IPA.Injector, Version=4.3.6.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\IPA.Injector.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\IPA.Injector.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="MediaLoader, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\MediaLoader.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\MediaLoader.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Libs\Newtonsoft.Json.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Libs\Newtonsoft.Json.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="PlaylistManager, Version=1.7.3.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\PlaylistManager.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Plugins\PlaylistManager.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="SongCore, Version=3.15.3.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\SongCore.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Plugins\SongCore.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="SiraUtil">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Plugins\SiraUtil.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Plugins\SiraUtil.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="System" />
@@ -190,126 +187,126 @@
     <Reference Include="System.Data" />
     <Reference Include="System.Xml" />
     <Reference Include="Main">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\Main.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\Main.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="HMLib">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\HMLib.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\HMLib.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="HMUI">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\HMUI.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\HMUI.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="IPA.Loader">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\IPA.Loader.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\IPA.Loader.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.TextMeshPro">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\Unity.TextMeshPro.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\Unity.TextMeshPro.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.AssetBundleModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.AssetBundleModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.AssetBundleModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.AudioModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.ImageConversionModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.ImageConversionModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.ImageConversionModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.InputModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.InputModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.InputModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.ParticleSystemModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.ParticleSystemModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.ParticleSystemModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.PhysicsModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.UI">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.UI.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.UI.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.UIElementsModule">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.UIElementsModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.UIElementsModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.UIModule">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.UIModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.UIModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.UnityWebRequestModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.UnityWebRequestModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.UnityWebRequestModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.UnityWebRequestTextureModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.UnityWebRequestTextureModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.UnityWebRequestTextureModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.VRModule">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.VRModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.VRModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.XR.LegacyInputHelpers, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.XR.LegacyInputHelpers.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.XR.LegacyInputHelpers.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="UnityEngine.XRModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\UnityEngine.XRModule.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\UnityEngine.XRModule.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="BGLib.AppFlow">
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\BGLib.AppFlow.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\BGLib.AppFlow.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Zenject, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\Zenject.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\Zenject.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="Zenject-usage, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\Zenject-usage.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\Zenject-usage.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
     <Reference Include="ZenjectExtension, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <Private>False</Private>
-      <HintPath>$(BeatSaberDir)\Beat Saber_Data\Managed\ZenjectExtension.dll</HintPath>
+      <HintPath>$(ReferenceDir)\Beat Saber_Data\Managed\ZenjectExtension.dll</HintPath>
       <SpecificVersion>False</SpecificVersion>
     </Reference>
   </ItemGroup>
@@ -351,6 +348,8 @@
     <Compile Include="Gameplay\VrVfxMaterialHelper.cs" />
     <Compile Include="Gameplay\BombExplosionEffectSettings.cs" />
     <Compile Include="Gameplay\BombFontPreloadService.cs" />
+    <Compile Include="Gameplay\SurgeonEffectsPreloadService.cs" />
+    <Compile Include="Gameplay\SurgeonEffectsWarmupHelper.cs" />
     <Compile Include="Gameplay\GameplayManager.cs" />
     <Compile Include="Gameplay\RankedMapDetectionService.cs" />
     <Compile Include="Gameplay\GhostNotesManager.cs" />
@@ -426,6 +425,7 @@
     <Compile Include="Twitch\TwitchApiClient.cs" />
     <Compile Include="Twitch\TwitchAuthManager.cs" />
     <Compile Include="Twitch\TwitchEventSubClient.cs" />
+    <Compile Include="YouTube\YouTubeAuthManager.cs" />
     <Compile Include="UI\Controllers\BeatSurgeonCooldownViewController.cs" />
     <Compile Include="UI\Controllers\BeatSurgeonViewController.cs" />
     <Compile Include="UI\FlowCoordinator\BeatSurgeonFlowCoordinator.cs" />
@@ -497,11 +497,11 @@
   <PropertyGroup>
     <PostBuildEvent>
 		  REM Copy UserData to game install
-		  robocopy "$(TargetDir)..\UserData" "$(BeatSaberDir)\UserData" /E
+		  robocopy "$(TargetDir)..\UserData" "$(GameDirectory)\UserData" /E
 		  IF %ERRORLEVEL% LEQ 1 SET ERRORLEVEL=0
 
 		  REM Copy BeatSurgeon.dll to Plugins; fall back to IPA\Pending\Plugins if the game is running (DLL locked)
-		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='$(BeatSaberDir)\Plugins\BeatSurgeon.dll'; $pend='$(BeatSaberDir)\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -> Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -> IPA\Pending\Plugins (game running - will apply on next start)' }"
+		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='$(GameDirectory)\Plugins\BeatSurgeon.dll'; $pend='$(GameDirectory)\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -> Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -> IPA\Pending\Plugins (game running - will apply on next start)' }"
 		  IF %ERRORLEVEL% NEQ 0 EXIT %ERRORLEVEL%
 	  </PostBuildEvent>
   </PropertyGroup>

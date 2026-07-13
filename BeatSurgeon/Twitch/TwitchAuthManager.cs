@@ -246,6 +246,10 @@ namespace BeatSurgeon.Twitch
 
         internal void Logout()
         {
+            _log.Auth("Logout", "Clearing saved Twitch credentials");
+            _refreshTimer?.Dispose();
+            _refreshTimer = null;
+
             _accessToken = string.Empty;
             _refreshToken = string.Empty;
             _cachedChannelUserId = string.Empty;

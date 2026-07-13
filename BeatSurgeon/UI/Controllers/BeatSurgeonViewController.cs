@@ -5,6 +5,7 @@ using BeatSaberMarkupLanguage.Components.Settings;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSurgeon.Chat;
 using BeatSurgeon.Twitch;
+using BeatSurgeon.YouTube;
 using BeatSurgeon.UI.Settings;
 using HMUI;
 using System;
@@ -741,6 +742,9 @@ namespace BeatSurgeon.UI.Controllers
                 TwitchAuthManager.Instance.OnReauthRequired += HandleSupportStateChanged;
                 TwitchAuthManager.Instance.OnTokensUpdated += HandleSupportStateChanged;
                 TwitchAuthManager.Instance.OnIdentityUpdated += HandleSupportStateChanged;
+                YouTubeAuthManager.Instance.OnReauthRequired += HandleYoutubeStatusChanged;
+                YouTubeAuthManager.Instance.OnTokensUpdated += HandleYoutubeStatusChanged;
+                YouTubeAuthManager.Instance.OnIdentityUpdated += HandleYoutubeStatusChanged;
                 EntitlementsState.Changed += HandleSupportStateChanged;
 
                 if (rainbowButton != null)
@@ -947,6 +951,7 @@ namespace BeatSurgeon.UI.Controllers
         private void RefreshSupporterUiState()
         {
             RefreshTwitchStatusText();
+            RefreshYoutubeStatusText();
             NotifyPropertyChanged(nameof(SupporterTabVisible));
             NotifyPropertyChanged(nameof(SupportButtonText));
             NotifyPropertyChanged(nameof(SupportButtonHoverHint));
@@ -1304,6 +1309,24 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
+        [UIValue("TwitchLogoutInteractable")]
+        public bool TwitchLogoutInteractable
+        {
+            get => _twitchLogoutInteractable;
+            private set
+            {
+                if (_twitchLogoutInteractable == value)
+                {
+                    return;
+                }
+
+                _twitchLogoutInteractable = value;
+                NotifyPropertyChanged(nameof(TwitchLogoutInteractable));
+            }
+        }
+
+        private bool _twitchLogoutInteractable;
+
         private bool IsTwitchConnected()
         {
             return TwitchAuthManager.Instance.IsAuthenticated;
@@ -1319,6 +1342,7 @@ namespace BeatSurgeon.UI.Controllers
             if (Plugin.Settings?.TwitchReauthRequired == true)
             {
                 TwitchStatusText = "<color=#FFFF44>Please Reauthorize</color>";
+                TwitchLogoutInteractable = true;
                 SurgeonGameplaySetupHost.SetTwitchStatusFromBeatSurgeon(TwitchStatusText);
                 return;
             }
@@ -1326,6 +1350,7 @@ namespace BeatSurgeon.UI.Controllers
             if (!IsTwitchConnected())
             {
                 TwitchStatusText = "<color=#FF4444>Not connected</color>";
+                TwitchLogoutInteractable = false;
                 SurgeonGameplaySetupHost.SetTwitchStatusFromBeatSurgeon(TwitchStatusText);
                 return;
             }
@@ -1335,6 +1360,8 @@ namespace BeatSurgeon.UI.Controllers
             {
                 tier = Plugin.Settings.CachedSupporterTier;
             }
+
+            TwitchLogoutInteractable = true;
 
             if (tier > 0)
             {
@@ -1348,9 +1375,18 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
+        private void HandleYoutubeStatusChanged()
+        {
+            _ = IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory.StartNew(RefreshYoutubeStatusText);
+        }
 
-
-
+        [UIAction("OnLogoutTwitchClicked")]
+        private void OnLogoutTwitchClicked()
+        {
+            TwitchAuthManager.Instance.Logout();
+            RefreshTwitchStatusText();
+            RefreshSupporterUiState();
+        }
 
         [UIAction("OnConnectTwitchClicked")]
         private void OnConnectTwitchClicked()
@@ -1378,6 +1414,101 @@ namespace BeatSurgeon.UI.Controllers
             await Task.Delay(1000);
 
             RefreshTwitchStatusText();
+        }
+
+        [UIValue("YoutubeStatusText")]
+        public string YoutubeStatusText
+        {
+            get => _youtubeStatusText;
+            private set
+            {
+                _youtubeStatusText = value;
+                NotifyPropertyChanged(nameof(YoutubeStatusText));
+            }
+        }
+
+        [UIValue("YoutubeLogoutInteractable")]
+        public bool YoutubeLogoutInteractable
+        {
+            get => _youtubeLogoutInteractable;
+            private set
+            {
+                if (_youtubeLogoutInteractable == value)
+                {
+                    return;
+                }
+
+                _youtubeLogoutInteractable = value;
+                NotifyPropertyChanged(nameof(YoutubeLogoutInteractable));
+            }
+        }
+
+        private string _youtubeStatusText = "Not connected";
+        private bool _youtubeLogoutInteractable;
+
+        private void RefreshYoutubeStatusText()
+        {
+            if (Plugin.Settings?.YouTubeReauthRequired == true)
+            {
+                YoutubeStatusText = "<color=#FFFF44>Please Reauthorize</color>";
+                YoutubeLogoutInteractable = true;
+                return;
+            }
+
+            if (!YouTubeAuthManager.Instance.IsAuthenticated)
+            {
+                YoutubeStatusText = "<color=#FF4444>Not connected</color>";
+                YoutubeLogoutInteractable = false;
+                return;
+            }
+
+            YoutubeLogoutInteractable = true;
+            string channelTitle = YouTubeAuthManager.Instance.ChannelTitle;
+            if (string.IsNullOrWhiteSpace(channelTitle))
+            {
+                channelTitle = Plugin.Settings?.CachedYouTubeChannelTitle;
+            }
+
+            if (!string.IsNullOrWhiteSpace(channelTitle))
+            {
+                YoutubeStatusText = $"<color=#44FF44>Connected</color> <color=#FF6666>• {channelTitle}</color>";
+            }
+            else
+            {
+                YoutubeStatusText = "<color=#44FF44>Connected</color>";
+            }
+        }
+
+        [UIAction("OnLogoutYoutubeClicked")]
+        private void OnLogoutYoutubeClicked()
+        {
+            YouTubeAuthManager.Instance.Logout();
+            RefreshYoutubeStatusText();
+        }
+
+        [UIAction("OnConnectYoutubeClicked")]
+        private void OnConnectYoutubeClicked()
+        {
+            _ = ConnectYoutubeAsync();
+        }
+
+        private async Task ConnectYoutubeAsync()
+        {
+            YoutubeStatusText = "<color=#FFFF44>Opening browser...</color>";
+            await YouTubeAuthManager.Instance.InitiateLogin();
+
+            const int maxWaitMs = 10000;
+            int waited = 0;
+            const int step = 500;
+
+            while (waited < maxWaitMs && !YouTubeAuthManager.Instance.IsAuthenticated)
+            {
+                await Task.Delay(step);
+                waited += step;
+            }
+
+            await Task.Delay(1000);
+            RefreshYoutubeStatusText();
         }
 
 

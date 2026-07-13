@@ -88,6 +88,11 @@ namespace BeatSurgeon.Gameplay
 
                 foreach (var col in instance.GetComponentsInChildren<Collider>(true))
                     Object.Destroy(col);
+
+                // Replace bundle shaders that don't support SPI VR rendering on mesh renderers.
+                // Bundle shaders such as Custom/FogLighting are compiled without SPI instancing
+                // support and render in only one eye. Custom/SimpleLit is a game-side SPI-compatible shader.
+                ReplaceBundleMeshShaders(instance);
             }
             else
             {
@@ -127,6 +132,66 @@ namespace BeatSurgeon.Gameplay
             t.gameObject.layer = layer;
             for (int i = 0; i < t.childCount; i++)
                 SetLayerRecursively(t.GetChild(i), layer);
+        }
+
+        // Replaces non-SPI-capable bundle shaders on mesh renderers with Custom/SimpleLit.
+        // Particle system renderers are intentionally skipped; they are handled by FireworksExplosionPool.
+        private static void ReplaceBundleMeshShaders(GameObject root)
+        {
+            Shader safeShader = Shader.Find("Custom/SimpleLit") ?? Shader.Find("Standard");
+            if (safeShader == null)
+            {
+                return;
+            }
+
+            foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || r is ParticleSystemRenderer)
+                {
+                    continue;
+                }
+
+                Material[] mats = r.sharedMaterials;
+                if (mats == null || mats.Length == 0)
+                {
+                    continue;
+                }
+
+                bool changed = false;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    if (mats[i] == null)
+                    {
+                        continue;
+                    }
+
+                    Shader s = mats[i].shader;
+                    string shaderName = s != null ? (s.name ?? "") : "";
+
+                    bool needsReplacement = s == null
+                        || !s.isSupported
+                        || shaderName.ToUpperInvariant().Contains("FOGLIGHTING")
+                        || shaderName.ToUpperInvariant().Contains("INTERNALERRORSHADER");
+
+                    if (!needsReplacement)
+                    {
+                        continue;
+                    }
+
+                    Color originalColor = mats[i].HasProperty("_Color") ? mats[i].color : Color.white;
+                    mats[i] = new Material(safeShader)
+                    {
+                        name = mats[i].name + "_BeatSurgeonVrSafe",
+                        color = originalColor
+                    };
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    r.sharedMaterials = mats;
+                }
+            }
         }
     }
 

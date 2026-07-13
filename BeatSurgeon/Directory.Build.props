@@ -4,5 +4,11 @@
 	<PropertyGroup>
 		<ImportBSMTTargets>True</ImportBSMTTargets>
 		<BSMTProjectType>BSIPA</BSMTProjectType>
+		<!-- Default Beat Saber install; override per-machine in BeatSurgeon.csproj.user -->
+		<GameDirectory Condition="'$(GameDirectory)' == ''">F:\Games\BSManager\BSInstances\1.40.8_Test</GameDirectory>
+		<LocalRefsDir Condition="Exists('$(MSBuildThisFileDirectory)..\Refs')">$(MSBuildThisFileDirectory)..\Refs</LocalRefsDir>
+		<!-- Use Refs folder for assembly references in CI; game install for local dev -->
+		<ReferenceDir Condition="'$(LocalRefsDir)' != ''">$(LocalRefsDir)</ReferenceDir>
+		<ReferenceDir Condition="'$(ReferenceDir)' == ''">$(GameDirectory)</ReferenceDir>
 	</PropertyGroup>
 </Project>

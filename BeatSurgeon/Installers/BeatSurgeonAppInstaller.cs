@@ -6,6 +6,7 @@ using BeatSurgeon.Integrations;
 using BeatSurgeon;
 using BeatSurgeon.Twitch;
 using BeatSurgeon.Utils;
+using BeatSurgeon.YouTube;
 using Zenject;
 
 namespace BeatSurgeon.Installers
@@ -36,11 +37,19 @@ namespace BeatSurgeon.Installers
                 .AsSingle()
                 .NonLazy();
 
+            Container.BindInterfacesAndSelfTo<SurgeonEffectsPreloadService>()
+                .AsSingle()
+                .NonLazy();
+
             Container.BindInterfacesAndSelfTo<TwitchAuthManager>()
                 .AsSingle()
                 .NonLazy();
 
             Container.BindInterfacesAndSelfTo<PatreonAuthManager>()
+                .AsSingle()
+                .NonLazy();
+
+            Container.BindInterfacesAndSelfTo<YouTubeAuthManager>()
                 .AsSingle()
                 .NonLazy();
 

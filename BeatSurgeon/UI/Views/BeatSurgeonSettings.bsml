@@ -126,12 +126,12 @@
 				</modifier-container>
 			</tab>
 
-			<!-- TAB 2: Twitch -->
-			<tab tab-name="Twitch" tags="saber-surgeon-tabs">
-				<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
+			<!-- TAB 2: Live Services -->
+			<tab tab-name="Live Services" tags="saber-surgeon-tabs">
+				<vertical child-control-height="false" vertical-fit="PreferredSize" spacing="1" pad-top="-25">
 
-					<!-- Twitch Status Display (Read Only)-->
-					<horizontal horizontal-fit="PreferredSize" spacing="2">
+					<!-- Twitch Status -->
+					<horizontal horizontal-fit="PreferredSize" spacing="1">
 						<text text="Twitch:" font-size="5" color="#AAAAAA" align="MidlineLeft"/>
 						<text text="~TwitchStatusText"
 						  font-size="5"
@@ -139,42 +139,76 @@
 						  rich-text="true" />
 					</horizontal>
 
-					<horizontal pad-bottom="25">
-						<!-- Twitch Connect Button -->
+					<!-- Youtube Status -->
+					<horizontal horizontal-fit="PreferredSize" spacing="1">
+						<text text="YouTube:" font-size="5" color="#AAAAAA" align="MidlineLeft"/>
+						<text text="~YoutubeStatusText"
+						  font-size="5"
+						  align="MidlineLeft"
+						  rich-text="true" />
+					</horizontal>
+
+					<!-- Twitch Actions -->
+					<horizontal spacing="2" horizontal-fit="PreferredSize" child-align="MiddleLeft">
 						<button text="Connect Twitch"
 						    on-click="OnConnectTwitchClicked"
 						    pref-width="30"
 						    pref-height="8"
                             hover-hint="Opens browser to link your Twitch account"/>
-					</horizontal>
-					<!-- Command Permissions -->
-					
-				</modifier-container>
 
-				<vertical horizontal-fit="PreferredSize"  spacing="2" pad-top="25" pad-bottom="5">
-					<horizontal pad="2">
-						<text text="Who can use ! commands?" align="Center"></text>
+						<button text="Log Out Twitch"
+						    on-click="OnLogoutTwitchClicked"
+						    pref-width="30"
+						    pref-height="8"
+						    interactable="~TwitchLogoutInteractable"
+                            hover-hint="Disconnect your linked Twitch account from Beat Surgeon"/>
 					</horizontal>
-					<horizontal pad="2">
-						<toggle-setting text="Allow Everyone"
-										value="AllowEveryoneCommands"
-										on-change="OnAllowEveryoneChanged"
-										hover-hint="Allow all viewers to use !commands"/>
+
+					<!-- YouTube Actions -->
+					<horizontal spacing="2" horizontal-fit="PreferredSize" child-align="MiddleLeft">
+						<button text="Connect YouTube"
+						    on-click="OnConnectYoutubeClicked"
+						    pref-width="30"
+						    pref-height="8"
+                            hover-hint="Opens browser to link your YouTube account"/>
+
+						<button text="Log Out YouTube"
+						    on-click="OnLogoutYoutubeClicked"
+						    pref-width="30"
+						    pref-height="8"
+						    interactable="~YoutubeLogoutInteractable"
+                            hover-hint="Disconnect your linked YouTube account from Beat Surgeon"/>
 					</horizontal>
-					<horizontal pad="2">
-						<toggle-setting text="Allow VIPs"
-										value="AllowVIPCommands"
-										on-change="OnAllowVIPChanged"
-										hover-hint="Allow VIP users to use !commands"/>
-					</horizontal>
-					<horizontal pad="2">
-						<toggle-setting text="Allow Subscribers"
-										value="AllowSubscriberCommands"
-										on-change="OnAllowSubscriberChanged"
-										hover-hint="Allow subscribers to use !commands"/>
-					</horizontal>
+
 				</vertical>
-				
+
+				<vertical child-control-height="false" vertical-fit="PreferredSize" spacing="2" pad="2">
+					<!-- Command Permissions -->
+					<vertical horizontal-fit="PreferredSize" spacing="2" pad-top="4">
+						<horizontal pad="2">
+							<text text="Who can use ! commands?" align="Center"></text>
+						</horizontal>
+						<horizontal pad="2">
+							<toggle-setting text="Allow Everyone"
+											value="AllowEveryoneCommands"
+											on-change="OnAllowEveryoneChanged"
+											hover-hint="Allow all viewers to use !commands"/>
+						</horizontal>
+						<horizontal pad="2">
+							<toggle-setting text="Allow VIPs"
+											value="AllowVIPCommands"
+											on-change="OnAllowVIPChanged"
+											hover-hint="Allow VIP users to use !commands"/>
+						</horizontal>
+						<horizontal pad="2">
+							<toggle-setting text="Allow Subscribers"
+											value="AllowSubscriberCommands"
+											on-change="OnAllowSubscriberChanged"
+											hover-hint="Allow subscribers to use !commands"/>
+						</horizontal>
+					</vertical>
+
+				</vertical>
 			</tab>
 			<!-- TAB:3 Surgeon Settings -->
 			<tab tab-name="SurgeonSettings" tags="saber-surgeon-tabs">

@@ -139,6 +139,11 @@ namespace BeatSurgeon.Gameplay
             Gradient rainbowGradient = preserveAuthoredAppearance ? null : CreateRainbowGradient();
             explosion.SetActive(true);
 
+            // Apply VR stereo (SPI) preparation regardless of anchor attachment. Menu previews
+            // (Supporter tab) use attachToGameplayAnchor=false but still render in stereo VR and
+            // need the same per-eye vertex stream / shader preparation as gameplay explosions.
+            ApplyStereoStateAtPlay(explosion);
+
             var systems = explosion.GetComponentsInChildren<ParticleSystem>(true);
             float maxScheduledDelay = 0f;
             foreach (var ps in systems)
@@ -401,6 +406,97 @@ namespace BeatSurgeon.Gameplay
             return true;
         }
 
+        private void ApplyStereoStateAtPlay(GameObject explosion)
+        {
+            if (explosion == null)
+            {
+                return;
+            }
+
+            ParticleSystemRenderer reference = GetReferenceBombParticleRenderer(out _);
+            if (reference == null)
+            {
+                return;
+            }
+
+            Plugin.Log.Debug("FireworksExplosionPool: ApplyStereoStateAtPlay '" + explosion.name + "' reference='" + reference.name + "'");
+
+            foreach (ParticleSystemRenderer particleRenderer in explosion.GetComponentsInChildren<ParticleSystemRenderer>(true))
+            {
+                if (particleRenderer == null)
+                {
+                    continue;
+                }
+
+                bool isBillboard = VrVfxMaterialHelper.UsesBillboardStyleVertexStreams(particleRenderer.renderMode);
+                ParticleSystem particleSystem = particleRenderer.GetComponent<ParticleSystem>();
+                bool hasTrails = particleSystem != null && particleSystem.trails.enabled;
+
+                if (isBillboard && hasTrails)
+                {
+                    VrVfxMaterialHelper.PrepareTrailParticleStereoAtPlay(particleRenderer, reference);
+                    continue;
+                }
+
+                if (!isBillboard)
+                {
+                    // Mesh-mode emitters (Shockwave): dedicated SPI path that maps ProceduralBand
+                    // tint/alpha/intensity into Custom/SimpleLit so both eyes see the rings.
+                    VrVfxMaterialHelper.PrepareMeshParticleStereoAtPlay(particleRenderer, reference);
+                    continue;
+                }
+
+                // Replace only shaders that are known to be non-SPI-capable.
+                // Do NOT replace all materials — cloning a Stretch-mode reference material
+                // onto a Billboard-mode renderer creates an incompatible vertex layout that
+                // makes Unity discard the particles entirely.
+                Material[] materials = particleRenderer.sharedMaterials;
+                if (materials != null)
+                {
+                    bool replacedMaterial = false;
+                    for (int i = 0; i < materials.Length; i++)
+                    {
+                        if (materials[i] == null)
+                        {
+                            continue;
+                        }
+
+                        if (!VrVfxMaterialHelper.ShouldForceSafeParticleShader(materials[i].shader))
+                        {
+                            continue;
+                        }
+
+                        Material safemat = VrVfxMaterialHelper.CreateForcedSafeBillboardReplacement(
+                            materials[i], reference, particleSystem);
+                        if (safemat != null)
+                        {
+                            materials[i] = safemat;
+                            replacedMaterial = true;
+                        }
+                    }
+
+                    if (replacedMaterial)
+                    {
+                        particleRenderer.sharedMaterials = materials;
+                    }
+                }
+
+                if (particleRenderer.trailMaterial != null
+                    && VrVfxMaterialHelper.ShouldForceSafeParticleShader(particleRenderer.trailMaterial.shader))
+                {
+                    Material safeTrailMat = VrVfxMaterialHelper.CreateForcedSafeBillboardReplacement(
+                        particleRenderer.trailMaterial, reference, particleSystem);
+                    if (safeTrailMat != null)
+                    {
+                        particleRenderer.trailMaterial = safeTrailMat;
+                    }
+                }
+
+                VrVfxMaterialHelper.SyncParticleRendererStereoState(particleRenderer, reference);
+                VrVfxMaterialHelper.HardenParticleRendererStereoCulling(particleRenderer);
+            }
+        }
+
         private void SetLayerRecursively(GameObject obj, int newLayer)
         {
             obj.layer = newLayer;
@@ -553,11 +649,37 @@ namespace BeatSurgeon.Gameplay
 
         private ParticleSystemRenderer GetReferenceBombParticleRenderer()
         {
+            return GetReferenceBombParticleRenderer(out _);
+        }
+
+        private ParticleSystemRenderer GetReferenceBombParticleRenderer(out bool isAnchoredReference)
+        {
             if (_referenceBombParticleRenderer != null)
             {
+                isAnchoredReference = true;
                 return _referenceBombParticleRenderer;
             }
 
+            ParticleSystemRenderer anchoredReference = GetAnchoredReferenceBombParticleRenderer();
+            if (anchoredReference != null)
+            {
+                _referenceBombParticleRenderer = anchoredReference;
+                isAnchoredReference = true;
+                return _referenceBombParticleRenderer;
+            }
+
+            // No live GameCore bomb explosion effect is resident yet (e.g. the Supporter tab
+            // preview is played from the main menu before any song has loaded this session).
+            // Fall back to any other Custom/CustomParticles-capable renderer already resident
+            // in memory so the menu preview still renders correctly in both eyes. This result
+            // is intentionally not cached, so the proper GameCore reference is adopted as soon
+            // as it becomes available.
+            isAnchoredReference = false;
+            return FindFallbackSpiParticleRenderer("FireworksExplosionPool");
+        }
+
+        private ParticleSystemRenderer GetAnchoredReferenceBombParticleRenderer()
+        {
             Transform anchor = _gameplayVfxAnchor != null ? _gameplayVfxAnchor : GetGameplayVfxAnchor();
             if (anchor == null)
             {
@@ -571,26 +693,49 @@ namespace BeatSurgeon.Gameplay
             }
 
             var referenceRenderers = bombExplosionEffect.GetComponentsInChildren<ParticleSystemRenderer>(true);
-            _referenceBombParticleRenderer = referenceRenderers
+            ParticleSystemRenderer reference = referenceRenderers
                 .Where(renderer => GetReferenceRendererScore(renderer) > 0)
                 .OrderByDescending(GetReferenceRendererScore)
                 .FirstOrDefault()
                 ?? referenceRenderers.FirstOrDefault(renderer => renderer != null && renderer.renderMode != ParticleSystemRenderMode.Mesh)
                 ?? referenceRenderers.FirstOrDefault();
 
-            if (_referenceBombParticleRenderer != null)
+            if (reference != null)
             {
                 LogUtils.Debug(() =>
                     "FireworksExplosionPool: Using reference particle renderer '"
-                    + GetTransformPath(_referenceBombParticleRenderer.transform)
+                    + GetTransformPath(reference.transform)
                     + "' shader='"
-                    + (_referenceBombParticleRenderer.sharedMaterial != null && _referenceBombParticleRenderer.sharedMaterial.shader != null
-                        ? _referenceBombParticleRenderer.sharedMaterial.shader.name
+                    + (reference.sharedMaterial != null && reference.sharedMaterial.shader != null
+                        ? reference.sharedMaterial.shader.name
                         : "<missing>")
                     + "'.");
             }
 
-            return _referenceBombParticleRenderer;
+            return reference;
+        }
+
+        internal static ParticleSystemRenderer FindFallbackSpiParticleRenderer(string callerName)
+        {
+            ParticleSystemRenderer fallback = Resources.FindObjectsOfTypeAll<ParticleSystemRenderer>()
+                .Where(renderer => GetReferenceRendererScore(renderer) > 0)
+                .OrderByDescending(GetReferenceRendererScore)
+                .FirstOrDefault();
+
+            if (fallback != null)
+            {
+                LogUtils.Debug(() =>
+                    callerName
+                    + ": Using fallback SPI reference particle renderer '"
+                    + GetTransformPath(fallback.transform)
+                    + "' shader='"
+                    + (fallback.sharedMaterial != null && fallback.sharedMaterial.shader != null
+                        ? fallback.sharedMaterial.shader.name
+                        : "<missing>")
+                    + "'.");
+            }
+
+            return fallback;
         }
 
         private static int GetReferenceRendererScore(ParticleSystemRenderer renderer)
@@ -607,6 +752,14 @@ namespace BeatSurgeon.Gameplay
                 : string.Empty;
             string materialName = renderer.sharedMaterial != null ? renderer.sharedMaterial.name : string.Empty;
 
+            // Never use our own prepared emitters as the SPI reference. After the first menu
+            // preview they score highest (Billboard + Custom/CustomParticles) and poison later
+            // clones with self-referential materials / vertex streams.
+            if (IsBeatSurgeonOwnedParticleRenderer(transformName, path, materialName))
+            {
+                return int.MinValue;
+            }
+
             int score = 0;
 
             if (shaderName.IndexOf("Custom/CustomParticles", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -619,6 +772,23 @@ namespace BeatSurgeon.Gameplay
                 score += 1600;
             }
 
+            if (path.IndexOf("bombexplosion", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += 1400;
+            }
+
+            if (path.IndexOf("menueenvironment", StringComparison.OrdinalIgnoreCase) >= 0
+                || path.IndexOf("mainmenu", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score -= 1800;
+            }
+
+            if (transformName.IndexOf("SparksDown", StringComparison.OrdinalIgnoreCase) >= 0
+                || path.IndexOf("eflickering", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score -= 2200;
+            }
+
             if (transformName.IndexOf("Sparkle", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 score += 1000;
@@ -629,9 +799,14 @@ namespace BeatSurgeon.Gameplay
                 score += 750;
             }
 
+            if (renderer.renderMode == ParticleSystemRenderMode.Billboard)
+            {
+                score += 900;
+            }
+
             if (renderer.renderMode == ParticleSystemRenderMode.Stretch)
             {
-                score += 500;
+                score -= 400;
             }
 
             if (renderer.renderMode == ParticleSystemRenderMode.Mesh)
@@ -650,6 +825,38 @@ namespace BeatSurgeon.Gameplay
             }
 
             return score;
+        }
+
+        private static bool IsBeatSurgeonOwnedParticleRenderer(string transformName, string path, string materialName)
+        {
+            if (string.IsNullOrEmpty(transformName) && string.IsNullOrEmpty(path) && string.IsNullOrEmpty(materialName))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(transformName)
+                && (transformName.IndexOf("_BundleInstance", StringComparison.OrdinalIgnoreCase) >= 0
+                    || transformName.IndexOf("BeatSurgeon", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(path)
+                && (path.IndexOf("_bundleinstance", StringComparison.OrdinalIgnoreCase) >= 0
+                    || path.IndexOf("beatsurgeon", StringComparison.OrdinalIgnoreCase) >= 0
+                    || path.IndexOf("fireworksexplosionpool", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(materialName)
+                && (materialName.IndexOf("BeatSurgeon", StringComparison.OrdinalIgnoreCase) >= 0
+                    || materialName.IndexOf("_BeatSurgeon", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private static void RebindParticleMaterialShader(ParticleSystemRenderer particleRenderer, ParticleSystemRenderer referenceRenderer)

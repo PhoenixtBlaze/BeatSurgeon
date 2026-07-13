@@ -706,45 +706,7 @@ namespace BeatSurgeon.HarmonyPatches
         }
     }
 
-    [HarmonyPatch(typeof(NoteCutCoreEffectsSpawner), "HandleNoteWasCut")]
-    internal static class BombMarkedNoteCutCoreEffectsPatch
-    {
-        private static bool Prefix(NoteController noteController, in NoteCutInfo noteCutInfo)
-        {
-            var noteData = noteController?.noteData;
-            if (noteData == null)
-            {
-                return true;
-            }
-
-            if (!BombManager.Instance.IsNoteMarkedAsBomb(noteData))
-            {
-                return true;
-            }
-
-            LogUtils.Debug(() => "BombMarkedNoteCutCoreEffectsPatch: Suppressing base NoteCutCoreEffectsSpawner for BeatSurgeon bomb note.");
-            return false;
-        }
-    }
-
-    [HarmonyPatch(typeof(BadNoteCutEffectSpawner), "HandleNoteWasCut")]
-    internal static class BombMarkedBadCutEffectsPatch
-    {
-        private static bool Prefix(NoteController noteController, in NoteCutInfo noteCutInfo)
-        {
-            var noteData = noteController?.noteData;
-            if (noteData == null)
-            {
-                return true;
-            }
-
-            if (!BombManager.Instance.IsNoteMarkedAsBomb(noteData))
-            {
-                return true;
-            }
-
-            LogUtils.Debug(() => "BombMarkedBadCutEffectsPatch: Suppressing base BadNoteCutEffectSpawner for BeatSurgeon bomb note.");
-            return false;
-        }
-    }
+    // Intentionally no longer suppress NoteCutCoreEffectsSpawner / BadNoteCutEffectSpawner for
+    // BeatSurgeon bombs. Vanilla cut sparks + saber haptic must keep running; BombCutPatch still
+    // layers the selected custom SurgeonExplosion emitter on top.
 }

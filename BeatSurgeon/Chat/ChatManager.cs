@@ -143,8 +143,21 @@ namespace BeatSurgeon.Chat
                     }
                 }
 
-                // Start a fresh IRC connect loop
-                StartIrcAsync();
+                if (_authManager.IsAuthenticated)
+                {
+                    StartIrcAsync();
+                }
+                else
+                {
+                    lock (_ircStateLock)
+                    {
+                        _cts = null;
+                        _receiveTask = null;
+                    }
+
+                    ActiveBackend = _chatPlexAcquired ? ChatBackend.ChatPlex : ChatBackend.None;
+                    _log.Info("IRC stopped after auth cleared");
+                }
             }
             catch (Exception ex)
             {

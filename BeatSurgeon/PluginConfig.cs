@@ -10,6 +10,7 @@ namespace BeatSurgeon
         private static readonly LogUtil _log = LogUtil.GetLogger("PluginConfig");
         private long _tokenExpiryTicks;
         private long _patreonTokenExpiryTicks;
+        private long _youtubeTokenExpiryTicks;
 
         public static PluginConfig Instance { get; set; }
 
@@ -33,6 +34,21 @@ namespace BeatSurgeon
             get => _patreonTokenExpiryTicks;
             set => _patreonTokenExpiryTicks = value;
         }
+
+        public virtual string YouTubeAccessToken { get; set; } = string.Empty;
+        public virtual string YouTubeRefreshToken { get; set; } = string.Empty;
+        public virtual string YouTubeEncryptedAccessToken { get; set; } = string.Empty;
+        public virtual string YouTubeEncryptedRefreshToken { get; set; } = string.Empty;
+        public virtual long YouTubeTokenExpiryTicks
+        {
+            get => _youtubeTokenExpiryTicks;
+            set => _youtubeTokenExpiryTicks = value;
+        }
+
+        public virtual string CachedYouTubeChannelId { get; set; } = string.Empty;
+        public virtual string CachedYouTubeChannelTitle { get; set; } = string.Empty;
+        public virtual string YouTubeBackendStatus { get; set; } = string.Empty;
+        public virtual bool YouTubeReauthRequired { get; set; } = false;
 
         [Ignore]
         public System.DateTime TokenExpiry
@@ -67,6 +83,23 @@ namespace BeatSurgeon
             (!string.IsNullOrEmpty(PatreonEncryptedAccessToken) ||
              (!string.IsNullOrEmpty(PatreonAccessToken) && string.IsNullOrEmpty(PatreonEncryptedAccessToken))) &&
             PatreonTokenExpiry > System.DateTime.UtcNow.AddMinutes(1);
+
+        [Ignore]
+        public System.DateTime YouTubeTokenExpiry
+        {
+            get => _youtubeTokenExpiryTicks > 0
+                ? new System.DateTime(_youtubeTokenExpiryTicks, System.DateTimeKind.Utc)
+                : System.DateTime.MinValue;
+            set => _youtubeTokenExpiryTicks = value == System.DateTime.MinValue
+                ? 0
+                : value.ToUniversalTime().Ticks;
+        }
+
+        [Ignore]
+        public bool HasValidYouTubeToken =>
+            (!string.IsNullOrEmpty(YouTubeEncryptedAccessToken) ||
+             (!string.IsNullOrEmpty(YouTubeAccessToken) && string.IsNullOrEmpty(YouTubeEncryptedAccessToken))) &&
+            YouTubeTokenExpiry > System.DateTime.UtcNow.AddMinutes(1);
 
         // --- Commands / Toggles --- 
         public virtual bool BitEffectEnabled { get; set; } = false;
