@@ -2295,7 +2295,7 @@ namespace BeatSurgeon.Gameplay
                         return null;
                     }
 
-                    ConfigurePrefabOutlineParticles(particleSystem, meshRenderer, refs.OutlineParticleMaterial, cfg);
+                    ConfigurePrefabOutlineParticles(particleSystem, meshRenderer, refs.OutlineParticleMaterial);
                     foreach (var clonedParticleSystem in templateRoot.GetComponentsInChildren<ParticleSystem>(true))
                     {
                         try
@@ -2306,7 +2306,7 @@ namespace BeatSurgeon.Gameplay
                     }
 
                     LogUtils.Debug(() =>
-                        $"SurgeonEffectsBundleService: using exact prefab outline emitter path='{BundleRegistry.TwitchControllerRefs.BitsOutlineEmitterPath}' root='{BundleRegistry.TwitchControllerRefs.BitsOutlineRootPath}' outlineRendererVisible={(meshRenderer != null && meshRenderer.enabled && !meshRenderer.forceRenderingOff ? "true" : "false")} hiddenNonParticleRenderers={templateRoot.GetComponentsInChildren<Renderer>(true).Count(r => r != null && !(r is ParticleSystemRenderer) && (!r.enabled || r.forceRenderingOff))} outlineMaterial='{meshRenderer?.sharedMaterial?.name ?? "<missing>"}' particleMaterial='{particleSystem.GetComponent<ParticleSystemRenderer>()?.sharedMaterial?.name}' density={Mathf.Max(0.1f, cfg?.OutlineParticleDensityMultiplier ?? 1f):0.##} brightness={GetConfiguredOutlineBrightness(cfg):0.##} alpha={GetConfiguredOutlineAlpha(cfg):0.##}.");
+                        $"SurgeonEffectsBundleService: using exact prefab outline emitter path='{BundleRegistry.TwitchControllerRefs.BitsOutlineEmitterPath}' root='{BundleRegistry.TwitchControllerRefs.BitsOutlineRootPath}' outlineRendererVisible={(meshRenderer != null && meshRenderer.enabled && !meshRenderer.forceRenderingOff ? "true" : "false")} hiddenNonParticleRenderers={templateRoot.GetComponentsInChildren<Renderer>(true).Count(r => r != null && !(r is ParticleSystemRenderer) && (!r.enabled || r.forceRenderingOff))} outlineMaterial='{meshRenderer?.sharedMaterial?.name ?? "<missing>"}' particleMaterial='{particleSystem.GetComponent<ParticleSystemRenderer>()?.sharedMaterial?.name}' outlineParticleCounts=prefab-authored brightness={GetConfiguredOutlineBrightness(cfg):0.##} alpha={GetConfiguredOutlineAlpha(cfg):0.##}.");
 
                     return particleSystem;
                 }
@@ -3144,21 +3144,15 @@ namespace BeatSurgeon.Gameplay
                 && GetConfiguredOutlineAlpha(cfg) > 0f;
         }
 
-        private static void ConfigurePrefabOutlineParticles(ParticleSystem particleSystem, MeshRenderer outlineRenderer, Material particleMaterialSource, PluginConfig cfg)
+        private static void ConfigurePrefabOutlineParticles(ParticleSystem particleSystem, MeshRenderer outlineRenderer, Material particleMaterialSource)
         {
             if (particleSystem == null)
             {
                 return;
             }
 
-            float density = Mathf.Max(0.1f, cfg?.OutlineParticleDensityMultiplier ?? 1f);
-
-            var main = particleSystem.main;
-            main.prewarm = true;
-            main.maxParticles = Mathf.Max(main.maxParticles, Mathf.RoundToInt(main.maxParticles * density));
-
-            var emission = particleSystem.emission;
-            emission.rateOverTimeMultiplier *= density;
+            // Prefab-authored maxParticles / rate / prewarm / sortingFudge are preserved.
+            // OutlineParticleDensityMultiplier is intentionally not applied on this path.
 
             try
             {
@@ -3174,7 +3168,6 @@ namespace BeatSurgeon.Gameplay
             var renderer = particleSystem.GetComponent<ParticleSystemRenderer>();
             if (renderer != null)
             {
-                renderer.sortingFudge = 8f;
                 if (renderer.sharedMaterial == null && particleMaterialSource != null)
                 {
                     renderer.sharedMaterial = particleMaterialSource;

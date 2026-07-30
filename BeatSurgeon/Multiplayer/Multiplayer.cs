@@ -36,12 +36,19 @@ namespace BeatSurgeon
             public string ActiveCommand { get; set; }
 
             /// <summary>
+            /// Display name of the chat/redeem requester for the active command, or null if unknown.
+            /// </summary>
+            [JsonProperty("active_command_user")]
+            public string ActiveCommandUser { get; set; }
+
+            /// <summary>
             /// Arbitrary control flag (true/false) you can set from gameplay logic.
             /// </summary>
             [JsonProperty("control")]
             public bool Control { get; set; }
         }
         private static string _activeCommand;
+        private static string _activeCommandUser;
         private static bool _control;
         private static readonly object _lock = new object();
         private static MultiplayerStatePayload _lastSentState;
@@ -98,14 +105,18 @@ namespace BeatSurgeon
                 lock (_secretLock) { _hostSecret = null; } // leaving room invalidates host secret
             }
 
-            UpdateState(roomCode, isHost, _activeCommand, controlToSend);
+            UpdateState(roomCode, isHost, _activeCommand, _activeCommandUser, controlToSend);
         }
 
 
         // Call these from your redeem/effect system:
-        public static void SetActiveCommand(string command)
+        public static void SetActiveCommand(string command, string activeCommandUser = null)
         {
             _activeCommand = string.IsNullOrWhiteSpace(command) ? null : command;
+            // Clear requester when command clears; otherwise only keep a non-empty trimmed name.
+            _activeCommandUser = _activeCommand == null
+                ? null
+                : (string.IsNullOrWhiteSpace(activeCommandUser) ? null : activeCommandUser.Trim());
             OnMpPlusChanged();
         }
 
@@ -125,15 +136,17 @@ namespace BeatSurgeon
         /// Currently active redeem/command id (e.g. "rainbow", "ghost", "bomb"),
         /// or null/empty if no effect is active.
         /// </param>
+        /// <param name="activeCommandUser">Requester display name for the active command, or null.</param>
         /// <param name="control">Your custom control flag.</param>
         /// 
-        public static void UpdateState(string roomCode, bool isHost, string activeCommand, bool control, bool forceSend = false)
+        public static void UpdateState(string roomCode, bool isHost, string activeCommand, string activeCommandUser, bool control, bool forceSend = false)
         {
             var payload = new MultiplayerStatePayload
             {
                 RoomCode = roomCode ?? string.Empty,
                 IsHost = isHost,
                 ActiveCommand = string.IsNullOrWhiteSpace(activeCommand) ? null : activeCommand,
+                ActiveCommandUser = string.IsNullOrWhiteSpace(activeCommandUser) ? null : activeCommandUser.Trim(),
                 Control = control
             };
 
@@ -172,6 +185,7 @@ namespace BeatSurgeon
                 string.Equals(_lastSentState.RoomCode, current.RoomCode, StringComparison.Ordinal) &&
                 _lastSentState.IsHost == current.IsHost &&
                 string.Equals(_lastSentState.ActiveCommand, current.ActiveCommand, StringComparison.Ordinal) &&
+                string.Equals(_lastSentState.ActiveCommandUser, current.ActiveCommandUser, StringComparison.Ordinal) &&
                 _lastSentState.Control == current.Control;
         }
 
@@ -191,7 +205,7 @@ namespace BeatSurgeon
                 bool canControl = SceneHelper.MpPlusIsHost && !string.IsNullOrWhiteSpace(SceneHelper.MpPlusRoomCode);
                 bool controlToSend = canControl && _control;
 
-                UpdateState(roomCode, true, _activeCommand, controlToSend, forceSend: true);
+                UpdateState(roomCode, true, _activeCommand, _activeCommandUser, controlToSend, forceSend: true);
             }
         }
 

@@ -31,12 +31,13 @@ namespace BeatSurgeon.Twitch
             }
 
             string identityKey = GetCurrentManualDisableIdentityKey();
-            bool hasAccess = HasAuthenticatedVisualsAccess();
 
             if (!enabled)
             {
                 SetEnabled(config, feature, false);
-                if (hasAccess && !string.IsNullOrWhiteSpace(identityKey))
+                // Persist manual-disable for any authenticated broadcaster/Patreon identity so a later
+                // entitlement sync does not silently re-enable the feature.
+                if (!string.IsNullOrWhiteSpace(identityKey))
                 {
                     SetManualDisabledBroadcasterId(config, feature, identityKey);
                 }
@@ -44,12 +45,8 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
-            if (!hasAccess)
-            {
-                SyncConfigEnabledState(feature);
-                return;
-            }
-
+            // Automatic EventSub/cheer effects are available to everyone; allow enabling without
+            // Tier 1+ entitlement. Chat commands and customizations remain separately gated.
             SetEnabled(config, feature, true);
             if (!string.IsNullOrWhiteSpace(identityKey) &&
                 string.Equals(GetManualDisabledBroadcasterId(config, feature), identityKey, StringComparison.Ordinal))
@@ -89,7 +86,9 @@ namespace BeatSurgeon.Twitch
 
         internal static bool IsToggleInteractable(PremiumVisualFeature feature)
         {
-            return HasAuthenticatedVisualsAccess();
+            // Follow/Sub/Bit effect toggles control automatic effects available to everyone.
+            // Supporter entitlement is not required to interact with these toggles.
+            return true;
         }
 
         internal static bool HasAuthenticatedSupporterPlatform()
@@ -104,7 +103,6 @@ namespace BeatSurgeon.Twitch
             {
                 PluginConfig config = PluginConfig.Instance;
                 return config != null
-                    && HasAuthenticatedVisualsAccess()
                     && IsProviderAuthenticated(EntitlementProvider.Twitch)
                     && config.FollowEffectsEnabled
                     && !string.IsNullOrWhiteSpace(GetCurrentBroadcasterId());
@@ -114,7 +112,6 @@ namespace BeatSurgeon.Twitch
             {
                 PluginConfig config = PluginConfig.Instance;
                 return config != null
-                    && HasAuthenticatedVisualsAccess()
                     && IsProviderAuthenticated(EntitlementProvider.Twitch)
                     && config.SubEffectsEnabled
                     && !string.IsNullOrWhiteSpace(GetCurrentBroadcasterId());
@@ -123,11 +120,40 @@ namespace BeatSurgeon.Twitch
             return false;
         }
 
-        internal static async Task EnsureAuthorizedAsync(
+        internal static Task EnsureAutomaticEffectAuthorizedAsync(
             PremiumVisualFeature feature,
             string featureDisplayName,
             bool requiresToggle,
             CancellationToken ct)
+        {
+            return EnsureAuthorizedAsync(
+                feature,
+                featureDisplayName,
+                requiresToggle,
+                ct,
+                requireSupporterEntitlement: false);
+        }
+
+        internal static Task EnsureAuthorizedAsync(
+            PremiumVisualFeature feature,
+            string featureDisplayName,
+            bool requiresToggle,
+            CancellationToken ct)
+        {
+            return EnsureAuthorizedAsync(
+                feature,
+                featureDisplayName,
+                requiresToggle,
+                ct,
+                requireSupporterEntitlement: true);
+        }
+
+        private static async Task EnsureAuthorizedAsync(
+            PremiumVisualFeature feature,
+            string featureDisplayName,
+            bool requiresToggle,
+            CancellationToken ct,
+            bool requireSupporterEntitlement)
         {
             PluginConfig config = PluginConfig.Instance;
             if (config == null)
@@ -135,21 +161,24 @@ namespace BeatSurgeon.Twitch
                 throw new InvalidOperationException(featureDisplayName + " are unavailable because the plugin configuration is not ready.");
             }
 
-            if (!HasAuthenticatedSupporterPlatform())
+            if (requireSupporterEntitlement)
             {
-                throw new InvalidOperationException(featureDisplayName + " require a logged-in Twitch or Patreon account.");
-            }
+                if (!HasAuthenticatedSupporterPlatform())
+                {
+                    throw new InvalidOperationException(featureDisplayName + " require a logged-in Twitch or Patreon account.");
+                }
 
-            bool allowed = HasAuthenticatedVisualsAccess();
-            if (!allowed)
-            {
-                allowed = await RefreshVisualsPermissionAsync(ct).ConfigureAwait(false);
-            }
+                bool allowed = HasAuthenticatedVisualsAccess();
+                if (!allowed)
+                {
+                    allowed = await RefreshVisualsPermissionAsync(ct).ConfigureAwait(false);
+                }
 
-            SyncAllConfigEnabledStates();
-            if (!allowed || !HasAuthenticatedVisualsAccess())
-            {
-                throw new InvalidOperationException(featureDisplayName + " require an active Tier 1+ entitlement.");
+                SyncAllConfigEnabledStates();
+                if (!allowed || !HasAuthenticatedVisualsAccess())
+                {
+                    throw new InvalidOperationException(featureDisplayName + " require an active Tier 1+ entitlement.");
+                }
             }
 
             if (requiresToggle && !GetEnabled(config, feature))

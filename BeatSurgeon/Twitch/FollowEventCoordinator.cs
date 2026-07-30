@@ -78,7 +78,7 @@ namespace BeatSurgeon.Twitch
 
             try
             {
-                await FollowEffectAccessController.EnsureAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
+                await FollowEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

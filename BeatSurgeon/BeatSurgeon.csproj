@@ -430,6 +430,7 @@
     <Compile Include="UI\Controllers\BeatSurgeonViewController.cs" />
     <Compile Include="UI\FlowCoordinator\BeatSurgeonFlowCoordinator.cs" />
     <Compile Include="Utils\LogUtil.cs" />
+    <Compile Include="Utils\NamedColorParser.cs" />
     <Compile Include="Utils\SceneHelper.cs" />
   </ItemGroup>
   <ItemGroup>

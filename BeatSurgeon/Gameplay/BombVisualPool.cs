@@ -114,7 +114,8 @@ namespace BeatSurgeon.Gameplay
                     if (_sphereSharedMaterial == null)
                     {
                         var safeShader = Shader.Find("Custom/SimpleLit") ?? Shader.Find("Standard");
-                        if (safeShader != null) _sphereSharedMaterial = new Material(safeShader);
+                        if (safeShader != null)
+                            _sphereSharedMaterial = CreateEmissiveSimpleLitMaterial(safeShader, "BombSphere");
                     }
 
                     if (_sphereSharedMaterial != null)
@@ -136,6 +137,10 @@ namespace BeatSurgeon.Gameplay
 
         // Replaces non-SPI-capable bundle shaders on mesh renderers with Custom/SimpleLit.
         // Particle system renderers are intentionally skipped; they are handled by FireworksExplosionPool.
+        //
+        // FogLighting (and similar) often keep albedo near-black and put brightness in tint/emission.
+        // Copying only _Color into SimpleLit made bombs render black. Seed a bright emissive base
+        // here; Rent -> ApplyColor then tints that base to the replaced note's color.
         private static void ReplaceBundleMeshShaders(GameObject root)
         {
             Shader safeShader = Shader.Find("Custom/SimpleLit") ?? Shader.Find("Standard");
@@ -178,12 +183,7 @@ namespace BeatSurgeon.Gameplay
                         continue;
                     }
 
-                    Color originalColor = mats[i].HasProperty("_Color") ? mats[i].color : Color.white;
-                    mats[i] = new Material(safeShader)
-                    {
-                        name = mats[i].name + "_BeatSurgeonVrSafe",
-                        color = originalColor
-                    };
+                    mats[i] = CreateEmissiveSimpleLitMaterial(safeShader, mats[i].name);
                     changed = true;
                 }
 
@@ -192,6 +192,34 @@ namespace BeatSurgeon.Gameplay
                     r.sharedMaterials = mats;
                 }
             }
+        }
+
+        /// <summary>
+        /// SPI-safe bomb mesh material. White albedo + emission keyword so ApplyColor can tint
+        /// with the note color without inheriting FogLighting's near-black _Color.
+        /// </summary>
+        private static Material CreateEmissiveSimpleLitMaterial(Shader safeShader, string sourceName)
+        {
+            Material mat = new Material(safeShader)
+            {
+                name = (string.IsNullOrEmpty(sourceName) ? "BombMesh" : sourceName) + "_BeatSurgeonVrSafe"
+            };
+
+            // Neutral bright base — note color is applied per rent via MaterialPropertyBlock.
+            Color baseColor = Color.white;
+            if (mat.HasProperty("_Color")) mat.SetColor("_Color", baseColor);
+            if (mat.HasProperty("_SimpleColor")) mat.SetColor("_SimpleColor", baseColor);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", baseColor);
+            if (mat.HasProperty("_TintColor")) mat.SetColor("_TintColor", baseColor);
+            if (mat.HasProperty("_EmissionColor")) mat.SetColor("_EmissionColor", baseColor);
+
+            try
+            {
+                mat.EnableKeyword("_EMISSION");
+            }
+            catch { }
+
+            return mat;
         }
     }
 
@@ -233,6 +261,23 @@ namespace BeatSurgeon.Gameplay
             if (_renderers == null || _renderers.Length == 0)
                 CacheRenderers();
 
+            // Match the replaced note's hue; keep alpha opaque and boost emission so bombs
+            // stay readable under GameCore lighting after the FogLighting -> SimpleLit swap.
+            Color albedo = noteColor;
+            albedo.a = 1f;
+            if (albedo.maxColorComponent < 0.05f)
+            {
+                albedo = Color.white;
+            }
+
+            Color emission = noteColor * 2f;
+            emission.a = 1f;
+            if (emission.maxColorComponent < 0.1f)
+            {
+                emission = Color.white * 1.5f;
+                emission.a = 1f;
+            }
+
             foreach (var r in _renderers)
             {
                 if (r == null) continue;
@@ -245,14 +290,20 @@ namespace BeatSurgeon.Gameplay
                     var mat = mats[i];
                     if (mat == null) continue;
 
+                    try
+                    {
+                        mat.EnableKeyword("_EMISSION");
+                    }
+                    catch { }
+
                     _mpb.Clear();
                     bool any = false;
 
-                    if (mat.HasProperty(ColorId)) { _mpb.SetColor(ColorId, noteColor); any = true; }
-                    if (mat.HasProperty(SimpleColorId)) { _mpb.SetColor(SimpleColorId, noteColor); any = true; }
-                    if (mat.HasProperty(BaseColorId)) { _mpb.SetColor(BaseColorId, noteColor); any = true; }
-                    if (mat.HasProperty(TintColorId)) { _mpb.SetColor(TintColorId, noteColor); any = true; }
-                    if (mat.HasProperty(EmissionColorId)) { _mpb.SetColor(EmissionColorId, noteColor); any = true; }
+                    if (mat.HasProperty(ColorId)) { _mpb.SetColor(ColorId, albedo); any = true; }
+                    if (mat.HasProperty(SimpleColorId)) { _mpb.SetColor(SimpleColorId, albedo); any = true; }
+                    if (mat.HasProperty(BaseColorId)) { _mpb.SetColor(BaseColorId, albedo); any = true; }
+                    if (mat.HasProperty(TintColorId)) { _mpb.SetColor(TintColorId, albedo); any = true; }
+                    if (mat.HasProperty(EmissionColorId)) { _mpb.SetColor(EmissionColorId, emission); any = true; }
 
                     if (any) r.SetPropertyBlock(_mpb, i);
                 }

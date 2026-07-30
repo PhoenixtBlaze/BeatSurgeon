@@ -299,7 +299,6 @@ namespace BeatSurgeon.Gameplay
                     try
                     {
                         particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                        particleSystem.Simulate(0.35f, true, true, true);
                         particleSystem.Play(true);
                     }
                     catch { }

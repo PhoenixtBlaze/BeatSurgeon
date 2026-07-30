@@ -1654,8 +1654,14 @@ namespace BeatSurgeon.UI.Controllers
         {
             bool isSupporter = SupporterTabVisible;
 
+            // Effect toggles (Bit/Sub/Follow) live under the Supporter tab Commands subtab.
+            // Automatic EventSub/cheer effects are available to everyone, so keep the tab visible
+            // for non-supporters. Customization (Effects subtab: fonts/explosion) stays supporter-only.
             if (_supporterTab != null)
-                _supporterTab.IsVisible = isSupporter;
+                _supporterTab.IsVisible = true;
+
+            if (_supporterEffectsTab != null)
+                _supporterEffectsTab.IsVisible = isSupporter;
 
             if (_supportButton != null)
                 _supportButton.gameObject.SetActive(!isSupporter);

@@ -15,27 +15,28 @@ namespace BeatSurgeon.Integrations
     /// Fetches the AccSaber Reloaded bulk ranked-difficulty list once at startup and exposes
     /// an O(1) <see cref="IsRanked"/> lookup safe to call from any thread.
     ///
-    /// Endpoint: GET https://accsaberreloaded.com/v1/maps/difficulties/all
+    /// Canonical endpoint: GET https://api.accsaberreloaded.com/v1/maps/difficulties/all
     /// No authentication required. Returns a flat JSON array — no pagination.
+    ///
+    /// Do not use https://accsaberreloaded.com/v1/... — that host serves the Vue SPA HTML with
+    /// HTTP 200 and previously caused an empty ranked cache / AccSaber=False false negatives.
     /// </summary>
     internal sealed class AccSaberClient : IInitializable, IDisposable
     {
         internal const int CacheMaxAgeMinutes = 60;
 
+        // Official Reloaded API first; api.accsaber.com is a working alias of the same JSON API.
+        // Frontend hosts (accsaberreloaded.com without the api. subdomain) are intentionally omitted.
         private static readonly string[] _bulkRankedListUrls =
         {
-            "https://accsaberreloaded.com/v1/maps/difficulties/all",
-            "https://accsaber.com/api/v1/maps/difficulties/all",
-            "https://api.accsaber.com/v1/maps/difficulties/all",
-            "https://accsaber.com/v1/maps/difficulties/all"
+            "https://api.accsaberreloaded.com/v1/maps/difficulties/all",
+            "https://api.accsaber.com/v1/maps/difficulties/all"
         };
 
         private static readonly string[] _mapByHashUrlPrefixes =
         {
-            "https://accsaberreloaded.com/v1/maps/hash/",
-            "https://accsaber.com/api/v1/maps/hash/",
-            "https://api.accsaber.com/v1/maps/hash/",
-            "https://accsaber.com/v1/maps/hash/"
+            "https://api.accsaberreloaded.com/v1/maps/hash/",
+            "https://api.accsaber.com/v1/maps/hash/"
         };
 
         private static readonly LogUtil _log = LogUtil.GetLogger("AccSaber");
@@ -141,8 +142,9 @@ namespace BeatSurgeon.Integrations
         /// </summary>
         internal async Task RefreshAsync()
         {
-            // Skip if cache is fresh.
+            // Skip if cache is fresh and non-empty. An empty "success" (old SPA HTML bug) must retry.
             if (_lastFetchUtc != DateTime.MinValue &&
+                _rankedSet.Count > 0 &&
                 (DateTime.UtcNow - _lastFetchUtc).TotalMinutes < CacheMaxAgeMinutes)
             {
                 return;
@@ -182,7 +184,21 @@ namespace BeatSurgeon.Integrations
                     }
 
                     string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!LooksLikeJsonArray(json))
+                    {
+                        _log.Warn("[BeatSurgeon][AccSaber] Ranked list response was not a JSON array at " + url
+                            + " (likely SPA HTML). Trying next endpoint.");
+                        continue;
+                    }
+
                     var newSet = ParseRankedSet(json);
+                    if (newSet.Count == 0)
+                    {
+                        _log.Warn("[BeatSurgeon][AccSaber] Ranked list parsed 0 entries from " + url
+                            + " — treating as invalid and trying next endpoint.");
+                        continue;
+                    }
+
                     _rankedSet = newSet;
                     _lastFetchUtc = DateTime.UtcNow;
                     _lastSuccessfulBulkUrl = url;
@@ -215,7 +231,8 @@ namespace BeatSurgeon.Integrations
                     if (response.StatusCode == HttpStatusCode.NotFound)
                     {
                         _log.Debug("[BeatSurgeon][AccSaber] Map-by-hash endpoint returned 404 at " + url);
-                        continue;
+                        // Real API 404 means this hash is not on AccSaber — no need to try aliases.
+                        return false;
                     }
 
                     if (!response.IsSuccessStatusCode)
@@ -225,15 +242,36 @@ namespace BeatSurgeon.Integrations
                     }
 
                     string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    bool ranked = TryParseRankedMapResponse(json, accSaberDiff, characteristic, out string matchedCharacteristic);
-                    _lastSuccessfulMapByHashPrefix = prefix;
+                    if (!LooksLikeJsonObject(json))
+                    {
+                        _log.Warn("[BeatSurgeon][AccSaber] Map-by-hash response was not JSON at " + url
+                            + " (likely SPA HTML). Trying next endpoint.");
+                        continue;
+                    }
 
+                    if (!TryParseRankedMapResponse(json, accSaberDiff, characteristic, out bool parsedOk, out string matchedCharacteristic))
+                    {
+                        if (!parsedOk)
+                        {
+                            _log.Warn("[BeatSurgeon][AccSaber] Failed to parse map-by-hash JSON at " + url + ". Trying next endpoint.");
+                            continue;
+                        }
+
+                        // Valid map payload, but this difficulty/characteristic is not RANKED.
+                        _lastSuccessfulMapByHashPrefix = prefix;
+                        _log.Debug("[BeatSurgeon][AccSaber] Map-by-hash lookup diff=" + accSaberDiff
+                            + " characteristic=" + NormalizeCharacteristic(characteristic)
+                            + " matchedCharacteristic=" + (string.IsNullOrEmpty(matchedCharacteristic) ? "<none>" : matchedCharacteristic)
+                            + " ranked=False");
+                        return false;
+                    }
+
+                    _lastSuccessfulMapByHashPrefix = prefix;
                     _log.Debug("[BeatSurgeon][AccSaber] Map-by-hash lookup diff=" + accSaberDiff
                         + " characteristic=" + NormalizeCharacteristic(characteristic)
                         + " matchedCharacteristic=" + (string.IsNullOrEmpty(matchedCharacteristic) ? "<none>" : matchedCharacteristic)
-                        + " ranked=" + ranked);
-
-                    return ranked;
+                        + " ranked=True");
+                    return true;
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -289,9 +327,19 @@ namespace BeatSurgeon.Integrations
             return result;
         }
 
-        private static bool TryParseRankedMapResponse(string json, string accSaberDiff, string characteristic, out string matchedCharacteristic)
+        /// <summary>
+        /// Returns true when the difficulty is RANKED. <paramref name="parsedOk"/> is true only when
+        /// the body was a valid AccSaber map JSON object (so callers can fall through on SPA HTML).
+        /// </summary>
+        private static bool TryParseRankedMapResponse(
+            string json,
+            string accSaberDiff,
+            string characteristic,
+            out bool parsedOk,
+            out string matchedCharacteristic)
         {
             matchedCharacteristic = null;
+            parsedOk = false;
             if (string.IsNullOrEmpty(json))
                 return false;
 
@@ -302,6 +350,7 @@ namespace BeatSurgeon.Integrations
                 if (difficulties == null)
                     return false;
 
+                parsedOk = true;
                 string normalizedCharacteristic = NormalizeCharacteristic(characteristic);
                 for (int index = 0; index < difficulties.Count; index++)
                 {
@@ -328,6 +377,31 @@ namespace BeatSurgeon.Integrations
             }
 
             return false;
+        }
+
+        private static bool LooksLikeJsonArray(string body)
+        {
+            return FirstNonWhitespaceChar(body) == '[';
+        }
+
+        private static bool LooksLikeJsonObject(string body)
+        {
+            return FirstNonWhitespaceChar(body) == '{';
+        }
+
+        private static char FirstNonWhitespaceChar(string body)
+        {
+            if (string.IsNullOrEmpty(body))
+                return '\0';
+
+            for (int i = 0; i < body.Length; i++)
+            {
+                char ch = body[i];
+                if (!char.IsWhiteSpace(ch))
+                    return ch;
+            }
+
+            return '\0';
         }
 
         private static bool UsesStandardCharacteristic(string characteristic)
@@ -359,6 +433,20 @@ namespace BeatSurgeon.Integrations
         private static string[] GetPreferredUrls(string[] urls, string preferredUrl)
         {
             if (string.IsNullOrEmpty(preferredUrl))
+                return urls;
+
+            // Ignore a preferred URL that is no longer in the allow-list (e.g. old SPA host).
+            bool preferredStillValid = false;
+            for (int i = 0; i < urls.Length; i++)
+            {
+                if (string.Equals(urls[i], preferredUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    preferredStillValid = true;
+                    break;
+                }
+            }
+
+            if (!preferredStillValid)
                 return urls;
 
             var ordered = new List<string>(urls.Length);

@@ -102,7 +102,7 @@ namespace BeatSurgeon.Gameplay
             BombArmed = true;
             BombConsumed = false;
 
-            MultiplayerStateClient.SetActiveCommand("bomb");
+            MultiplayerStateClient.SetActiveCommand("bomb", requesterName);
             string requesterNameLocal = bombRequest.RequesterName;
             string displayTextLocal = bombRequest.DisplayText;
             int queueCount = _pendingBombRequests.Count;

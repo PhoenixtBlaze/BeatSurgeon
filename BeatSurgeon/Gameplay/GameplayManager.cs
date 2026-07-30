@@ -515,7 +515,7 @@ namespace BeatSurgeon.Gameplay
                 {
                     case EventKind.Follow:
                     {
-                        await FollowEffectAccessController.EnsureAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
+                        await FollowEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
                         string displayText = entry.DisplayName + " is now Following!";
                         var ctx = new ChatContext
                         {
@@ -530,7 +530,7 @@ namespace BeatSurgeon.Gameplay
                     }
                     case EventKind.Bits:
                     {
-                        await BitEffectAccessController.EnsureAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
+                        await BitEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
                         var ctx = new ChatContext
                         {
                             SenderName = entry.DisplayName,
@@ -545,7 +545,7 @@ namespace BeatSurgeon.Gameplay
                     }
                     case EventKind.Subscription:
                     {
-                        await SubscriberEffectAccessController.EnsureAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
+                        await SubscriberEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
                         string displayText = SubscriberEventCoordinator.BuildDisplayText(entry.TierLabel, entry.CumulativeMonths, entry.GiftCount, entry.EventSubKind);
                         var ctx = new ChatContext
                         {

@@ -33,11 +33,6 @@ namespace BeatSurgeon.Chat.Processors
 
         public async Task ExecuteAsync(ChatContext ctx, CancellationToken ct)
         {
-            if (ctx != null && !(ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster))
-            {
-                throw new InvalidOperationException("!smsg is only available for subscribers.");
-            }
-
             string displayText = ExtractMessageSuffix(ctx?.MessageText);
             await SubscriberEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
             _log.Command(ctx.Username, ctx.Command, true, "displayText=" + displayText);

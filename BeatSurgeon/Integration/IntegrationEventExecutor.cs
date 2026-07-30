@@ -104,7 +104,7 @@ namespace BeatSurgeon.Integration
 
             try
             {
-                await FollowEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+                await FollowEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -179,7 +179,7 @@ namespace BeatSurgeon.Integration
 
             try
             {
-                await SubscriberEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+                await SubscriberEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -254,7 +254,7 @@ namespace BeatSurgeon.Integration
 
             try
             {
-                await BitEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+                await BitEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

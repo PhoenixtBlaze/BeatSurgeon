@@ -17,6 +17,7 @@ namespace BeatSurgeon
             [JsonProperty("type")] internal string Type { get; set; }
             [JsonProperty("room_code")] internal string RoomCode { get; set; }
             [JsonProperty("active_command")] internal string ActiveCommand { get; set; }
+            [JsonProperty("active_command_user")] internal string ActiveCommandUser { get; set; }
             [JsonProperty("control")] internal bool? Control { get; set; }
         }
 
@@ -25,6 +26,7 @@ namespace BeatSurgeon
             internal string Type { get; set; }
             internal string TargetPlayerId { get; set; }
             internal string Command { get; set; }
+            internal string SenderName { get; set; }
         }
 
         private static readonly LogUtil _log = LogUtil.GetLogger("MultiplayerRoomSyncClient");
@@ -101,11 +103,16 @@ namespace BeatSurgeon
             }
         }
 
-        internal void EnqueueSync(string command)
+        internal void EnqueueSync(string command, string senderName = null)
         {
             if (!MultiplayerEffectsEnabled) return;
             if (string.IsNullOrWhiteSpace(command)) return;
-            var message = new SyncMessage { Type = "host_state", Command = command };
+            var message = new SyncMessage
+            {
+                Type = "host_state",
+                Command = command,
+                SenderName = string.IsNullOrWhiteSpace(senderName) ? null : senderName.Trim()
+            };
             lock (_batchLock)
             {
                 _pendingBatch.Enqueue(message);
@@ -233,7 +240,7 @@ namespace BeatSurgeon
                     if (string.IsNullOrWhiteSpace(msg.ActiveCommand))
                         continue;
 
-                    EnqueueSync(msg.ActiveCommand);
+                    EnqueueSync(msg.ActiveCommand, msg.ActiveCommandUser);
                 }
             }
             catch (OperationCanceledException)
@@ -260,7 +267,8 @@ namespace BeatSurgeon
 
             var ctx = new ChatContext
             {
-                SenderName = "RoomHost",
+                // Prefer host-published requester; keep RoomHost only when name was not synced.
+                SenderName = string.IsNullOrWhiteSpace(msg.SenderName) ? "RoomHost" : msg.SenderName,
                 MessageText = msg.Command.StartsWith("!") ? msg.Command : "!" + msg.Command,
                 IsBroadcaster = true,
                 IsModerator = true,

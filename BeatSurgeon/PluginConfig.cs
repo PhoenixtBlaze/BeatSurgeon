@@ -205,8 +205,8 @@ namespace BeatSurgeon
         public virtual string PreferredOutlineEmitterName { get; set; } = "OutlineParticles";
         // If true, always use the built-in runtime outline particle template and skip bundle loading
         public virtual bool ForceBuiltinOutlineTemplate { get; set; } = false;
-        // Multiplies the OutlineParticles emitter density and max particle count.
-        public virtual float OutlineParticleDensityMultiplier { get; set; } = 20f;
+        // Retained for config compatibility. Prefab outline particle counts are used as authored; this multiplier is not applied.
+        public virtual float OutlineParticleDensityMultiplier { get; set; } = 1f;
         // Existing configs may still contain old outline material values; keep the mesh hidden until visibility is explicitly re-enabled.
         public virtual bool OutlineMaterialVisibilityEnabled { get; set; } = false;
         // Controls the outline mesh brightness. 0 disables visible outline shading while keeping the mesh available for particle emission.

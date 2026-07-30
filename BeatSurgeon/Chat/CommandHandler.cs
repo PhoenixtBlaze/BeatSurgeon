@@ -430,7 +430,7 @@ namespace BeatSurgeon.Chat
                 enabled.Add("!fmsg <text>");
             }
 
-            if (ShouldAdvertiseSubscriberMessageCommand(ctx))
+            if (ShouldAdvertiseSubscriberMessageCommand())
             {
                 enabled.Add("!smsg <text>");
             }
@@ -467,17 +467,12 @@ namespace BeatSurgeon.Chat
                 && PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
         }
 
-        private static bool ShouldAdvertiseSubscriberMessageCommand(ChatContext ctx)
+        private static bool ShouldAdvertiseSubscriberMessageCommand()
         {
             PluginConfig config = PluginConfig.Instance;
-            if (config == null
-                || !config.SubEffectsEnabled
-                || !PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess())
-            {
-                return false;
-            }
-
-            return ctx != null && (ctx.IsSubscriber || ctx.IsModerator || ctx.IsBroadcaster);
+            return config != null
+                && config.SubEffectsEnabled
+                && PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
         }
 
         private static bool ShouldAdvertiseGlitterCommand()

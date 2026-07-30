@@ -29,5 +29,14 @@ namespace BeatSurgeon.Twitch
                 requiresToggle: true,
                 ct: ct);
         }
+
+        internal static Task EnsureAutomaticEffectAuthorizedAsync(CancellationToken ct)
+        {
+            return PremiumVisualFeatureAccessController.EnsureAutomaticEffectAuthorizedAsync(
+                PremiumVisualFeature.SubscriberEffect,
+                "Subscriber effects",
+                requiresToggle: true,
+                ct: ct);
+        }
     }
 }

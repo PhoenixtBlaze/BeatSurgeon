@@ -16,9 +16,10 @@ namespace BeatSurgeon.Chat.Processors
     /// as the rainbow command since notecolor is a derivative of that system.
     ///
     /// Usage: !notecolor &lt;leftColor&gt; &lt;rightColor&gt;
-    ///   Named:  !notecolor red blue
+    ///   Named:  !notecolor pink hotpink
+    ///   Spaced: !notecolor light blue sky blue
     ///   Hex:    !notecolor #FF0000 #0000FF
-    ///   Mixed:  !notecolor red #0000FF
+    ///   Mixed:  !notecolor papayawhip #0000FF
     /// </summary>
     internal sealed class NoteColorProcessor : ICommandProcessor
     {
@@ -60,27 +61,27 @@ namespace BeatSurgeon.Chat.Processors
             Color right = Color.black;
             int parsed = 0;
 
-            for (int i = 1; i < tokens.Length && parsed < 2; i++)
+            // Skip command token at [0]; greedily consume named/hex colors
+            // (supports multi-word names like "light blue", "medium sea green").
+            for (int i = 1; i < tokens.Length && parsed < 2;)
             {
-                string token = tokens[i];
-                // Try the token as-is first (handles named colors like "red", "blue",
-                // and already-prefixed hex like "#FF0000").
-                // If that fails, prepend # to handle bare hex input like "FF0000".
-                bool ok = ColorUtility.TryParseHtmlString(token, out Color c);
-                if (!ok) ok = ColorUtility.TryParseHtmlString("#" + token, out c);
-
-                if (ok)
+                if (NamedColorParser.TryParseFromTokens(tokens, i, out Color c, out int consumed))
                 {
                     if (parsed == 0) left = c;
                     else right = c;
                     parsed++;
+                    i += consumed;
+                }
+                else
+                {
+                    i++;
                 }
             }
 
             if (parsed < 2)
                 throw new InvalidOperationException(
                     "Usage: !notecolor <leftColor> <rightColor>  " +
-                    "e.g. !notecolor red blue  or  !notecolor #FF0000 #0000FF");
+                    "e.g. !notecolor pink blue  or  !notecolor light blue #0000FF");
 
             await _gameplayManager.ApplyNoteColorAsync(ctx, left, right, ct).ConfigureAwait(false);
         }
