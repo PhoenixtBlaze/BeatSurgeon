@@ -39,6 +39,13 @@ namespace BeatSurgeon.Integration
             return "auto:cheer:" + identity + ":" + normalizedAmount;
         }
 
+        internal static string BuildRaidKey(string service, string userId, string userName, int viewers)
+        {
+            string identity = NormalizeIdentity(service, userId, userName);
+            int normalizedViewers = Math.Max(0, viewers);
+            return "auto:raid:" + identity + ":" + normalizedViewers;
+        }
+
         internal bool TryClaim(string dedupKey, AutomaticEffectOrigin origin)
         {
             if (string.IsNullOrWhiteSpace(dedupKey))

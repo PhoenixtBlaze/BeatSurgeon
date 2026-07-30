@@ -77,6 +77,10 @@ namespace BeatSurgeon.Installers
                 .AsSingle()
                 .NonLazy();
 
+            Container.BindInterfacesAndSelfTo<RaidEventCoordinator>()
+                .AsSingle()
+                .NonLazy();
+
             Container.BindInterfacesAndSelfTo<ChannelPointCommandExecutor>()
                 .AsSingle()
                 .NonLazy();
@@ -126,13 +130,14 @@ namespace BeatSurgeon.Installers
             Container.Bind<ICommandProcessor>().To<FlashbangProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<FollowerMessageProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<SubscriberMessageProcessor>().AsSingle();
+            Container.Bind<ICommandProcessor>().To<RaidProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<GlitterProcessor>().AsSingle();
             Container.Bind<ICommandProcessor>().To<TestProcessor>().AsSingle();
             // Endless mode disabled for release — restore bindings when ready.
             // Container.Bind<ICommandProcessor>().To<EndlessModeProcessor>().AsSingle();
             // Container.Bind<ICommandProcessor>().To<SongRequestProcessor>().AsSingle();
 
-            _log.Info("Registered 11 ICommandProcessor implementations");
+            _log.Info("Registered 12 ICommandProcessor implementations");
             _log.Lifecycle("InstallBindings complete");
         }
     }

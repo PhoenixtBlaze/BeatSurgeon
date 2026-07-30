@@ -77,6 +77,11 @@ namespace BeatSurgeon.Integration
                 {
                     supporterCommands.Add("!smsg");
                 }
+
+                if (config.RaidEffectsEnabled)
+                {
+                    supporterCommands.Add("!raid");
+                }
             }
 
             GameplayManager gameplay = GameplayManager.GetInstance();

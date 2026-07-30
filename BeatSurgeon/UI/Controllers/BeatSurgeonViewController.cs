@@ -963,6 +963,8 @@ namespace BeatSurgeon.UI.Controllers
             NotifyPropertyChanged(nameof(SubEffectsToggleInteractable));
             NotifyPropertyChanged(nameof(FollowEffectsEnabled));
             NotifyPropertyChanged(nameof(FollowEffectsToggleInteractable));
+            NotifyPropertyChanged(nameof(RaidEffectsEnabled));
+            NotifyPropertyChanged(nameof(RaidEffectsToggleInteractable));
             NotifyPropertyChanged(nameof(SubscribeButtonText));
         }
 
@@ -1237,6 +1239,25 @@ namespace BeatSurgeon.UI.Controllers
             FollowEffectAccessController.ApplyManualToggle(value);
             NotifyPropertyChanged(nameof(FollowEffectsEnabled));
             NotifyPropertyChanged(nameof(FollowEffectsToggleInteractable));
+            _ = TwitchEventSubClient.Instance.RefreshSubscriptionsAsync();
+        }
+
+        [UIValue("RaidEffectsEnabled")]
+        public bool RaidEffectsEnabled
+        {
+            get => PluginConfig.Instance.RaidEffectsEnabled;
+            set => PluginConfig.Instance.RaidEffectsEnabled = value;
+        }
+
+        [UIValue("raidEffectsToggleInteractable")]
+        public bool RaidEffectsToggleInteractable => RaidEffectAccessController.IsToggleInteractable;
+
+        [UIAction("OnRaidEffectsChanged")]
+        private void OnRaidEffectsChanged(bool value)
+        {
+            RaidEffectAccessController.ApplyManualToggle(value);
+            NotifyPropertyChanged(nameof(RaidEffectsEnabled));
+            NotifyPropertyChanged(nameof(RaidEffectsToggleInteractable));
             _ = TwitchEventSubClient.Instance.RefreshSubscriptionsAsync();
         }
 

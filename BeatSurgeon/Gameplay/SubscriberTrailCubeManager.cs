@@ -63,6 +63,11 @@ namespace BeatSurgeon.Gameplay
 
         internal bool HasPendingNotes => _pendingEntries.Count > 0;
 
+        internal bool IsNoteMarked(GameNoteController controller)
+        {
+            return controller != null && _activeEntries.ContainsKey(controller);
+        }
+
         internal bool EnsureWarmPoolSize(int desiredPoolSize)
         {
             desiredPoolSize = Mathf.Clamp(desiredPoolSize, 0, MaxPoolSize);

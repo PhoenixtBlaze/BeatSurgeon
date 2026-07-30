@@ -54,6 +54,16 @@ namespace BeatSurgeon.Twitch
             internal string EventSubKind;  // "sub" | "resub" | "giftsub" | "subend"
         }
 
+        internal sealed class RaidNotification
+        {
+            internal string EventId;
+            internal string FromBroadcasterUserId;
+            internal string FromBroadcasterUserLogin;
+            internal string FromBroadcasterUserName;
+            internal string ToBroadcasterUserId;
+            internal int Viewers;
+        }
+
         internal static string CurrentSessionId { get; private set; }
 
         private static TwitchEventSubClient _instance;
@@ -77,7 +87,10 @@ namespace BeatSurgeon.Twitch
         private string _subscribeResubId = string.Empty;
         private string _subscribeGiftId = string.Empty;
         private string _subscribeEndId = string.Empty;
+        private string _subscribeChatNotificationId = string.Empty;
         private bool _pendingSubscribeSubscriptions;
+        private string _raidSubscriptionId = string.Empty;
+        private bool _pendingRaidSubscription;
 
         private CancellationTokenSource _cts;
         private Task _receiveLoop;
@@ -86,6 +99,7 @@ namespace BeatSurgeon.Twitch
         internal event Action<ChannelPointRedemption> OnChannelPointRedeemed;
         internal event Action<FollowNotification> OnFollowReceived;
         internal event Action<SubscriberNotification> OnSubscriptionReceived;
+        internal event Action<RaidNotification> OnRaidReceived;
 
         internal bool IsConnected => _isConnected;
 
@@ -156,7 +170,10 @@ namespace BeatSurgeon.Twitch
                 _subscribeResubId = string.Empty;
                 _subscribeGiftId = string.Empty;
                 _subscribeEndId = string.Empty;
+                _subscribeChatNotificationId = string.Empty;
                 _pendingSubscribeSubscriptions = false;
+                _raidSubscriptionId = string.Empty;
+                _pendingRaidSubscription = false;
             }
         }
 
@@ -173,12 +190,14 @@ namespace BeatSurgeon.Twitch
         {
             bool shouldFollow = ShouldSubscribeToFollowEffects();
             bool shouldSubscriber = ShouldSubscribeToSubscriberEffects();
-            bool shouldKeepAlive = HasConfiguredRewardSubscriptions() || shouldFollow || shouldSubscriber;
+            bool shouldRaid = ShouldSubscribeToRaidEffects();
+            bool shouldKeepAlive = HasConfiguredRewardSubscriptions() || shouldFollow || shouldSubscriber || shouldRaid;
 
             if (!shouldKeepAlive)
             {
                 await RemoveFollowSubscriptionAsync(ct).ConfigureAwait(false);
                 await RemoveSubscribeSubscriptionsAsync(ct).ConfigureAwait(false);
+                await RemoveRaidSubscriptionAsync(ct).ConfigureAwait(false);
                 await StopReceiveLoopAsync().ConfigureAwait(false);
                 _log.TwitchState("SubscriptionsRefresh", "NoConfiguredSubscriptions");
                 return;
@@ -217,6 +236,23 @@ namespace BeatSurgeon.Twitch
                 catch (Exception ex)
                 {
                     _log.Warn("RefreshSubscriptionsAsync subscriber refresh failed: " + ex.Message);
+                }
+            }
+
+            if (!shouldRaid)
+            {
+                await RemoveRaidSubscriptionAsync(ct).ConfigureAwait(false);
+            }
+            else
+            {
+                try
+                {
+                    string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+                    await EnsureRaidSubscriptionAsync(channelUserId, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _log.Warn("RefreshSubscriptionsAsync raid refresh failed: " + ex.Message);
                 }
             }
         }
@@ -520,9 +556,17 @@ namespace BeatSurgeon.Twitch
             return SubscriberEffectAccessController.ShouldMaintainSubscription();
         }
 
+        private static bool ShouldSubscribeToRaidEffects()
+        {
+            return RaidEffectAccessController.ShouldMaintainSubscription();
+        }
+
         private static bool ShouldKeepConnectionAlive()
         {
-            return HasConfiguredRewardSubscriptions() || ShouldSubscribeToFollowEffects() || ShouldSubscribeToSubscriberEffects();
+            return HasConfiguredRewardSubscriptions()
+                || ShouldSubscribeToFollowEffects()
+                || ShouldSubscribeToSubscriberEffects()
+                || ShouldSubscribeToRaidEffects();
         }
 
         private async Task ProcessMessageAsync(string message, CancellationToken ct)
@@ -569,6 +613,12 @@ namespace BeatSurgeon.Twitch
                 return Task.CompletedTask;
             }
 
+            if (string.Equals(subscriptionType, "channel.raid", StringComparison.Ordinal))
+            {
+                HandleRaidNotification(json);
+                return Task.CompletedTask;
+            }
+
             if (string.Equals(subscriptionType, "channel.subscribe", StringComparison.Ordinal))
             {
                 HandleSubscribeNotification(json);
@@ -590,6 +640,12 @@ namespace BeatSurgeon.Twitch
             if (string.Equals(subscriptionType, "channel.subscription.end", StringComparison.Ordinal))
             {
                 HandleSubscriptionEndNotification(json);
+                return Task.CompletedTask;
+            }
+
+            if (string.Equals(subscriptionType, "channel.chat.notification", StringComparison.Ordinal))
+            {
+                HandleChatNotification(json);
                 return Task.CompletedTask;
             }
 
@@ -675,6 +731,64 @@ namespace BeatSurgeon.Twitch
             }
         }
 
+        private void HandleRaidNotification(JObject json)
+        {
+            JToken payload = json["payload"]?["event"];
+            if (payload == null)
+            {
+                return;
+            }
+
+            string eventId = json["metadata"]?["message_id"]?.ToString();
+            if (string.IsNullOrWhiteSpace(eventId))
+            {
+                eventId = (payload["from_broadcaster_user_id"]?.ToString() ?? string.Empty)
+                    + "|"
+                    + (payload["to_broadcaster_user_id"]?.ToString() ?? string.Empty)
+                    + "|"
+                    + (payload["viewers"]?.ToString() ?? string.Empty);
+            }
+
+            int viewers = 0;
+            try
+            {
+                viewers = payload["viewers"]?.Value<int>() ?? 0;
+            }
+            catch
+            {
+                int.TryParse(payload["viewers"]?.ToString(), out viewers);
+            }
+
+            var notification = new RaidNotification
+            {
+                EventId = eventId,
+                FromBroadcasterUserId = payload["from_broadcaster_user_id"]?.ToString() ?? string.Empty,
+                FromBroadcasterUserLogin = payload["from_broadcaster_user_login"]?.ToString() ?? string.Empty,
+                FromBroadcasterUserName = payload["from_broadcaster_user_name"]?.ToString() ?? string.Empty,
+                ToBroadcasterUserId = payload["to_broadcaster_user_id"]?.ToString() ?? string.Empty,
+                Viewers = Math.Max(0, viewers)
+            };
+
+            _log.Info(
+                "Raid notification received from="
+                + (string.IsNullOrWhiteSpace(notification.FromBroadcasterUserName)
+                    ? notification.FromBroadcasterUserLogin
+                    : notification.FromBroadcasterUserName)
+                + " viewers="
+                + notification.Viewers
+                + " fromId="
+                + notification.FromBroadcasterUserId);
+
+            try
+            {
+                OnRaidReceived?.Invoke(notification);
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "OnRaidReceived invoke");
+            }
+        }
+
         private void HandleSubscribeNotification(JObject json)
         {
             JToken payload = json["payload"]?["event"];
@@ -683,10 +797,14 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
-            bool isGift = payload["is_gift"]?.Value<bool>() ?? false;
+            bool isGift = ReadBool(payload["is_gift"]);
             if (isGift)
             {
-                // Gift subs that already trigger channel.subscription.gift; skip duplicate.
+                // Gift recipients also get channel.subscribe; celebration comes from channel.subscription.gift / chat.notification.
+                _log.Info(
+                    "Subscribe notification skipped (is_gift=true) user="
+                    + (payload["user_name"]?.ToString() ?? payload["user_login"]?.ToString() ?? "unknown")
+                    + " — gift path handles celebration");
                 return;
             }
 
@@ -703,7 +821,7 @@ namespace BeatSurgeon.Twitch
                 EventSubKind = "sub"
             };
 
-            _log.Info("Subscribe notification received user=" + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName));
+            _log.Info("Subscribe notification received kind=sub user=" + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName));
 
             try
             {
@@ -736,7 +854,11 @@ namespace BeatSurgeon.Twitch
                 EventSubKind = "resub"
             };
 
-            _log.Info("Resub notification received user=" + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName) + " months=" + notification.CumulativeMonths);
+            _log.Info(
+                "Resub notification received kind=resub source=channel.subscription.message user="
+                + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName)
+                + " months="
+                + notification.CumulativeMonths);
 
             try
             {
@@ -756,7 +878,7 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
-            bool isAnonymous = payload["is_anonymous"]?.Value<bool>() ?? false;
+            bool isAnonymous = ReadBool(payload["is_anonymous"]);
             string userName = isAnonymous ? "Anonymous" : (payload["user_name"]?.ToString() ?? string.Empty);
             string userLogin = isAnonymous ? "Anonymous" : (payload["user_login"]?.ToString() ?? string.Empty);
 
@@ -773,7 +895,11 @@ namespace BeatSurgeon.Twitch
                 EventSubKind = "giftsub"
             };
 
-            _log.Info("GiftSub notification received gifter=" + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName) + " total=" + notification.GiftCount);
+            _log.Info(
+                "GiftSub notification received kind=giftsub source=channel.subscription.gift gifter="
+                + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName)
+                + " total="
+                + notification.GiftCount);
 
             try
             {
@@ -793,20 +919,118 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
+            string user = payload["user_name"]?.ToString() ?? payload["user_login"]?.ToString() ?? "unknown";
+            // Subscription end is not a celebratory chat-notice equivalent; do not fire !smsg.
+            _log.Info("Subscription end notification received (celebratory smsg skipped) user=" + user);
+        }
+
+        private void HandleChatNotification(JObject json)
+        {
+            JToken payload = json["payload"]?["event"];
+            if (payload == null)
+            {
+                return;
+            }
+
+            string noticeType = payload["notice_type"]?.ToString() ?? string.Empty;
+            string normalizedNotice = noticeType.Trim().ToLowerInvariant();
+
+            // Individual gift recipients spam once per gifted user; gifter celebration uses
+            // community_sub_gift / channel.subscription.gift instead.
+            if (normalizedNotice == "sub_gift" || normalizedNotice == "shared_chat_sub_gift")
+            {
+                _log.Info(
+                    "Chat notification skipped notice_type="
+                    + noticeType
+                    + " — individual gift recipient (gifter path handles celebration)");
+                return;
+            }
+
+            string eventKind;
+            JToken detail;
+            switch (normalizedNotice)
+            {
+                case "sub":
+                    eventKind = "sub";
+                    detail = payload["sub"];
+                    break;
+                case "shared_chat_sub":
+                    eventKind = "sub";
+                    detail = payload["shared_chat_sub"];
+                    break;
+                case "resub":
+                    eventKind = "resub";
+                    detail = payload["resub"];
+                    break;
+                case "shared_chat_resub":
+                    eventKind = "resub";
+                    detail = payload["shared_chat_resub"];
+                    break;
+                case "community_sub_gift":
+                    eventKind = "giftsub";
+                    detail = payload["community_sub_gift"];
+                    break;
+                case "shared_chat_community_sub_gift":
+                    eventKind = "giftsub";
+                    detail = payload["shared_chat_community_sub_gift"];
+                    break;
+                default:
+                    _log.Debug("Chat notification ignored notice_type=" + noticeType);
+                    return;
+            }
+
+            if (detail == null || detail.Type == JTokenType.Null)
+            {
+                _log.Warn("Chat notification missing detail object notice_type=" + noticeType);
+                return;
+            }
+
+            // Gifted sub/resub share notices still carry is_gift=true; skip to avoid gift double-fire.
+            if ((eventKind == "sub" || eventKind == "resub") && ReadBool(detail["is_gift"]))
+            {
+                _log.Info(
+                    "Chat notification skipped notice_type="
+                    + noticeType
+                    + " is_gift=true — gift path handles celebration");
+                return;
+            }
+
+            bool isAnonymous = ReadBool(payload["chatter_is_anonymous"]);
+            string userName = isAnonymous ? "Anonymous" : (payload["chatter_user_name"]?.ToString() ?? string.Empty);
+            string userLogin = isAnonymous ? "Anonymous" : (payload["chatter_user_login"]?.ToString() ?? string.Empty);
+            string userId = isAnonymous ? string.Empty : (payload["chatter_user_id"]?.ToString() ?? string.Empty);
+
+            string tier = detail["sub_plan"]?.ToString()
+                ?? detail["tier"]?.ToString()
+                ?? "1000";
+
+            int cumulativeMonths = detail["cumulative_months"]?.Value<int>() ?? 0;
+            int giftCount = eventKind == "giftsub"
+                ? (detail["total"]?.Value<int>() ?? 1)
+                : 0;
+
             var notification = new SubscriberNotification
             {
-                UserId = payload["user_id"]?.ToString() ?? string.Empty,
-                UserLogin = payload["user_login"]?.ToString() ?? string.Empty,
-                UserName = payload["user_name"]?.ToString() ?? string.Empty,
-                Tier = payload["tier"]?.ToString() ?? "1000",
-                CumulativeMonths = 0,
-                GiftCount = 0,
-                IsGift = payload["is_gift"]?.Value<bool>() ?? false,
-                IsAnonymous = false,
-                EventSubKind = "subend"
+                UserId = userId,
+                UserLogin = userLogin,
+                UserName = userName,
+                Tier = tier,
+                CumulativeMonths = cumulativeMonths,
+                GiftCount = giftCount,
+                IsGift = eventKind == "giftsub",
+                IsAnonymous = isAnonymous,
+                EventSubKind = eventKind
             };
 
-            _log.Info("Subscription end notification received user=" + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName));
+            _log.Info(
+                "Chat notification received kind="
+                + eventKind
+                + " notice_type="
+                + noticeType
+                + " user="
+                + (string.IsNullOrWhiteSpace(notification.UserName) ? notification.UserLogin : notification.UserName)
+                + (eventKind == "resub" ? " months=" + notification.CumulativeMonths : string.Empty)
+                + (eventKind == "giftsub" ? " total=" + notification.GiftCount : string.Empty));
 
             try
             {
@@ -814,7 +1038,24 @@ namespace BeatSurgeon.Twitch
             }
             catch (Exception ex)
             {
-                _log.Exception(ex, "OnSubscriptionReceived invoke (subend)");
+                _log.Exception(ex, "OnSubscriptionReceived invoke (chat.notification/" + eventKind + ")");
+            }
+        }
+
+        private static bool ReadBool(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return token.Value<bool>();
+            }
+            catch
+            {
+                return string.Equals(token.ToString(), "true", StringComparison.OrdinalIgnoreCase);
             }
         }
 
@@ -831,7 +1072,10 @@ namespace BeatSurgeon.Twitch
             _subscribeResubId = string.Empty;
             _subscribeGiftId = string.Empty;
             _subscribeEndId = string.Empty;
+            _subscribeChatNotificationId = string.Empty;
             _pendingSubscribeSubscriptions = false;
+            _raidSubscriptionId = string.Empty;
+            _pendingRaidSubscription = false;
 
             string channelUserId = await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
 
@@ -866,6 +1110,11 @@ namespace BeatSurgeon.Twitch
             if (ShouldSubscribeToSubscriberEffects())
             {
                 await EnsureSubscribeSubscriptionsAsync(channelUserId, ct).ConfigureAwait(false);
+            }
+
+            if (ShouldSubscribeToRaidEffects())
+            {
+                await EnsureRaidSubscriptionAsync(channelUserId, ct).ConfigureAwait(false);
             }
 
             _log.Info("Resubscription complete");
@@ -984,12 +1233,106 @@ namespace BeatSurgeon.Twitch
             }
         }
 
+        private async Task EnsureRaidSubscriptionAsync(string channelUserId, CancellationToken ct)
+        {
+            await _subscriptionLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                if (_raidSubscriptionId.Length > 0)
+                {
+                    return;
+                }
+
+                if (!ShouldSubscribeToRaidEffects())
+                {
+                    _pendingRaidSubscription = false;
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(CurrentSessionId))
+                {
+                    _pendingRaidSubscription = true;
+                    _log.TwitchState("RaidSubscriptionDeferred", "WaitingForSessionWelcome");
+                    StartReceiveLoop();
+                    return;
+                }
+
+                // Twitch channel.raid uses to_broadcaster_user_id when listening for inbound raids.
+                // No additional OAuth scope is required beyond a valid user access token for the broadcaster.
+                _log.TwitchState("RaidSubscription", "Subscribing to_broadcaster_user_id=" + channelUserId);
+                bool created = await TryCreateSubscribeTopicAsync(
+                    "channel.raid",
+                    "1",
+                    new Dictionary<string, string> { { "to_broadcaster_user_id", channelUserId } },
+                    () => _raidSubscriptionId,
+                    id => _raidSubscriptionId = id,
+                    channelUserId,
+                    ct).ConfigureAwait(false);
+
+                _pendingRaidSubscription = !created;
+                if (created)
+                {
+                    _log.TwitchState("RaidSubscription", "Subscribed subscriptionId=" + _raidSubscriptionId);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested || (_cts != null && _cts.IsCancellationRequested))
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _pendingRaidSubscription = true;
+                _log.Warn("EnsureRaidSubscriptionAsync failed transiently (" + ex.GetType().Name + ") - re-queuing for next session_welcome");
+            }
+            finally
+            {
+                _subscriptionLock.Release();
+            }
+        }
+
+        private async Task RemoveRaidSubscriptionAsync(CancellationToken ct)
+        {
+            await _subscriptionLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                _pendingRaidSubscription = false;
+
+                if (string.IsNullOrWhiteSpace(_raidSubscriptionId))
+                {
+                    return;
+                }
+
+                string subscriptionId = _raidSubscriptionId;
+                _raidSubscriptionId = string.Empty;
+
+                if (string.IsNullOrWhiteSpace(CurrentSessionId))
+                {
+                    return;
+                }
+
+                _log.TwitchState("RaidSubscription", "Unsubscribing subscriptionId=" + subscriptionId);
+                await _apiClient.DeleteEventSubSubscriptionAsync(subscriptionId, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _log.Exception(ex, "RemoveRaidSubscriptionAsync");
+            }
+            finally
+            {
+                _subscriptionLock.Release();
+            }
+        }
+
         private async Task EnsureSubscribeSubscriptionsAsync(string channelUserId, CancellationToken ct)
         {
             await _subscriptionLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                if (_subscribeSubId.Length > 0 && _subscribeResubId.Length > 0 && _subscribeGiftId.Length > 0 && _subscribeEndId.Length > 0)
+                if (_subscribeSubId.Length > 0
+                    && _subscribeResubId.Length > 0
+                    && _subscribeGiftId.Length > 0
+                    && _subscribeEndId.Length > 0
+                    && _subscribeChatNotificationId.Length > 0)
                 {
                     return;
                 }
@@ -1009,49 +1352,75 @@ namespace BeatSurgeon.Twitch
                 }
 
                 var condition = new Dictionary<string, string> { { "broadcaster_user_id", channelUserId } };
-
-                if (_subscribeSubId.Length == 0)
+                var chatNotificationCondition = new Dictionary<string, string>
                 {
-                    _log.TwitchState("SubscribeSubscription", "Subscribing channel.subscribe broadcasterUserId=" + channelUserId);
-                    _subscribeSubId = await _apiClient.CreateEventSubSubscriptionAsync(
-                        type: "channel.subscribe",
-                        version: "1",
-                        condition: condition,
-                        ct: ct).ConfigureAwait(false);
-                }
+                    { "broadcaster_user_id", channelUserId },
+                    { "user_id", channelUserId }
+                };
 
-                if (_subscribeResubId.Length == 0)
-                {
-                    _log.TwitchState("SubscribeSubscription", "Subscribing channel.subscription.message broadcasterUserId=" + channelUserId);
-                    _subscribeResubId = await _apiClient.CreateEventSubSubscriptionAsync(
-                        type: "channel.subscription.message",
-                        version: "1",
-                        condition: condition,
-                        ct: ct).ConfigureAwait(false);
-                }
+                bool anyFailed = false;
 
-                if (_subscribeGiftId.Length == 0)
-                {
-                    _log.TwitchState("SubscribeSubscription", "Subscribing channel.subscription.gift broadcasterUserId=" + channelUserId);
-                    _subscribeGiftId = await _apiClient.CreateEventSubSubscriptionAsync(
-                        type: "channel.subscription.gift",
-                        version: "1",
-                        condition: condition,
-                        ct: ct).ConfigureAwait(false);
-                }
+                // Create independently so one topic failure does not block the others.
+                anyFailed |= !await TryCreateSubscribeTopicAsync(
+                    "channel.subscribe",
+                    "1",
+                    condition,
+                    () => _subscribeSubId,
+                    id => _subscribeSubId = id,
+                    channelUserId,
+                    ct).ConfigureAwait(false);
 
-                if (_subscribeEndId.Length == 0)
-                {
-                    _log.TwitchState("SubscribeSubscription", "Subscribing channel.subscription.end broadcasterUserId=" + channelUserId);
-                    _subscribeEndId = await _apiClient.CreateEventSubSubscriptionAsync(
-                        type: "channel.subscription.end",
-                        version: "1",
-                        condition: condition,
-                        ct: ct).ConfigureAwait(false);
-                }
+                anyFailed |= !await TryCreateSubscribeTopicAsync(
+                    "channel.subscription.message",
+                    "1",
+                    condition,
+                    () => _subscribeResubId,
+                    id => _subscribeResubId = id,
+                    channelUserId,
+                    ct).ConfigureAwait(false);
 
-                _pendingSubscribeSubscriptions = false;
-                _log.TwitchState("SubscribeSubscriptions", "Subscribed subId=" + _subscribeSubId + " resubId=" + _subscribeResubId + " giftId=" + _subscribeGiftId + " endId=" + _subscribeEndId);
+                anyFailed |= !await TryCreateSubscribeTopicAsync(
+                    "channel.subscription.gift",
+                    "1",
+                    condition,
+                    () => _subscribeGiftId,
+                    id => _subscribeGiftId = id,
+                    channelUserId,
+                    ct).ConfigureAwait(false);
+
+                anyFailed |= !await TryCreateSubscribeTopicAsync(
+                    "channel.subscription.end",
+                    "1",
+                    condition,
+                    () => _subscribeEndId,
+                    id => _subscribeEndId = id,
+                    channelUserId,
+                    ct).ConfigureAwait(false);
+
+                anyFailed |= !await TryCreateSubscribeTopicAsync(
+                    "channel.chat.notification",
+                    "1",
+                    chatNotificationCondition,
+                    () => _subscribeChatNotificationId,
+                    id => _subscribeChatNotificationId = id,
+                    channelUserId,
+                    ct).ConfigureAwait(false);
+
+                _pendingSubscribeSubscriptions = anyFailed;
+                _log.TwitchState(
+                    "SubscribeSubscriptions",
+                    "Subscribed subId="
+                    + _subscribeSubId
+                    + " resubId="
+                    + _subscribeResubId
+                    + " giftId="
+                    + _subscribeGiftId
+                    + " endId="
+                    + _subscribeEndId
+                    + " chatNotificationId="
+                    + _subscribeChatNotificationId
+                    + " pendingRetry="
+                    + anyFailed);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested || (_cts != null && _cts.IsCancellationRequested))
             {
@@ -1065,6 +1434,55 @@ namespace BeatSurgeon.Twitch
             finally
             {
                 _subscriptionLock.Release();
+            }
+        }
+
+        private async Task<bool> TryCreateSubscribeTopicAsync(
+            string type,
+            string version,
+            Dictionary<string, string> condition,
+            Func<string> getId,
+            Action<string> setId,
+            string channelUserId,
+            CancellationToken ct)
+        {
+            if (!string.IsNullOrEmpty(getId()))
+            {
+                return true;
+            }
+
+            try
+            {
+                _log.TwitchState("SubscribeSubscription", "Subscribing " + type + " broadcasterUserId=" + channelUserId);
+                string id = await _apiClient.CreateEventSubSubscriptionAsync(
+                    type: type,
+                    version: version,
+                    condition: condition,
+                    ct: ct).ConfigureAwait(false);
+                setId(id ?? string.Empty);
+                if (string.IsNullOrWhiteSpace(getId()))
+                {
+                    _log.Warn("SubscribeSubscription returned empty id for type=" + type);
+                    return false;
+                }
+
+                return true;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested || (_cts != null && _cts.IsCancellationRequested))
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _log.Warn(
+                    "SubscribeSubscription failed type="
+                    + type
+                    + " ("
+                    + ex.GetType().Name
+                    + "): "
+                    + ex.Message
+                    + " - will retry on next session_welcome");
+                return false;
             }
         }
 
@@ -1104,6 +1522,13 @@ namespace BeatSurgeon.Twitch
                         _subscribeEndId = string.Empty;
                         try { await _apiClient.DeleteEventSubSubscriptionAsync(id, ct).ConfigureAwait(false); } catch { }
                     }
+
+                    if (_subscribeChatNotificationId.Length > 0)
+                    {
+                        string id = _subscribeChatNotificationId;
+                        _subscribeChatNotificationId = string.Empty;
+                        try { await _apiClient.DeleteEventSubSubscriptionAsync(id, ct).ConfigureAwait(false); } catch { }
+                    }
                 }
                 else
                 {
@@ -1111,6 +1536,7 @@ namespace BeatSurgeon.Twitch
                     _subscribeResubId = string.Empty;
                     _subscribeGiftId = string.Empty;
                     _subscribeEndId = string.Empty;
+                    _subscribeChatNotificationId = string.Empty;
                 }
             }
             catch (Exception ex)
@@ -1123,7 +1549,8 @@ namespace BeatSurgeon.Twitch
             }
         }
 
-        private bool TrackFollowEventId(string eventId)        {
+        private bool TrackFollowEventId(string eventId)
+        {
             if (string.IsNullOrWhiteSpace(eventId))
             {
                 return true;

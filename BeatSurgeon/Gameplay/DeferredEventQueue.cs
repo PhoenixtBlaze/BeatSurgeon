@@ -8,7 +8,8 @@ namespace BeatSurgeon.Gameplay
     {
         Follow,
         Bits,
-        Subscription
+        Subscription,
+        Raid
     }
 
     /// <summary>

@@ -135,6 +135,16 @@ namespace BeatSurgeon.Integration
                 ?? new IntegrationViewerPayload();
 
             string eventKind = NormalizeSubscriptionKind(data.Value<string>("context"));
+            if (string.Equals(eventKind, "subend", StringComparison.OrdinalIgnoreCase))
+            {
+                _log.Info("Integration subscription event skipped (subend is not celebratory)");
+                LogEventRejected(messageId, "smsg", IntegrationRejectReason.InvalidMessage, "Subscription end does not trigger celebratory smsg.");
+                return IntegrationCommandResult.FromRejected(
+                    "smsg",
+                    IntegrationRejectReason.InvalidMessage,
+                    "Subscription end does not trigger celebratory smsg.");
+            }
+
             string tier = data.Value<string>("tier") ?? data.Value<string>("subscriptionTier") ?? "1000";
             int cumulativeMonths = data.Value<int?>("consecutiveMonths") ?? data.Value<int?>("cumulativeMonths") ?? 0;
             int giftCount = data.Value<int?>("giftCount") ?? 1;

@@ -58,6 +58,12 @@ namespace BeatSurgeon.Twitch
             string tierLabel = TierToLabel(notification.Tier);
             string eventKind = string.IsNullOrWhiteSpace(notification.EventSubKind) ? "sub" : notification.EventSubKind;
 
+            if (string.Equals(eventKind, "subend", StringComparison.OrdinalIgnoreCase))
+            {
+                _log.Info("Subscription event skipped (subend is not celebratory) user=" + displayName);
+                return;
+            }
+
             string dedupKey = AutomaticEffectDedupService.BuildSubscriptionKey(
                 "twitch",
                 notification.UserId,
@@ -66,7 +72,7 @@ namespace BeatSurgeon.Twitch
 
             if (!_dedupService.TryClaim(dedupKey, AutomaticEffectOrigin.EventSub))
             {
-                _log.Debug("Subscription event skipped — duplicate automatic effect for " + displayName + ".");
+                _log.Info("Subscription event skipped — duplicate automatic effect for " + displayName + " kind=" + eventKind + ".");
                 return;
             }
 
@@ -113,7 +119,7 @@ namespace BeatSurgeon.Twitch
                     CancellationToken.None,
                     GetTrailCubeCount(notification.CumulativeMonths, notification.EventSubKind))
                     .ConfigureAwait(false);
-                _log.Info("Applied subscription-triggered subscriber message for user=" + displayName);
+                _log.Info("Applied subscription-triggered subscriber message for user=" + displayName + " kind=" + eventKind);
             }
             catch (Exception ex)
             {

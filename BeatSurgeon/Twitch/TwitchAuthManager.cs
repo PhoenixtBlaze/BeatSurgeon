@@ -566,7 +566,12 @@ namespace BeatSurgeon.Twitch
         {
             if (string.IsNullOrWhiteSpace(_accessToken)) return;
 
-            string[] requiredScopes = { "moderator:read:followers" };
+            string[] requiredScopes =
+            {
+                "moderator:read:followers",
+                "channel:read:subscriptions",
+                "user:read:chat"
+            };
 
             try
             {

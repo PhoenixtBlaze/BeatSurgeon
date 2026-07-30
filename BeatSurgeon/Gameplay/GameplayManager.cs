@@ -261,6 +261,7 @@ namespace BeatSurgeon.Gameplay
                     DisappearingArrowsVisualController.Audio = null;
                     FasterSongPatch.ClearCache();
                     FollowerMessageManager.ClearForSceneExit();
+                    RaidFountainNoteManager.ClearForSceneExit();
                     RankedMapDetectionService.Instance.Reset();
                 }
                 else if (!wasInMap && IsInMap && _deferredEventQueue != null)
@@ -392,6 +393,18 @@ namespace BeatSurgeon.Gameplay
                 }
 
                 warmupSucceeded &= SubscriberTrailCubeManager.Instance.EnsureWarmPoolSize(targetCount);
+                yield return null;
+            }
+
+            for (int targetCount = 1; targetCount <= RaidFountainNoteManager.RecommendedWarmPoolSize; targetCount++)
+            {
+                if (!IsInMap)
+                {
+                    _glitterWarmupRoutine = null;
+                    yield break;
+                }
+
+                warmupSucceeded &= RaidFountainNoteManager.Instance.EnsureWarmPoolSize(targetCount);
                 yield return null;
             }
 
@@ -561,6 +574,21 @@ namespace BeatSurgeon.Gameplay
                             SubscriberEventCoordinator.GetTrailCubeCount(entry.CumulativeMonths, entry.EventSubKind))
                             .ConfigureAwait(false);
                         _log.Info("[BeatSurgeon] Deferred Subscription effect fired for " + entry.DisplayName + " kind=" + entry.EventSubKind);
+                        break;
+                    }
+                    case EventKind.Raid:
+                    {
+                        await RaidEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(CancellationToken.None).ConfigureAwait(false);
+                        int noteCount = RaidFountainNoteManager.ClampNoteCount(entry.BitAmount);
+                        var ctx = new ChatContext
+                        {
+                            SenderName = entry.DisplayName,
+                            MessageText = "!raid " + noteCount,
+                            Source = ChatSource.NativeTwitch,
+                            TriggerSource = TriggerSource.Chat
+                        };
+                        await ApplyRaidEffectAsync(ctx, entry.DisplayName, noteCount, CancellationToken.None).ConfigureAwait(false);
+                        _log.Info("[BeatSurgeon] Deferred Raid effect fired for " + entry.DisplayName + " notes=" + noteCount);
                         break;
                     }
                 }
@@ -1426,6 +1454,42 @@ namespace BeatSurgeon.Gameplay
             detail += " trailCubeCount=" + normalizedTrailCubeCount + " trailQueued=" + queuedTrailCubes;
             _log.Effect("SubscriberMessage", started, detail);
             if (!started) throw new InvalidOperationException("Subscriber message could not be started (not in map, queue full, or subscriber canvas unavailable).");
+        }
+
+        internal async Task ApplyRaidEffectAsync(ChatContext ctx, string raiderName, int noteCount, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            await FontBundleLoader.EnsureBombFontReadyAsync().ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+
+            if (!FontBundleLoader.IsBombFontReady)
+            {
+                throw new InvalidOperationException("Bomb font bundle could not be loaded for raid fountain.");
+            }
+
+            int clampedNotes = RaidFountainNoteManager.ClampNoteCount(noteCount);
+            string displayName = string.IsNullOrWhiteSpace(raiderName)
+                ? (ctx?.Username ?? "Someone")
+                : raiderName.Trim();
+
+            bool queued = false;
+            await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
+                .StartNew(() =>
+                {
+                    queued = RaidFountainNoteManager.Instance.QueueNotes(clampedNotes, displayName);
+                })
+                .ConfigureAwait(false);
+
+            string requestedBy = ctx?.Username ?? displayName;
+            _log.Effect(
+                "RaidFountain",
+                queued,
+                "requestedBy=" + requestedBy + " raider=" + displayName + " notes=" + clampedNotes);
+            if (!queued)
+            {
+                throw new InvalidOperationException("Raid fountain could not be queued (not in map or queue full).");
+            }
         }
 
         internal Task ApplySpeedAsync(string effectKey, ChatContext ctx, CancellationToken ct)

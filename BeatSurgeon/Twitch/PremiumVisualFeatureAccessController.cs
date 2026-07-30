@@ -9,7 +9,8 @@ namespace BeatSurgeon.Twitch
     {
         BitEffect,
         FollowEffect,
-        SubscriberEffect
+        SubscriberEffect,
+        RaidEffect
     }
 
     internal static class PremiumVisualFeatureAccessController
@@ -19,7 +20,8 @@ namespace BeatSurgeon.Twitch
         {
             PremiumVisualFeature.BitEffect,
             PremiumVisualFeature.FollowEffect,
-            PremiumVisualFeature.SubscriberEffect
+            PremiumVisualFeature.SubscriberEffect,
+            PremiumVisualFeature.RaidEffect
         };
 
         internal static void ApplyManualToggle(PremiumVisualFeature feature, bool enabled)
@@ -114,6 +116,15 @@ namespace BeatSurgeon.Twitch
                 return config != null
                     && IsProviderAuthenticated(EntitlementProvider.Twitch)
                     && config.SubEffectsEnabled
+                    && !string.IsNullOrWhiteSpace(GetCurrentBroadcasterId());
+            }
+
+            if (feature == PremiumVisualFeature.RaidEffect)
+            {
+                PluginConfig config = PluginConfig.Instance;
+                return config != null
+                    && IsProviderAuthenticated(EntitlementProvider.Twitch)
+                    && config.RaidEffectsEnabled
                     && !string.IsNullOrWhiteSpace(GetCurrentBroadcasterId());
             }
 
@@ -330,6 +341,8 @@ namespace BeatSurgeon.Twitch
                     return config.FollowEffectsEnabled;
                 case PremiumVisualFeature.SubscriberEffect:
                     return config.SubEffectsEnabled;
+                case PremiumVisualFeature.RaidEffect:
+                    return config.RaidEffectsEnabled;
                 default:
                     return false;
             }
@@ -348,6 +361,9 @@ namespace BeatSurgeon.Twitch
                 case PremiumVisualFeature.SubscriberEffect:
                     config.SubEffectsEnabled = enabled;
                     break;
+                case PremiumVisualFeature.RaidEffect:
+                    config.RaidEffectsEnabled = enabled;
+                    break;
             }
         }
 
@@ -361,6 +377,8 @@ namespace BeatSurgeon.Twitch
                     return config.FollowEffectManualDisabledBroadcasterId ?? string.Empty;
                 case PremiumVisualFeature.SubscriberEffect:
                     return config.SubEffectManualDisabledBroadcasterId ?? string.Empty;
+                case PremiumVisualFeature.RaidEffect:
+                    return config.RaidEffectManualDisabledBroadcasterId ?? string.Empty;
                 default:
                     return string.Empty;
             }
@@ -378,6 +396,9 @@ namespace BeatSurgeon.Twitch
                     break;
                 case PremiumVisualFeature.SubscriberEffect:
                     config.SubEffectManualDisabledBroadcasterId = broadcasterId ?? string.Empty;
+                    break;
+                case PremiumVisualFeature.RaidEffect:
+                    config.RaidEffectManualDisabledBroadcasterId = broadcasterId ?? string.Empty;
                     break;
             }
         }

@@ -435,6 +435,11 @@ namespace BeatSurgeon.Chat
                 enabled.Add("!smsg <text>");
             }
 
+            if (ShouldAdvertiseRaidCommand())
+            {
+                enabled.Add("!raid <notes>");
+            }
+
             if (ShouldAdvertiseGlitterCommand())
             {
                 enabled.Add("!glitter <bits>");
@@ -472,6 +477,14 @@ namespace BeatSurgeon.Chat
             PluginConfig config = PluginConfig.Instance;
             return config != null
                 && config.SubEffectsEnabled
+                && PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
+        }
+
+        private static bool ShouldAdvertiseRaidCommand()
+        {
+            PluginConfig config = PluginConfig.Instance;
+            return config != null
+                && config.RaidEffectsEnabled
                 && PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
         }
 

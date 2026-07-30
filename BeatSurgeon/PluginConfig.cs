@@ -108,6 +108,8 @@ namespace BeatSurgeon
         public virtual string SubEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
         public virtual bool FollowEffectsEnabled { get; set; } = false;
         public virtual string FollowEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
+        public virtual bool RaidEffectsEnabled { get; set; } = false;
+        public virtual string RaidEffectManualDisabledBroadcasterId { get; set; } = string.Empty;
         public virtual string BombCommandName { get; set; } = "bomb";
         public virtual bool RainbowEnabled { get; set; } = true;
         public virtual float RainbowCycleSpeed { get; set; } = 0.1f;

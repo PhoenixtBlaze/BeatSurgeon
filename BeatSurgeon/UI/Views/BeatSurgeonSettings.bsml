@@ -270,7 +270,13 @@
 												value="FollowEffectsEnabled"
 												interactable="~followEffectsToggleInteractable"
 												on-change="OnFollowEffectsChanged"
-												hover-hint="Enable supporter-only follower message effects and commands when viewers follow"/>
+												hover-hint="Enable follower message effects and commands when viewers follow"/>
+
+								<toggle-setting text="Raid Effects"
+												value="RaidEffectsEnabled"
+												interactable="~raidEffectsToggleInteractable"
+												on-change="OnRaidEffectsChanged"
+												hover-hint="Enable raid name fountain on notes for inbound EventSub raids and !raid"/>
 							</modifier-container>
 						</tab>
 						<tab id="supporter-effects-tab" tab-name="Effects" tags="supporter-subtabs">

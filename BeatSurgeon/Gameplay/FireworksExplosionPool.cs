@@ -45,6 +45,19 @@ namespace BeatSurgeon.Gameplay
             SpawnForSelection(BombExplosionEffectSettings.GetSelectedOption(), position, baseColor, life, attachToGameplayAnchor: true);
         }
 
+        /// <summary>
+        /// Dedicated lightweight raid-cut firework (Sparks). Independent of bomb explosion setting.
+        /// </summary>
+        internal void SpawnRaidCutExplosion(Vector3 position)
+        {
+            SpawnEmitterByName(
+                BundleRegistry.SurgeonExplosionRefs.SparkEmitterName,
+                position,
+                Color.white,
+                life: 1.25f,
+                attachToGameplayAnchor: true);
+        }
+
         internal void SpawnPreview(string selection, Vector3 position)
         {
             Color fireworkColor = EntitlementsState.HasVisualsAccess

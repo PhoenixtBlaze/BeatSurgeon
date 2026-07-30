@@ -326,6 +326,7 @@
     <Compile Include="Chat\Processors\ICommandProcessor.cs" />
     <Compile Include="Chat\Processors\NumericBitCommandParser.cs" />
     <Compile Include="Chat\Processors\NoteColorProcessor.cs" />
+    <Compile Include="Chat\Processors\RaidProcessor.cs" />
     <Compile Include="Chat\Processors\TestProcessor.cs" />
     <Compile Include="Chat\Processors\RainbowNotesProcessor.cs" />
     <Compile Include="Chat\Processors\SongRequestProcessor.cs" />
@@ -347,6 +348,7 @@
     <Compile Include="Gameplay\BitParticleEmitterPool.cs" />
     <Compile Include="Gameplay\VrVfxMaterialHelper.cs" />
     <Compile Include="Gameplay\BombExplosionEffectSettings.cs" />
+    <Compile Include="Gameplay\RaidFountainNoteManager.cs" />
     <Compile Include="Gameplay\BombFontPreloadService.cs" />
     <Compile Include="Gameplay\SurgeonEffectsPreloadService.cs" />
     <Compile Include="Gameplay\SurgeonEffectsWarmupHelper.cs" />
@@ -381,6 +383,7 @@
     <Compile Include="Harmony\LevelSelectionPatch.cs" />
     <Compile Include="Harmony\RainbowNotePatch.cs" />
     <Compile Include="Harmony\SubscriberTrailCubePatch.cs" />
+    <Compile Include="Harmony\RaidFountainNotePatch.cs" />
     <Compile Include="Integration\AutomaticEffectDedupService.cs" />
     <Compile Include="Integration\IntegrationApiConstants.cs" />
     <Compile Include="Integration\IntegrationApiLog.cs" />
@@ -409,6 +412,8 @@
     <Compile Include="Twitch\FollowEventCoordinator.cs" />
     <Compile Include="Twitch\PatreonApiClient.cs" />
     <Compile Include="Twitch\PatreonAuthManager.cs" />
+    <Compile Include="Twitch\RaidEffectAccessController.cs" />
+    <Compile Include="Twitch\RaidEventCoordinator.cs" />
     <Compile Include="Twitch\SubscriberEffectAccessController.cs" />
     <Compile Include="Twitch\SubscriberEventCoordinator.cs" />
     <Compile Include="Twitch\JwtEd25519.cs" />

@@ -316,43 +316,99 @@ namespace BeatSurgeon.Gameplay
                 return false;
             }
 
-            textComponent.font = resolvedFont;
-
-            if (customFont != null)
+            try
             {
-                Material fontMaterial = GetOrCreateFontMaterial(customFont);
-                if (fontMaterial != null)
+                // Seed a known-good game font first when applying a custom SDF onto a
+                // freshly created world-space TextMeshPro. Bare TMP + direct custom
+                // font assignment can NullReference inside LoadFontAsset (raid fountain).
+                if (customFont != null &&
+                    fallbackFont != null &&
+                    !ReferenceEquals(customFont, fallbackFont) &&
+                    textComponent.font == null)
                 {
-                    if (cloneMaterial)
+                    textComponent.font = fallbackFont;
+                }
+
+                textComponent.font = resolvedFont;
+
+                if (customFont != null)
+                {
+                    Material fontMaterial = GetOrCreateFontMaterial(customFont);
+                    if (fontMaterial != null)
                     {
-                        Material clonedMaterial = new Material(fontMaterial)
+                        if (cloneMaterial)
                         {
-                            name = fontMaterial.name + " (BeatSurgeon Clone)"
-                        };
-                        textComponent.fontSharedMaterial = clonedMaterial;
+                            Material clonedMaterial = new Material(fontMaterial)
+                            {
+                                name = fontMaterial.name + " (BeatSurgeon Clone)"
+                            };
+                            textComponent.fontSharedMaterial = clonedMaterial;
+                        }
+                        else
+                        {
+                            textComponent.fontSharedMaterial = fontMaterial;
+                        }
                     }
                     else
                     {
-                        textComponent.fontSharedMaterial = fontMaterial;
+                        BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Could not get/create material for custom font '{customFont?.name}'");
+                        return false;
                     }
                 }
-                else
+
+                // Prefer fontSharedMaterial — fontMaterial getter can NRE on fresh world-space TMP.
+                if (!HasUsableTmpMaterial(textComponent))
                 {
-                    BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: Could not get/create material for custom font '{customFont?.name}'");
+                    BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: Text component has no TMP material after applying font.");
                     return false;
                 }
-            }
 
-            // Ensure the TMP text has a usable material before callers try to modify
-            // material-dependent properties like outlineWidth. If no material is
-            // available, signal failure so callers can avoid dereferencing null.
-            if (textComponent.fontSharedMaterial == null && textComponent.fontMaterial == null && textComponent.material == null)
+                return true;
+            }
+            catch (Exception ex)
             {
-                BeatSurgeon.Plugin.Log.Warn("FontBundleLoader: Text component has no TMP material after applying font.");
+                BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: TryApplySelectedBombFont failed for '{resolvedFont.name}': {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool HasUsableTmpMaterial(TMP_Text textComponent)
+        {
+            if (textComponent == null)
+            {
                 return false;
             }
 
-            return true;
+            try
+            {
+                if (textComponent.fontSharedMaterial != null)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (textComponent.material != null)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                return textComponent.fontMaterial != null;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>

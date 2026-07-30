@@ -134,6 +134,11 @@ namespace BeatSurgeon.Gameplay
             return queuedEffects > 0;
         }
 
+        internal bool IsNoteMarked(GameNoteController controller)
+        {
+            return controller != null && _activeEffects.ContainsKey(controller);
+        }
+
         internal bool CanMarkNextEffect(GameNoteController controller, NoteData noteData)
         {
             if (controller == null)
