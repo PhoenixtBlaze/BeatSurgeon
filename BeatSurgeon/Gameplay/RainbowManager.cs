@@ -171,6 +171,10 @@ namespace BeatSurgeon.Gameplay
                 StopCoroutine(_noteColorCoroutine);
                 _noteColorCoroutine = null;
             }
+            if (NoteColorActive)
+            {
+                MultiplayerEffectPublisher.NotifyDurationEnded("notecolor");
+            }
             NoteColorActive = false;
 
             if (_rainbowCoroutine != null)
@@ -183,7 +187,7 @@ namespace BeatSurgeon.Gameplay
             _currentLeftHue = 0f;
             _currentRightHue = 0.5f;
 
-            MultiplayerStateClient.SetActiveCommand("rainbow");
+            MultiplayerEffectPublisher.NotifyDurationStarted("rainbow", "rainbow");
             _rainbowCoroutine = StartCoroutine(RainbowCoroutine(durationSeconds));
             return true;
         }
@@ -191,7 +195,7 @@ namespace BeatSurgeon.Gameplay
         /// <summary>
         /// Enable fixed left/right note colors for durationSeconds.
         /// </summary>
-        public bool StartNoteColor(Color left, Color right, float durationSeconds)
+        public bool StartNoteColor(Color left, Color right, float durationSeconds, string requesterName = null)
         {
             GameplayManager gameplayManager = GameplayManager.GetInstance();
             if (gameplayManager == null || !gameplayManager.IsInMap)
@@ -206,6 +210,10 @@ namespace BeatSurgeon.Gameplay
                 StopCoroutine(_rainbowCoroutine);
                 _rainbowCoroutine = null;
             }
+            if (RainbowActive)
+            {
+                MultiplayerEffectPublisher.NotifyDurationEnded("rainbow");
+            }
             RainbowActive = false;
 
             if (_noteColorCoroutine != null)
@@ -216,6 +224,9 @@ namespace BeatSurgeon.Gameplay
 
             LeftColor = left;
             RightColor = right;
+
+            string command = "notecolor #" + ColorUtility.ToHtmlStringRGB(left) + " #" + ColorUtility.ToHtmlStringRGB(right);
+            MultiplayerEffectPublisher.NotifyDurationStarted("notecolor", command, requesterName);
 
             _noteColorCoroutine = StartCoroutine(NoteColorCoroutine(durationSeconds));
             return true;
@@ -237,7 +248,7 @@ namespace BeatSurgeon.Gameplay
             _activeNotes.Clear(); // Clean up tracked notes
             _rainbowCoroutine = null;
             Plugin.Log.Info("RainbowManager: Rainbow finished");
-            MultiplayerStateClient.SetActiveCommand(null);
+            MultiplayerEffectPublisher.NotifyDurationEnded("rainbow");
             ChatManager.GetInstance().SendMutedChatMessage("Effect rainbow notes has ended.");
         }
 
@@ -257,6 +268,7 @@ namespace BeatSurgeon.Gameplay
             NoteColorActive = false;
             _noteColorCoroutine = null;
             Plugin.Log.Info("RainbowManager: NoteColor override finished");
+            MultiplayerEffectPublisher.NotifyDurationEnded("notecolor");
             ChatManager.GetInstance().SendMutedChatMessage("Effect note color has ended.");
         }
     }

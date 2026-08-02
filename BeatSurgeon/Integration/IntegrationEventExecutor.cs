@@ -92,12 +92,14 @@ namespace BeatSurgeon.Integration
             string deferredReason = GetDeferredReason();
             if (deferredReason != null)
             {
+                string followDisplayName = ResolveDisplayName(viewer);
                 _deferredEventQueue.Enqueue(new DeferredEventEntry(
                     EventKind.Follow,
-                    ResolveDisplayName(viewer),
+                    followDisplayName,
                     0,
                     DateTime.UtcNow));
-                IntegrationApiLog.EventRaise(messageId, "follow.received", ResolveDisplayName(viewer), "deferred=" + deferredReason);
+                _log.Info("[BeatSurgeon] Follow event deferred for " + followDisplayName + " — " + deferredReason + ".");
+                IntegrationApiLog.EventRaise(messageId, "follow.received", followDisplayName, "deferred=" + deferredReason);
                 LogEventAccepted(messageId, "fmsg", "deferred");
                 return IntegrationCommandResult.FromAccepted("fmsg");
             }
@@ -113,7 +115,7 @@ namespace BeatSurgeon.Integration
                 return IntegrationCommandResult.FromRejected("fmsg", IntegrationRejectReason.InsufficientEntitlement, ex.Message);
             }
 
-            var ctx = IntegrationApiProtocol.BuildChatContext(viewer, "!fmsg " + displayText, TriggerSource.ExternalIntegration);
+            var ctx = IntegrationApiProtocol.BuildChatContext(viewer, "!fmsg " + displayText, TriggerSource.AutomaticEvent);
             try
             {
                 await _gameplayManager.ApplyFollowerMessageAsync(ctx, displayText, ct).ConfigureAwait(false);
@@ -182,6 +184,14 @@ namespace BeatSurgeon.Integration
                     cumulativeMonths,
                     giftCount,
                     eventKind));
+                _log.Info(
+                    "[BeatSurgeon] Subscription event deferred for "
+                    + displayName
+                    + " kind="
+                    + eventKind
+                    + " — "
+                    + deferredReason
+                    + ".");
                 IntegrationApiLog.EventRaise(messageId, "subscription.received", displayName, "deferred=" + deferredReason);
                 LogEventAccepted(messageId, "smsg", "deferred");
                 return IntegrationCommandResult.FromAccepted("smsg");
@@ -199,7 +209,7 @@ namespace BeatSurgeon.Integration
             }
 
             string displayText = SubscriberEventCoordinator.BuildDisplayText(tierLabel, cumulativeMonths, giftCount, eventKind);
-            var ctx = IntegrationApiProtocol.BuildChatContext(buyer, "!smsg " + displayText, TriggerSource.ExternalIntegration);
+            var ctx = IntegrationApiProtocol.BuildChatContext(buyer, "!smsg " + displayText, TriggerSource.AutomaticEvent);
 
             try
             {
@@ -252,12 +262,21 @@ namespace BeatSurgeon.Integration
             string deferredReason = GetDeferredReason();
             if (deferredReason != null)
             {
+                string cheerDisplayName = ResolveDisplayName(viewer);
                 _deferredEventQueue.Enqueue(new DeferredEventEntry(
                     EventKind.Bits,
-                    ResolveDisplayName(viewer),
+                    cheerDisplayName,
                     amount,
                     DateTime.UtcNow));
-                IntegrationApiLog.EventRaise(messageId, "cheer.received", ResolveDisplayName(viewer), "amount=" + amount + " deferred=" + deferredReason);
+                _log.Info(
+                    "[BeatSurgeon] Bits event deferred for "
+                    + cheerDisplayName
+                    + " ("
+                    + amount
+                    + " bits) — "
+                    + deferredReason
+                    + ".");
+                IntegrationApiLog.EventRaise(messageId, "cheer.received", cheerDisplayName, "amount=" + amount + " deferred=" + deferredReason);
                 LogEventAccepted(messageId, "glitter", "deferred");
                 return IntegrationCommandResult.FromAccepted("glitter");
             }

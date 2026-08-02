@@ -709,14 +709,9 @@ namespace BeatSurgeon.Gameplay
                 return _gameplayVfxAnchor;
             }
 
-            var spawner = Resources.FindObjectsOfTypeAll<NoteCutCoreEffectsSpawner>().FirstOrDefault();
-            if (spawner == null)
-            {
-                return null;
-            }
-
-            var bombEffect = spawner.GetComponentInChildren<BombExplosionEffect>(true);
-            _gameplayVfxAnchor = bombEffect != null ? bombEffect.transform : spawner.transform;
+            // Own space only — never parent under NoteCutCoreEffectsSpawner / BombExplosionEffect
+            // (ParticleOverdrive and other note-cut mods patch that hierarchy).
+            _gameplayVfxAnchor = BeatSurgeonOwnedVfxSpace.GetRoot();
             return _gameplayVfxAnchor;
         }
 
@@ -724,91 +719,20 @@ namespace BeatSurgeon.Gameplay
         {
             if (_referenceBombParticleRenderer != null)
             {
+                BeatSurgeonOwnedVfxSpace.TryGetOwnedSpiReferenceRenderer();
                 return _referenceBombParticleRenderer;
             }
 
-            Transform anchor = GetGameplayVfxAnchor();
-            if (anchor == null)
+            ParticleSystemRenderer ownedReference = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer()
+                ?? BeatSurgeonOwnedVfxSpace.TryGetOwnedSpiReferenceRenderer();
+            if (ownedReference != null)
             {
-                return null;
+                _referenceBombParticleRenderer = ownedReference;
+                return _referenceBombParticleRenderer;
             }
 
-            var bombEffect = anchor.GetComponent<BombExplosionEffect>();
-            if (bombEffect == null)
-            {
-                return null;
-            }
-
-            _referenceBombParticleRenderer = bombEffect
-                .GetComponentsInChildren<ParticleSystemRenderer>(true)
-                .Where(r => GetReferenceRendererScore(r) > 0)
-                .OrderByDescending(GetReferenceRendererScore)
-                .FirstOrDefault()
-                ?? bombEffect.GetComponentsInChildren<ParticleSystemRenderer>(true)
-                    .FirstOrDefault(r => r != null && r.renderMode != ParticleSystemRenderMode.Mesh)
-                ?? bombEffect.GetComponentsInChildren<ParticleSystemRenderer>(true)
-                    .FirstOrDefault();
-
-            return _referenceBombParticleRenderer;
-        }
-
-        private static int GetReferenceRendererScore(ParticleSystemRenderer renderer)
-        {
-            if (renderer == null)
-            {
-                return int.MinValue;
-            }
-
-            string path = GetTransformPath(renderer.transform).ToLowerInvariant();
-            string transformName = renderer.transform != null ? renderer.transform.name : string.Empty;
-            string shaderName = renderer.sharedMaterial != null && renderer.sharedMaterial.shader != null
-                ? renderer.sharedMaterial.shader.name
-                : string.Empty;
-            string materialName = renderer.sharedMaterial != null ? renderer.sharedMaterial.name : string.Empty;
-
-            int score = 0;
-
-            if (shaderName.IndexOf("Custom/CustomParticles", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                score += 2000;
-            }
-
-            if (transformName.IndexOf("ExplosionSparkles", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                score += 1600;
-            }
-
-            if (transformName.IndexOf("Sparkle", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                score += 1000;
-            }
-
-            if (materialName.IndexOf("Sparkle", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                score += 750;
-            }
-
-            if (renderer.renderMode == ParticleSystemRenderMode.Stretch)
-            {
-                score += 500;
-            }
-
-            if (renderer.renderMode == ParticleSystemRenderMode.Mesh)
-            {
-                score -= 1000;
-            }
-
-            if (transformName.IndexOf("Debris", StringComparison.OrdinalIgnoreCase) >= 0 || path.EndsWith("/debrisps", StringComparison.OrdinalIgnoreCase))
-            {
-                score -= 1200;
-            }
-
-            if (shaderName.IndexOf("NoteHD", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                score -= 1200;
-            }
-
-            return score;
+            // Menu / missing-bundle fallback: never prefer vanilla NoteCut / ExplosionSparkles.
+            return FireworksExplosionPool.FindFallbackSpiParticleRenderer("GlitterExplosionPool");
         }
 
         private static string GetTransformPath(Transform transform)

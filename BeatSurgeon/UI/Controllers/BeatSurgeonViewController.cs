@@ -407,6 +407,11 @@ namespace BeatSurgeon.UI.Controllers
                 Gameplay.FontBundleLoader.SetSelectedBombFontOption(value);
                 NotifyPropertyChanged(nameof(BombFontSelected));
                 UpdateFontPreview();
+                Gameplay.RaidFountainNoteManager.Instance.ApplySelectedSurgeonFontToAllRaidText();
+                if (_bombExplosionPreviewActive && _effectsPreviewMode == EffectsPreviewMode.RaidCut)
+                {
+                    PlayEffectsPreviewBurst();
+                }
             }
         }
 
@@ -424,9 +429,10 @@ namespace BeatSurgeon.UI.Controllers
             {
                 Gameplay.BombExplosionEffectSettings.SetSelectedOption(value);
                 NotifyPropertyChanged(nameof(BombExplosionEffectSelected));
+                _effectsPreviewMode = EffectsPreviewMode.BombExplosion;
                 if (_bombExplosionPreviewActive)
                 {
-                    PlayBombExplosionPreviewBurst();
+                    PlayEffectsPreviewBurst();
                 }
             }
         }
@@ -437,16 +443,54 @@ namespace BeatSurgeon.UI.Controllers
             BombExplosionEffectSelected = value;
         }
 
+        private static readonly List<object> RaidCutEffectOptionsList =
+            new List<object>(Gameplay.RaidCutEffectSettings.AllOptions);
+
+        [UIValue("raid_cut_effect_options")]
+        public List<object> RaidCutEffectOptions => RaidCutEffectOptionsList;
+
+        [UIValue("raid_cut_effect_selected")]
+        public string RaidCutEffectSelected
+        {
+            get => Gameplay.RaidCutEffectSettings.GetSelectedOption();
+            set
+            {
+                Gameplay.RaidCutEffectSettings.SetSelectedOption(value);
+                NotifyPropertyChanged(nameof(RaidCutEffectSelected));
+                _effectsPreviewMode = EffectsPreviewMode.RaidCut;
+                if (_bombExplosionPreviewActive)
+                {
+                    PlayEffectsPreviewBurst();
+                }
+            }
+        }
+
+        [UIAction("OnRaidCutEffectChanged")]
+        private void OnRaidCutEffectChanged(string value)
+        {
+            RaidCutEffectSelected = value;
+        }
+
+        private enum EffectsPreviewMode
+        {
+            BombExplosion,
+            RaidCut
+        }
+
         [UIComponent("supporter-effects-tab")]
         private Tab _supporterEffectsTab;
 
         [UIComponent("bomb-explosion-effect-dropdown")]
         private DropDownListSetting _bombExplosionEffectDropdown;
 
+        [UIComponent("raid-cut-effect-dropdown")]
+        private DropDownListSetting _raidCutEffectDropdown;
+
         private Coroutine _bombExplosionPreviewMonitorCoroutine;
         private int _mainTabIndex;
         private int _supporterSubtabIndex;
         private bool _bombExplosionPreviewActive;
+        private EffectsPreviewMode _effectsPreviewMode = EffectsPreviewMode.BombExplosion;
         private GameObject _bombExplosionPreviewAnchor;
         private Coroutine _bombExplosionPreviewCoroutine;
         private const float BombExplosionPreviewForwardOffset = -0.70f;
@@ -476,8 +520,11 @@ namespace BeatSurgeon.UI.Controllers
                 return false;
             }
 
-            return _bombExplosionEffectDropdown != null
+            bool bombDropdownVisible = _bombExplosionEffectDropdown != null
                 && _bombExplosionEffectDropdown.gameObject.activeInHierarchy;
+            bool raidDropdownVisible = _raidCutEffectDropdown != null
+                && _raidCutEffectDropdown.gameObject.activeInHierarchy;
+            return bombDropdownVisible || raidDropdownVisible;
         }
 
         private void StartBombExplosionPreviewMonitor()
@@ -617,12 +664,12 @@ namespace BeatSurgeon.UI.Controllers
 
             while (_bombExplosionPreviewActive)
             {
-                PlayBombExplosionPreviewBurst();
+                PlayEffectsPreviewBurst();
                 yield return new WaitForSeconds(BombExplosionPreviewIntervalSeconds);
             }
         }
 
-        private void PlayBombExplosionPreviewBurst()
+        private void PlayEffectsPreviewBurst()
         {
             if (!_bombExplosionPreviewActive || _bombExplosionPreviewAnchor == null || !SupporterTabVisible)
             {
@@ -630,9 +677,18 @@ namespace BeatSurgeon.UI.Controllers
             }
 
             UpdateBombExplosionPreviewAnchorTransform();
+            Vector3 previewOrigin = _bombExplosionPreviewAnchor.transform.position;
+
+            if (_effectsPreviewMode == EffectsPreviewMode.RaidCut)
+            {
+                Gameplay.RaidFountainNoteManager.Instance.SpawnCutExplosionPreview(previewOrigin);
+                return;
+            }
+
+            Gameplay.RaidFountainNoteManager.Instance.ClearMenuPreviewShards();
             Gameplay.FireworksExplosionPool.Instance.SpawnPreview(
                 BombExplosionEffectSelected,
-                _bombExplosionPreviewAnchor.transform.position);
+                previewOrigin);
         }
 
         private void CleanupBombExplosionPreview()
@@ -640,6 +696,7 @@ namespace BeatSurgeon.UI.Controllers
             StopBombExplosionPreviewMonitor();
             StopBombExplosionPreview();
             _bombExplosionPreviewActive = false;
+            Gameplay.RaidFountainNoteManager.Instance.ClearMenuPreviewShards();
 
             if (_bombExplosionPreviewAnchor != null)
             {
@@ -888,6 +945,7 @@ namespace BeatSurgeon.UI.Controllers
             RefreshSupporterUiState();
             _ = RefreshFontDropdownAsync();
             SyncBombExplosionEffectDropdown();
+            SyncRaidCutEffectDropdown();
             StartBombExplosionPreviewMonitor();
         }
 
@@ -1015,6 +1073,7 @@ namespace BeatSurgeon.UI.Controllers
 
                 NotifyPropertyChanged(nameof(BombFontSelected));
                 UpdateFontPreview();
+                Gameplay.RaidFountainNoteManager.Instance.ApplySelectedSurgeonFontToAllRaidText();
             });
         }
 
@@ -1030,6 +1089,20 @@ namespace BeatSurgeon.UI.Controllers
             _bombExplosionEffectDropdown.UpdateChoices();
             _bombExplosionEffectDropdown.Value = Gameplay.BombExplosionEffectSettings.GetSelectedOption();
             NotifyPropertyChanged(nameof(BombExplosionEffectSelected));
+        }
+
+        private void SyncRaidCutEffectDropdown()
+        {
+            if (_raidCutEffectDropdown == null)
+            {
+                NotifyPropertyChanged(nameof(RaidCutEffectSelected));
+                return;
+            }
+
+            _raidCutEffectDropdown.Values = RaidCutEffectOptionsList;
+            _raidCutEffectDropdown.UpdateChoices();
+            _raidCutEffectDropdown.Value = Gameplay.RaidCutEffectSettings.GetSelectedOption();
+            NotifyPropertyChanged(nameof(RaidCutEffectSelected));
         }
 
         [UIAction("OnFlashbangButtonClicked")]

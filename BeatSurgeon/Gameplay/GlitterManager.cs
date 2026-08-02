@@ -226,6 +226,10 @@ namespace BeatSurgeon.Gameplay
                 + _pendingEffects.Count
                 + " active="
                 + _activeEffects.Count);
+            if (_pendingEffects.Count == 0 && _activeEffects.Count == 0)
+            {
+                MultiplayerEffectPublisher.NotifyEffectEnded("glitter");
+            }
             return true;
         }
 
@@ -289,6 +293,7 @@ namespace BeatSurgeon.Gameplay
 
             _activeEffects.Clear();
             _pendingEffects.Clear();
+            MultiplayerEffectPublisher.NotifyEffectEnded("glitter");
             _log.Info("Cleared pending glitter effects | reason=" + (string.IsNullOrWhiteSpace(reason) ? "Unknown" : reason));
         }
 

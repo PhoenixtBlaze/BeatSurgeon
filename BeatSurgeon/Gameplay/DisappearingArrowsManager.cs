@@ -44,7 +44,7 @@ namespace BeatSurgeon.Gameplay
                 _daCoroutine = null;
             }
 
-            MultiplayerStateClient.SetActiveCommand("disappear");
+            MultiplayerEffectPublisher.NotifyDurationStarted("disappear", "disappear");
 
             _daCoroutine = StartCoroutine(DisappearingCoroutine(durationSeconds));
             return true;
@@ -64,7 +64,7 @@ namespace BeatSurgeon.Gameplay
 
             DisappearingActive = false;
             _daCoroutine = null;
-            MultiplayerStateClient.SetActiveCommand(null);
+            MultiplayerEffectPublisher.NotifyDurationEnded("disappear");
             LogUtils.Debug(() => "DisappearingArrowsManager: Disappearing arrows finished");
             ChatManager.GetInstance().SendMutedChatMessage("Effect disappearing arrows has ended.");
         }

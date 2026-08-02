@@ -7,9 +7,12 @@ using UnityEngine;
 namespace BeatSurgeon.Gameplay
 {
     /// <summary>
-    /// Queues the next N map notes for a pure-C# raid effect (no prefab):
-    /// tiny RGB name text outlining each cube, then on cut a Sparks firework plus
-    /// a large RGB name-text burst. Yields to glitter and trail-cube claims.
+    /// Queues the next N map notes for a raid effect using authored TMP emitters from
+    /// surgeoneffects (<c>RaidFountainOutline</c> / <c>RaidFountainCutBurst</c>), with a
+    /// pure-C# fallback if the bundle children are missing:
+    /// tiny RGB name text outlining each cube, then on cut a sparse RGB
+    /// name sphere that expands away from the note-approach path.
+    /// Yields to glitter and trail-cube claims.
     /// </summary>
     internal sealed class RaidFountainNoteManager : MonoBehaviour
     {
@@ -42,14 +45,23 @@ namespace BeatSurgeon.Gameplay
             internal TextMeshPro Text;
             internal LookAtCamera Billboard;
             internal Vector3 Velocity;
+            internal Vector3 FlyStart;
+            internal Vector3 FlyTarget;
+            /// <summary>Slow post-expand end position for cut bursts.</summary>
+            internal Vector3 FlyDriftTarget;
             internal float Elapsed;
             internal float Lifetime;
+            internal float HueOffset;
             internal Color BaseColor;
             internal bool Active;
             /// <summary>True while the shard rides the note in local space.</summary>
             internal bool FollowsNote;
             /// <summary>Tiny shell text around the cube (vs large cut-burst shards).</summary>
             internal bool IsOutline;
+            /// <summary>Cut shards expand on a sphere biased off the note highway.</summary>
+            internal bool IsCutBurst;
+            /// <summary>Menu Effects-tab preview; survives map-exit cleanup.</summary>
+            internal bool IsMenuPreview;
         }
 
         private static readonly LogUtil _log = LogUtil.GetLogger("RaidFountainNoteManager");
@@ -60,17 +72,21 @@ namespace BeatSurgeon.Gameplay
         private const int MaxPendingEntries = 256;
         private const int MaxActiveNotes = 64;
         private const int OutlineShardsPerNote = 36;
-        private const int CutBurstShards = 16;
+        private const int CutBurstShards = 6;
         private const int MaxPoolSize = 384;
-        private const float CutBurstLifetimeSeconds = 1.15f;
-        private const float CutBurstSpeedMin = 1.35f;
-        private const float CutBurstSpeedMax = 2.9f;
+        // Phase 1: snap to full sphere radius with no fade. Phase 2: short slow drift while fading.
+        private const float CutBurstExpandSeconds = 0.35f;
+        private const float CutBurstDriftSeconds = 1.50f;
+        private const float CutBurstLifetimeSeconds = CutBurstExpandSeconds + CutBurstDriftSeconds;
+        private const float CutBurstSphereRadiusMin = 0.2f;
+        private const float CutBurstSphereRadiusMax = 2.0f;
+        private const float CutBurstSphereRadiusDriftMax = 2.75f;
         private const float OutlineShellRadius = 0.38f;
         private const float SpectrumCycleSeconds = 0.5f;
         private const float OutlineFontSize = 0.18f;
-        private const float CutBurstFontSize = 1.75f;
+        private const float CutBurstFontSize = 1.35f;
         private const float OutlineTextWidth = 1.2f;
-        private const float CutBurstTextWidth = 8f;
+        private const float CutBurstTextWidth = 6.5f;
 
         private static RaidFountainNoteManager _instance;
         private static GameObject _go;
@@ -120,12 +136,13 @@ namespace BeatSurgeon.Gameplay
                 return true;
             }
 
-            if (!FontBundleLoader.IsBombFontReady)
+            if (!FontBundleLoader.IsBombFontReady
+                && SurgeonEffectsBundleService.GetRaidFountainTextTemplate(isOutline: true) == null)
             {
                 if (!_fontWarned)
                 {
                     _fontWarned = true;
-                    _log.Warn("RaidFountainNoteManager: bomb font not ready for warm pool.");
+                    _log.Warn("RaidFountainNoteManager: bomb font not ready and raid text bundle templates unavailable for warm pool.");
                 }
 
                 return false;
@@ -133,7 +150,7 @@ namespace BeatSurgeon.Gameplay
 
             while (_pool.Count < desiredShardCount)
             {
-                ShardState shard = CreateShard(warm: true);
+                ShardState shard = CreateShard(warm: true, isOutline: true);
                 if (shard == null)
                 {
                     return false;
@@ -280,6 +297,11 @@ namespace BeatSurgeon.Gameplay
                 SpawnCutExplosion(cutPoint, raiderName, layer);
             }
 
+            if (_pendingEntries.Count == 0 && _activeEntries.Count == 0 && !HasNonPreviewLiveShards())
+            {
+                MultiplayerEffectPublisher.NotifyEffectEnded("raid");
+            }
+
             return true;
         }
 
@@ -330,13 +352,97 @@ namespace BeatSurgeon.Gameplay
 
         private void Update()
         {
-            if (!IsInMap() && (_pendingEntries.Count > 0 || _activeEntries.Count > 0 || _liveShards.Count > 0))
+            if (!IsInMap())
             {
-                ClearTransientGameplayState("SceneChanged");
+                if (_pendingEntries.Count > 0 || _activeEntries.Count > 0 || HasNonPreviewLiveShards())
+                {
+                    ClearGameplayStatePreserveMenuPreview("SceneChanged");
+                }
+
+                TickLiveShards();
                 return;
             }
 
             TickLiveShards();
+        }
+
+        /// <summary>
+        /// Menu Effects-tab preview of the selected raid cut effect at <paramref name="origin"/>.
+        /// Uses text "Preview" and does not require an active map.
+        /// </summary>
+        internal void SpawnCutExplosionPreview(Vector3 origin)
+        {
+            ClearMenuPreviewShards();
+
+            string selection = RaidCutEffectSettings.GetSelectedOption();
+            switch (selection)
+            {
+                case RaidCutEffectSettings.DefaultOption:
+                default:
+                    SpawnCutExplosion(origin, "Preview", layer: 0, isMenuPreview: true);
+                    break;
+            }
+        }
+
+        internal void ClearMenuPreviewShards()
+        {
+            if (_liveShards.Count == 0)
+            {
+                return;
+            }
+
+            _shardScratch.Clear();
+            for (int index = 0; index < _liveShards.Count; index++)
+            {
+                ShardState shard = _liveShards[index];
+                if (shard == null)
+                {
+                    continue;
+                }
+
+                if (shard.IsMenuPreview)
+                {
+                    RecycleShard(shard);
+                }
+                else
+                {
+                    _shardScratch.Add(shard);
+                }
+            }
+
+            _liveShards.Clear();
+            _liveShards.AddRange(_shardScratch);
+        }
+
+        /// <summary>
+        /// Re-apply the selected Surgeon Font to pooled, live outline, and cut-burst raid text.
+        /// </summary>
+        internal void ApplySelectedSurgeonFontToAllRaidText()
+        {
+            TMP_FontAsset tekoFont = ResolveTekoFont();
+            ApplySelectedFontToShardList(_liveShards, tekoFont);
+
+            // Queue contents can't be enumerated without dequeue — snapshot via array.
+            if (_pool.Count == 0)
+            {
+                return;
+            }
+
+            ShardState[] pooled = _pool.ToArray();
+            _pool.Clear();
+            for (int index = 0; index < pooled.Length; index++)
+            {
+                ShardState shard = pooled[index];
+                if (shard != null && shard.Text != null)
+                {
+                    ApplySelectedFontToText(shard.Text, tekoFont);
+                }
+
+                if (shard != null)
+                {
+                    _pool.Enqueue(shard);
+                }
+            }
         }
 
         private void TickLiveShards()
@@ -371,7 +477,9 @@ namespace BeatSurgeon.Gameplay
                 shard.Elapsed += dt;
 
                 // Full HSV spectrum every SpectrumCycleSeconds for a fast rainbow flash.
-                float hue = Mathf.Repeat(shard.Elapsed / Mathf.Max(0.01f, SpectrumCycleSeconds), 1f);
+                float hue = Mathf.Repeat(
+                    (shard.HueOffset + shard.Elapsed) / Mathf.Max(0.01f, SpectrumCycleSeconds),
+                    1f);
                 Color color = Color.HSVToRGB(hue, 1f, 1f);
 
                 if (shard.IsOutline && shard.FollowsNote)
@@ -383,17 +491,29 @@ namespace BeatSurgeon.Gameplay
                     continue;
                 }
 
+                if (shard.IsCutBurst)
+                {
+                    TickCutBurstShard(shard, color);
+                    if (shard.Active)
+                    {
+                        _shardScratch.Add(shard);
+                    }
+
+                    continue;
+                }
+
                 float t = Mathf.Clamp01(shard.Elapsed / Mathf.Max(0.01f, shard.Lifetime));
                 if (shard.FollowsNote)
                 {
                     shard.Root.transform.localPosition += shard.Velocity * dt;
+                    shard.Velocity *= 0.985f;
                 }
                 else
                 {
                     shard.Root.transform.position += shard.Velocity * dt;
+                    shard.Velocity *= 0.985f;
                 }
 
-                shard.Velocity *= 0.985f;
                 color.a = shard.BaseColor.a * (1f - t);
                 shard.Text.color = color;
 
@@ -409,6 +529,11 @@ namespace BeatSurgeon.Gameplay
 
             _liveShards.Clear();
             _liveShards.AddRange(_shardScratch);
+
+            if (_pendingEntries.Count == 0 && _activeEntries.Count == 0 && !HasNonPreviewLiveShards())
+            {
+                MultiplayerEffectPublisher.NotifyEffectEnded("raid");
+            }
         }
 
         private void SpawnOutlineShell(
@@ -424,7 +549,7 @@ namespace BeatSurgeon.Gameplay
 
             for (int index = 0; index < OutlineShardsPerNote; index++)
             {
-                ShardState shard = GetOrCreateShard();
+                ShardState shard = GetOrCreateShard(isOutline: true);
                 if (shard == null)
                 {
                     break;
@@ -432,18 +557,23 @@ namespace BeatSurgeon.Gameplay
 
                 Vector3 direction = FibonacciDirection(index, OutlineShardsPerNote);
                 shard.Velocity = Vector3.zero;
-                shard.Elapsed = index * (SpectrumCycleSeconds / OutlineShardsPerNote);
+                shard.Elapsed = 0f;
+                shard.HueOffset = index * (SpectrumCycleSeconds / OutlineShardsPerNote);
                 shard.Lifetime = float.MaxValue;
                 shard.BaseColor = Color.white;
                 shard.Active = true;
                 shard.FollowsNote = true;
                 shard.IsOutline = true;
+                shard.IsCutBurst = false;
+                shard.IsMenuPreview = false;
 
                 shard.Root.transform.SetParent(noteParent, false);
                 shard.Root.transform.localPosition = direction * OutlineShellRadius;
                 shard.Root.transform.localRotation = Quaternion.identity;
                 shard.Root.transform.localScale = Vector3.one;
                 SetLayerRecursively(shard.Root, layer);
+
+                ApplySelectedFontToText(shard.Text, ResolveTekoFont());
 
                 shard.Text.text = raiderName;
                 shard.Text.fontSize = OutlineFontSize;
@@ -453,7 +583,7 @@ namespace BeatSurgeon.Gameplay
                 }
 
                 shard.Text.color = Color.HSVToRGB(
-                    Mathf.Repeat(shard.Elapsed / SpectrumCycleSeconds, 1f),
+                    Mathf.Repeat(shard.HueOffset / SpectrumCycleSeconds, 1f),
                     1f,
                     1f);
                 shard.Root.SetActive(true);
@@ -462,43 +592,90 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
+        private void TickCutBurstShard(ShardState shard, Color color)
+        {
+            float expandSeconds = Mathf.Max(0.01f, CutBurstExpandSeconds);
+            float driftSeconds = Mathf.Max(0.01f, CutBurstDriftSeconds);
+
+            if (shard.Elapsed < expandSeconds)
+            {
+                // Fast ease-out to full radius; stay fully opaque.
+                float expandT = Mathf.Clamp01(shard.Elapsed / expandSeconds);
+                float eased = 1f - ((1f - expandT) * (1f - expandT));
+                shard.Root.transform.position = Vector3.Lerp(shard.FlyStart, shard.FlyTarget, eased);
+                shard.Root.transform.localScale = Vector3.one;
+                color.a = shard.BaseColor.a;
+                shard.Text.color = color;
+                return;
+            }
+
+            float driftElapsed = shard.Elapsed - expandSeconds;
+            float driftT = Mathf.Clamp01(driftElapsed / driftSeconds);
+            // Linear, slow crawl past full radius while fading out.
+            shard.Root.transform.position = Vector3.Lerp(shard.FlyTarget, shard.FlyDriftTarget, driftT);
+            float scale = Mathf.Lerp(1f, 0.7f, driftT);
+            shard.Root.transform.localScale = Vector3.one * scale;
+            color.a = shard.BaseColor.a * (1f - driftT);
+            shard.Text.color = color;
+
+            if (driftT >= 1f)
+            {
+                RecycleShard(shard);
+            }
+        }
+
         private void SpawnCutExplosion(Vector3 origin, string raiderName, int layer)
         {
-            try
-            {
-                FireworksExplosionPool.Instance.SpawnRaidCutExplosion(origin);
-            }
-            catch (Exception ex)
-            {
-                _log.Warn("RaidFountainNoteManager: raid cut firework failed: " + ex.Message);
-            }
+            SpawnCutExplosion(origin, raiderName, layer, isMenuPreview: false);
+        }
+
+        private void SpawnCutExplosion(Vector3 origin, string raiderName, int layer, bool isMenuPreview)
+        {
+            Vector3 sphereOrigin = origin + (Vector3.up * 0.35f);
 
             for (int index = 0; index < CutBurstShards; index++)
             {
-                ShardState shard = GetOrCreateShard();
+                ShardState shard = GetOrCreateShard(isOutline: false);
                 if (shard == null)
                 {
                     break;
                 }
 
-                Vector3 direction = FibonacciDirection(index, CutBurstShards);
-                float speed = Mathf.Lerp(
-                    CutBurstSpeedMin,
-                    CutBurstSpeedMax,
-                    index / (float)Mathf.Max(1, CutBurstShards - 1));
-                shard.Velocity = direction * speed;
-                shard.Elapsed = index * (SpectrumCycleSeconds / CutBurstShards);
+                Vector3 direction = BiasAwayFromNoteApproach(FibonacciDirection(index, CutBurstShards));
+                Vector3 flyStart = sphereOrigin + (direction * CutBurstSphereRadiusMin);
+                Vector3 flyTarget = sphereOrigin + (direction * CutBurstSphereRadiusMax);
+                // Phase 2: prefer flying toward the follower canvas Start (same anchor bits/fmsg use).
+                // Fall back to a short radial drift when the canvas template is unavailable.
+                Vector3 flyDriftTarget = sphereOrigin + (direction * CutBurstSphereRadiusDriftMax);
+                if (SurgeonEffectsBundleService.TryResolveFollowerCanvasStartWorldPosition(out Vector3 canvasStart)
+                    && IsFiniteVector(canvasStart)
+                    && (canvasStart - flyTarget).sqrMagnitude > 0.04f)
+                {
+                    flyDriftTarget = canvasStart;
+                }
+
+                shard.Velocity = Vector3.zero;
+                shard.FlyStart = flyStart;
+                shard.FlyTarget = flyTarget;
+                shard.FlyDriftTarget = flyDriftTarget;
+                shard.Elapsed = 0f;
+                shard.HueOffset = index * (SpectrumCycleSeconds / CutBurstShards);
                 shard.Lifetime = CutBurstLifetimeSeconds;
                 shard.BaseColor = Color.white;
                 shard.Active = true;
                 shard.FollowsNote = false;
                 shard.IsOutline = false;
+                shard.IsCutBurst = true;
+                shard.IsMenuPreview = isMenuPreview;
 
                 shard.Root.transform.SetParent(null, false);
-                shard.Root.transform.position = origin + (direction * 0.08f);
+                shard.Root.transform.position = flyStart;
                 shard.Root.transform.rotation = Quaternion.identity;
                 shard.Root.transform.localScale = Vector3.one;
                 SetLayerRecursively(shard.Root, layer);
+
+                // Ensure menu preview / live cut always matches current Surgeon Font selection.
+                ApplySelectedFontToText(shard.Text, ResolveTekoFont());
 
                 shard.Text.text = raiderName;
                 shard.Text.fontSize = CutBurstFontSize;
@@ -508,12 +685,51 @@ namespace BeatSurgeon.Gameplay
                 }
 
                 shard.Text.color = Color.HSVToRGB(
-                    Mathf.Repeat(shard.Elapsed / SpectrumCycleSeconds, 1f),
+                    Mathf.Repeat(shard.HueOffset / SpectrumCycleSeconds, 1f),
                     1f,
                     1f);
                 shard.Root.SetActive(true);
                 _liveShards.Add(shard);
             }
+        }
+
+        /// <summary>
+        /// Fold the forward hemisphere (toward upcoming notes / camera look) into
+        /// sides, up, and behind so cut text does not sit in front of spawning cubes.
+        /// </summary>
+        private static Vector3 BiasAwayFromNoteApproach(Vector3 direction)
+        {
+            Vector3 approach = Camera.main != null ? Camera.main.transform.forward : Vector3.forward;
+            if (approach.sqrMagnitude < 0.0001f)
+            {
+                approach = Vector3.forward;
+            }
+
+            approach.Normalize();
+            direction.Normalize();
+
+            float intoNotes = Vector3.Dot(direction, approach);
+            if (intoNotes > 0f)
+            {
+                // Strip / reverse the component pointing into the note highway.
+                direction -= approach * (intoNotes * 1.45f);
+            }
+
+            // Prefer a bit of lift so the sphere clears the play lane.
+            direction += Vector3.up * 0.25f;
+
+            if (direction.sqrMagnitude < 0.0001f)
+            {
+                Vector3 side = Vector3.Cross(approach, Vector3.up);
+                if (side.sqrMagnitude < 0.0001f)
+                {
+                    side = Vector3.right;
+                }
+
+                direction = (-approach * 0.35f) + (side.normalized * 0.65f) + (Vector3.up * 0.7f);
+            }
+
+            return direction.normalized;
         }
 
         private void RecycleOwnedShards(ActiveEntry activeEntry)
@@ -557,7 +773,7 @@ namespace BeatSurgeon.Gameplay
             shard.FollowsNote = false;
         }
 
-        private ShardState GetOrCreateShard()
+        private ShardState GetOrCreateShard(bool isOutline)
         {
             while (_pool.Count > 0)
             {
@@ -568,13 +784,18 @@ namespace BeatSurgeon.Gameplay
                 }
             }
 
-            return CreateShard(warm: false);
+            return CreateShard(warm: false, isOutline: isOutline);
         }
 
-        private ShardState CreateShard(bool warm)
+        private ShardState CreateShard(bool warm, bool isOutline)
         {
-            // Mirror BombNotePatch flying-text warm path: activate offscreen first, then
-            // apply font/material. Inactive bare TextMeshPro + fontMaterial access NREs.
+            ShardState fromBundle = TryCreateShardFromBundle(isOutline);
+            if (fromBundle != null)
+            {
+                return fromBundle;
+            }
+
+            // Fallback: pure-C# path when surgeoneffects is missing the raid TMP children.
             GameObject root = null;
             string stage = "alloc";
             try
@@ -619,18 +840,7 @@ namespace BeatSurgeon.Gameplay
                 }
 
                 stage = "ConfigureText";
-                text.raycastTarget = false;
-                text.alignment = TextAlignmentOptions.Center;
-                text.enableWordWrapping = false;
-                text.overflowMode = TextOverflowModes.Overflow;
-                text.enableAutoSizing = false;
-                text.fontSize = OutlineFontSize;
-                text.color = Color.white;
-                text.text = string.Empty;
-                if (text.rectTransform != null)
-                {
-                    text.rectTransform.sizeDelta = new Vector2(OutlineTextWidth, 0.6f);
-                }
+                ConfigureRaidTextDefaults(text, isOutline);
 
                 stage = "Deactivate";
                 root.SetActive(false);
@@ -643,7 +853,7 @@ namespace BeatSurgeon.Gameplay
                     Active = false,
                     Lifetime = CutBurstLifetimeSeconds,
                     BaseColor = Color.white,
-                    IsOutline = true
+                    IsOutline = isOutline
                 };
             }
             catch (Exception ex)
@@ -653,6 +863,8 @@ namespace BeatSurgeon.Gameplay
                     + stage
                     + " warm="
                     + warm
+                    + " isOutline="
+                    + isOutline
                     + " | "
                     + ex);
                 if (root != null)
@@ -661,6 +873,124 @@ namespace BeatSurgeon.Gameplay
                 }
 
                 return null;
+            }
+        }
+
+        private ShardState TryCreateShardFromBundle(bool isOutline)
+        {
+            string stage = "GetRaidFountainTextTemplate";
+            GameObject root = null;
+            try
+            {
+                GameObject template = SurgeonEffectsBundleService.GetRaidFountainTextTemplate(isOutline);
+                if (template == null)
+                {
+                    return null;
+                }
+
+                stage = "Instantiate";
+                root = UnityEngine.Object.Instantiate(template);
+                UnityEngine.Object.DontDestroyOnLoad(root);
+                root.transform.SetParent(null, false);
+                root.transform.position = new Vector3(0f, -2048f, 0f);
+                root.name = isOutline
+                    ? "BeatSurgeon_RaidFountainOutline"
+                    : "BeatSurgeon_RaidFountainCutBurst";
+                root.SetActive(true);
+
+                stage = "GetComponent.TextMeshPro";
+                TextMeshPro text = root.GetComponent<TextMeshPro>()
+                    ?? root.GetComponentInChildren<TextMeshPro>(true);
+                if (text == null)
+                {
+                    _log.Warn("RaidFountainNoteManager: bundle raid text template missing TextMeshPro.");
+                    UnityEngine.Object.Destroy(root);
+                    return null;
+                }
+
+                stage = "Ensure.LookAtCamera";
+                LookAtCamera billboard = root.GetComponent<LookAtCamera>();
+                if (billboard == null)
+                {
+                    billboard = root.AddComponent<LookAtCamera>();
+                }
+
+                // Prefer authored bundle font/material; optionally overlay selected bomb font.
+                stage = "TryApplySelectedBombFont";
+                TMP_FontAsset tekoFont = ResolveTekoFont();
+                if (!FontBundleLoader.TryApplySelectedBombFont(text, tekoFont, cloneMaterial: true))
+                {
+                    if (text.font == null && !TrySetFontSafe(text, tekoFont))
+                    {
+                        _log.Warn("RaidFountainNoteManager: bundle raid shard has no usable font.");
+                        UnityEngine.Object.Destroy(root);
+                        return null;
+                    }
+                }
+
+                stage = "ValidateMaterial";
+                if (text.font == null || !TryGetUsableFontMaterial(text, out _))
+                {
+                    _log.Warn("RaidFountainNoteManager: bundle raid text font or material not ready.");
+                    UnityEngine.Object.Destroy(root);
+                    return null;
+                }
+
+                stage = "ConfigureText";
+                ConfigureRaidTextDefaults(text, isOutline);
+
+                stage = "Deactivate";
+                root.SetActive(false);
+
+                return new ShardState
+                {
+                    Root = root,
+                    Text = text,
+                    Billboard = billboard,
+                    Active = false,
+                    Lifetime = CutBurstLifetimeSeconds,
+                    BaseColor = Color.white,
+                    IsOutline = isOutline
+                };
+            }
+            catch (Exception ex)
+            {
+                _log.Warn(
+                    "RaidFountainNoteManager: TryCreateShardFromBundle failed at stage="
+                    + stage
+                    + " isOutline="
+                    + isOutline
+                    + " | "
+                    + ex);
+                if (root != null)
+                {
+                    UnityEngine.Object.Destroy(root);
+                }
+
+                return null;
+            }
+        }
+
+        private static void ConfigureRaidTextDefaults(TextMeshPro text, bool isOutline)
+        {
+            if (text == null)
+            {
+                return;
+            }
+
+            text.raycastTarget = false;
+            text.alignment = TextAlignmentOptions.Center;
+            text.enableWordWrapping = false;
+            text.overflowMode = TextOverflowModes.Overflow;
+            text.enableAutoSizing = false;
+            text.fontSize = isOutline ? OutlineFontSize : CutBurstFontSize;
+            text.color = Color.white;
+            text.text = string.Empty;
+            if (text.rectTransform != null)
+            {
+                text.rectTransform.sizeDelta = isOutline
+                    ? new Vector2(OutlineTextWidth, 0.6f)
+                    : new Vector2(CutBurstTextWidth, 2.5f);
             }
         }
 
@@ -783,11 +1113,18 @@ namespace BeatSurgeon.Gameplay
             shard.Active = false;
             shard.FollowsNote = false;
             shard.IsOutline = false;
+            shard.IsCutBurst = false;
+            shard.IsMenuPreview = false;
             shard.Velocity = Vector3.zero;
+            shard.FlyStart = Vector3.zero;
+            shard.FlyTarget = Vector3.zero;
+            shard.FlyDriftTarget = Vector3.zero;
             shard.Elapsed = 0f;
+            shard.HueOffset = 0f;
             if (shard.Root != null)
             {
                 shard.Root.transform.SetParent(null, false);
+                shard.Root.transform.localScale = Vector3.one;
                 shard.Root.SetActive(false);
             }
 
@@ -798,6 +1135,53 @@ namespace BeatSurgeon.Gameplay
             else if (shard.Root != null)
             {
                 UnityEngine.Object.Destroy(shard.Root);
+            }
+        }
+
+        private bool HasNonPreviewLiveShards()
+        {
+            for (int index = 0; index < _liveShards.Count; index++)
+            {
+                ShardState shard = _liveShards[index];
+                if (shard != null && shard.Active && !shard.IsMenuPreview)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void ClearGameplayStatePreserveMenuPreview(string reason)
+        {
+            _activeEntries.Clear();
+            _pendingEntries.Clear();
+
+            _shardScratch.Clear();
+            for (int index = 0; index < _liveShards.Count; index++)
+            {
+                ShardState shard = _liveShards[index];
+                if (shard == null)
+                {
+                    continue;
+                }
+
+                if (shard.IsMenuPreview)
+                {
+                    _shardScratch.Add(shard);
+                }
+                else
+                {
+                    RecycleShard(shard);
+                }
+            }
+
+            _liveShards.Clear();
+            _liveShards.AddRange(_shardScratch);
+
+            if (!string.IsNullOrWhiteSpace(reason))
+            {
+                _log.Info("Cleared raid fountain gameplay state (kept menu preview) | reason=" + reason);
             }
         }
 
@@ -822,9 +1206,43 @@ namespace BeatSurgeon.Gameplay
                 }
             }
 
+            MultiplayerEffectPublisher.NotifyEffectEnded("raid");
+
             if (!string.IsNullOrWhiteSpace(reason))
             {
                 _log.Info("Cleared raid fountain state | reason=" + reason);
+            }
+        }
+
+        private static void ApplySelectedFontToShardList(List<ShardState> shards, TMP_FontAsset tekoFont)
+        {
+            if (shards == null)
+            {
+                return;
+            }
+
+            for (int index = 0; index < shards.Count; index++)
+            {
+                ShardState shard = shards[index];
+                if (shard?.Text == null)
+                {
+                    continue;
+                }
+
+                ApplySelectedFontToText(shard.Text, tekoFont);
+            }
+        }
+
+        private static void ApplySelectedFontToText(TextMeshPro text, TMP_FontAsset tekoFont)
+        {
+            if (text == null)
+            {
+                return;
+            }
+
+            if (!FontBundleLoader.TryApplySelectedBombFont(text, tekoFont, cloneMaterial: true))
+            {
+                TrySetFontSafe(text, tekoFont);
             }
         }
 
@@ -850,6 +1268,12 @@ namespace BeatSurgeon.Gameplay
             float radius = Mathf.Sqrt(Mathf.Max(0f, 1f - (y * y)));
             float theta = (Mathf.PI * (1f + Mathf.Sqrt(5f))) * index;
             return new Vector3(Mathf.Cos(theta) * radius, y, Mathf.Sin(theta) * radius);
+        }
+
+        private static bool IsFiniteVector(Vector3 value)
+        {
+            return !(float.IsNaN(value.x) || float.IsNaN(value.y) || float.IsNaN(value.z)
+                || float.IsInfinity(value.x) || float.IsInfinity(value.y) || float.IsInfinity(value.z));
         }
 
         private static void SetLayerRecursively(GameObject root, int layer)

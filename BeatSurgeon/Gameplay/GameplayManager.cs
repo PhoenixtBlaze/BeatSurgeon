@@ -46,7 +46,15 @@ namespace BeatSurgeon.Gameplay
         private bool _sceneEventsHooked;
         private bool _deferredQueueFlushCompletedForCurrentScene;
         private bool _deferredQueueFlushInProgress;
+        private bool _deferredQueueResolveWarned;
+        private bool _deferredQueueEnqueuedHooked;
         private int _deferredQueueSceneVersion;
+        private float _deferredFlushNotBeforeRealtime;
+        private float _deferredFlushSkipLogNotBeforeRealtime;
+        private string _lastDeferredFlushSkipReason;
+        private const float DeferredEffectSpacingSeconds = 2.0f;
+        private const float DeferredFlushRetryBackoffSeconds = 0.35f;
+        private const float DeferredFlushSkipLogThrottleSeconds = 2.0f;
 
         public bool IsInMap
         {
@@ -172,6 +180,8 @@ namespace BeatSurgeon.Gameplay
         private Coroutine _timerCoroutine;
         private Coroutine _glitterWarmupRoutine;
         private bool _glitterWarmupCompletedForScene;
+        /// <summary>True once the warmup coroutine finished for this map (success or partial).</summary>
+        private bool _glitterWarmupFinishedForScene;
 
         public static GameplayManager GetInstance()
         {
@@ -264,7 +274,7 @@ namespace BeatSurgeon.Gameplay
                     RaidFountainNoteManager.ClearForSceneExit();
                     RankedMapDetectionService.Instance.Reset();
                 }
-                else if (!wasInMap && IsInMap && _deferredEventQueue != null)
+                else if (!wasInMap && IsInMap && EnsureDeferredEventQueue() != null)
                 {
                     // InLevelQueueProcessor owns song-switch timing only and has no
                     // "process pending effects at level start" phase, so the safe drain lives here
@@ -288,7 +298,7 @@ namespace BeatSurgeon.Gameplay
 
         private void ScheduleGlitterWarmup()
         {
-            if (_glitterWarmupCompletedForScene || _glitterWarmupRoutine != null)
+            if (_glitterWarmupFinishedForScene || _glitterWarmupRoutine != null)
             {
                 return;
             }
@@ -299,11 +309,50 @@ namespace BeatSurgeon.Gameplay
         private void CancelGlitterWarmup()
         {
             _glitterWarmupCompletedForScene = false;
+            _glitterWarmupFinishedForScene = false;
 
             if (_glitterWarmupRoutine != null)
             {
                 StopCoroutine(_glitterWarmupRoutine);
                 _glitterWarmupRoutine = null;
+            }
+        }
+
+        private void FinishGlitterWarmup(bool succeeded)
+        {
+            _glitterWarmupCompletedForScene = succeeded;
+            _glitterWarmupFinishedForScene = true;
+            _glitterWarmupRoutine = null;
+
+            if (succeeded)
+            {
+                _log.Info("Gameplay glitter effects warmup complete.");
+            }
+            else
+            {
+                _log.Warn("Gameplay glitter effects warmup completed with missing assets or incomplete pools.");
+            }
+
+            // Allow deferred flush to start promptly once pools/canvases are ready.
+            _deferredFlushNotBeforeRealtime = 0f;
+
+            DeferredEventQueue queue = EnsureDeferredEventQueue();
+            if (IsInMap && queue != null && queue.HasPendingEntries)
+            {
+                _ = FlushDeferredQueueAsync(_deferredQueueSceneVersion);
+            }
+        }
+
+        private void AbortGlitterWarmupEarly()
+        {
+            _glitterWarmupRoutine = null;
+
+            // Defensive: if abort somehow happens while still in map, mark warmup finished
+            // so CanStartDeferredQueueFlush is not wedged forever. Leaving the map uses
+            // CancelGlitterWarmup which resets finished — do not Finish in that case.
+            if (IsInMap && !_glitterWarmupFinishedForScene)
+            {
+                FinishGlitterWarmup(false);
             }
         }
 
@@ -320,7 +369,7 @@ namespace BeatSurgeon.Gameplay
 
             if (!IsInMap)
             {
-                _glitterWarmupRoutine = null;
+                AbortGlitterWarmupEarly();
                 yield break;
             }
 
@@ -343,7 +392,7 @@ namespace BeatSurgeon.Gameplay
                 {
                     if (!IsInMap)
                     {
-                        _glitterWarmupRoutine = null;
+                        AbortGlitterWarmupEarly();
                         yield break;
                     }
 
@@ -376,7 +425,7 @@ namespace BeatSurgeon.Gameplay
 
             if (!IsInMap)
             {
-                _glitterWarmupRoutine = null;
+                AbortGlitterWarmupEarly();
                 yield break;
             }
 
@@ -388,7 +437,7 @@ namespace BeatSurgeon.Gameplay
             {
                 if (!IsInMap)
                 {
-                    _glitterWarmupRoutine = null;
+                    AbortGlitterWarmupEarly();
                     yield break;
                 }
 
@@ -396,21 +445,31 @@ namespace BeatSurgeon.Gameplay
                 yield return null;
             }
 
+            // Raid fountain warm is best-effort: failure must not fail overall WarmGlitter
+            // (fonts/bundle timing can miss while fireworks/bits still need to warm).
             for (int targetCount = 1; targetCount <= RaidFountainNoteManager.RecommendedWarmPoolSize; targetCount++)
             {
                 if (!IsInMap)
                 {
-                    _glitterWarmupRoutine = null;
+                    AbortGlitterWarmupEarly();
                     yield break;
                 }
 
-                warmupSucceeded &= RaidFountainNoteManager.Instance.EnsureWarmPoolSize(targetCount);
+                if (!RaidFountainNoteManager.Instance.EnsureWarmPoolSize(targetCount))
+                {
+                    LogUtils.Debug(() =>
+                        "GameplayManager: raid fountain warm pool size "
+                        + targetCount
+                        + " not ready yet; continuing WarmGlitter without failing overall.");
+                    break;
+                }
+
                 yield return null;
             }
 
             if (!IsInMap)
             {
-                _glitterWarmupRoutine = null;
+                AbortGlitterWarmupEarly();
                 yield break;
             }
 
@@ -423,7 +482,7 @@ namespace BeatSurgeon.Gameplay
 
             if (!IsInMap)
             {
-                _glitterWarmupRoutine = null;
+                AbortGlitterWarmupEarly();
                 yield break;
             }
 
@@ -434,23 +493,22 @@ namespace BeatSurgeon.Gameplay
 
             yield return null;
 
-            _glitterWarmupCompletedForScene = warmupSucceeded;
-            _glitterWarmupRoutine = null;
+            if (!IsInMap)
+            {
+                AbortGlitterWarmupEarly();
+                yield break;
+            }
 
-            if (warmupSucceeded)
-            {
-                _log.Info("Gameplay glitter effects warmup complete.");
-            }
-            else
-            {
-                _log.Warn("Gameplay glitter effects warmup completed with missing assets or incomplete pools.");
-            }
+            FinishGlitterWarmup(warmupSucceeded);
         }
 
         private async Task FlushDeferredQueueAsync(int sceneVersion)
         {
             if (!CanStartDeferredQueueFlush(sceneVersion))
             {
+                LogDeferredFlushSkipReason(GetDeferredFlushSkipReason(sceneVersion));
+                // Back off so Update does not spawn a no-op task every frame while waiting for warmup/ranked.
+                _deferredFlushNotBeforeRealtime = Time.realtimeSinceStartup + DeferredFlushRetryBackoffSeconds;
                 return;
             }
 
@@ -465,13 +523,22 @@ namespace BeatSurgeon.Gameplay
                 {
                     if (sceneVersion == _deferredQueueSceneVersion)
                     {
+                        // Empty drain marks scene complete; mid-map Enqueue clears this via OnEntryEnqueued.
                         _deferredQueueFlushCompletedForCurrentScene = true;
                     }
 
                     return;
                 }
 
-                _log.Info("[BeatSurgeon] Flushing " + pending.Count + " deferred event(s) once current gameplay is confirmed unranked.");
+                _log.Info(
+                    "[BeatSurgeon] Flushing "
+                    + pending.Count
+                    + " deferred event(s) after warmup (spacing "
+                    + DeferredEffectSpacingSeconds.ToString("0.#")
+                    + "s).");
+
+                // Ensure fonts are ready before the first follow/sub/raid apply.
+                await FontBundleLoader.EnsureBombFontReadyAsync().ConfigureAwait(false);
 
                 for (int index = 0; index < pending.Count; index++)
                 {
@@ -479,10 +546,27 @@ namespace BeatSurgeon.Gameplay
                     {
                         for (int requeueIndex = index; requeueIndex < pending.Count; requeueIndex++)
                         {
-                            _deferredEventQueue.Enqueue(pending[requeueIndex]);
+                            _deferredEventQueue.EnqueuePreserve(pending[requeueIndex]);
                         }
 
+                        _deferredFlushNotBeforeRealtime = Time.realtimeSinceStartup + DeferredFlushRetryBackoffSeconds;
                         return;
+                    }
+
+                    if (index > 0)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(DeferredEffectSpacingSeconds)).ConfigureAwait(false);
+
+                        if (!CanContinueDeferredQueueFlush(sceneVersion))
+                        {
+                            for (int requeueIndex = index; requeueIndex < pending.Count; requeueIndex++)
+                            {
+                                _deferredEventQueue.EnqueuePreserve(pending[requeueIndex]);
+                            }
+
+                            _deferredFlushNotBeforeRealtime = Time.realtimeSinceStartup + DeferredFlushRetryBackoffSeconds;
+                            return;
+                        }
                     }
 
                     await ProcessDeferredEntryAsync(pending[index]).ConfigureAwait(false);
@@ -490,7 +574,17 @@ namespace BeatSurgeon.Gameplay
 
                 if (sceneVersion == _deferredQueueSceneVersion)
                 {
-                    _deferredQueueFlushCompletedForCurrentScene = true;
+                    // Retries re-enter the queue; leave the scene open for another flush pass.
+                    _deferredQueueFlushCompletedForCurrentScene = !_deferredEventQueue.HasPendingEntries;
+                    if (!_deferredQueueFlushCompletedForCurrentScene)
+                    {
+                        _deferredFlushNotBeforeRealtime =
+                            Time.realtimeSinceStartup + DeferredEffectSpacingSeconds;
+                        _log.Info(
+                            "[BeatSurgeon] Deferred flush leaving "
+                            + _deferredEventQueue.Count
+                            + " pending retry(ies) for another pass this scene.");
+                    }
                 }
             }
             finally
@@ -502,19 +596,184 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
+        /// <summary>
+        /// Zenject FromMethod does not Inject into GetInstance(); AppInstaller assigns the
+        /// shared DeferredEventQueue here. Idempotent; ignores null.
+        /// </summary>
+        internal void SetDeferredEventQueue(DeferredEventQueue queue)
+        {
+            if (queue == null)
+            {
+                return;
+            }
+
+            _deferredEventQueue = queue;
+            HookDeferredQueueEnqueued();
+        }
+
+        /// <summary>
+        /// Public/internal kick for ranked-check completion and other gates clearing.
+        /// Safe no-op when not in map, flush in progress, or queue empty.
+        /// </summary>
+        internal void TryFlushDeferredQueue()
+        {
+            DeferredEventQueue queue = EnsureDeferredEventQueue();
+            if (!IsInMap || queue == null || !queue.HasPendingEntries || _deferredQueueFlushInProgress)
+            {
+                return;
+            }
+
+            _deferredQueueFlushCompletedForCurrentScene = false;
+            _deferredFlushNotBeforeRealtime = 0f;
+            _ = FlushDeferredQueueAsync(_deferredQueueSceneVersion);
+        }
+
+        /// <summary>
+        /// Returns the deferred queue. Prefer: field → DeferredEventQueue.Instance → ProjectContext.
+        /// </summary>
+        private DeferredEventQueue EnsureDeferredEventQueue()
+        {
+            if (_deferredEventQueue != null)
+            {
+                HookDeferredQueueEnqueued();
+                return _deferredEventQueue;
+            }
+
+            if (DeferredEventQueue.Instance != null)
+            {
+                _deferredEventQueue = DeferredEventQueue.Instance;
+                HookDeferredQueueEnqueued();
+                return _deferredEventQueue;
+            }
+
+            try
+            {
+                if (ProjectContext.Instance != null)
+                {
+                    DiContainer container = ProjectContext.Instance.Container;
+                    if (container != null && container.HasBinding<DeferredEventQueue>())
+                    {
+                        _deferredEventQueue = container.Resolve<DeferredEventQueue>();
+                        HookDeferredQueueEnqueued();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!_deferredQueueResolveWarned)
+                {
+                    _deferredQueueResolveWarned = true;
+                    _log.Warn("DeferredEventQueue ProjectContext resolve failed: " + ex.Message);
+                }
+            }
+
+            if (_deferredEventQueue == null && IsInMap && !_deferredQueueResolveWarned)
+            {
+                _deferredQueueResolveWarned = true;
+                _log.Warn(
+                    "DeferredEventQueue is unavailable; deferred automatic effects (raid/follow/sub/bits) will not flush this session.");
+            }
+
+            return _deferredEventQueue;
+        }
+
+        private void HookDeferredQueueEnqueued()
+        {
+            if (_deferredQueueEnqueuedHooked || _deferredEventQueue == null)
+            {
+                return;
+            }
+
+            _deferredEventQueue.OnEntryEnqueued += OnDeferredEntryEnqueued;
+            _deferredQueueEnqueuedHooked = true;
+        }
+
+        private void OnDeferredEntryEnqueued()
+        {
+            // Mid-map enqueue after an empty drain must reopen flush for this scene.
+            _deferredQueueFlushCompletedForCurrentScene = false;
+            _deferredFlushNotBeforeRealtime = 0f;
+        }
+
         private bool CanStartDeferredQueueFlush(int sceneVersion)
         {
-            return _deferredEventQueue != null
-                && IsInMap
-                && sceneVersion == _deferredQueueSceneVersion
-                && !_deferredQueueFlushCompletedForCurrentScene
-                && !_deferredQueueFlushInProgress
-                && !RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking;
+            DeferredEventQueue queue = EnsureDeferredEventQueue();
+            if (queue == null
+                || !IsInMap
+                || sceneVersion != _deferredQueueSceneVersion
+                || _deferredQueueFlushInProgress
+                || !_glitterWarmupFinishedForScene
+                || RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking)
+            {
+                return false;
+            }
+
+            // Empty-drain may set completed=true; pending mid-map enqueues must still flush.
+            if (_deferredQueueFlushCompletedForCurrentScene && !queue.HasPendingEntries)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private string GetDeferredFlushSkipReason(int sceneVersion)
+        {
+            if (EnsureDeferredEventQueue() == null)
+            {
+                return "null-queue";
+            }
+
+            if (sceneVersion != _deferredQueueSceneVersion)
+            {
+                return "scene-mismatch";
+            }
+
+            if (_deferredQueueFlushInProgress)
+            {
+                return "in-progress";
+            }
+
+            if (!_glitterWarmupFinishedForScene)
+            {
+                return "warmup";
+            }
+
+            if (RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking)
+            {
+                return "ranked";
+            }
+
+            if (_deferredQueueFlushCompletedForCurrentScene && !_deferredEventQueue.HasPendingEntries)
+            {
+                return "completed-empty";
+            }
+
+            return "unknown";
+        }
+
+        private void LogDeferredFlushSkipReason(string reason)
+        {
+            if (string.IsNullOrEmpty(reason))
+            {
+                return;
+            }
+
+            float now = Time.realtimeSinceStartup;
+            if (string.Equals(reason, _lastDeferredFlushSkipReason, StringComparison.Ordinal)
+                && now < _deferredFlushSkipLogNotBeforeRealtime)
+            {
+                return;
+            }
+
+            _lastDeferredFlushSkipReason = reason;
+            _deferredFlushSkipLogNotBeforeRealtime = now + DeferredFlushSkipLogThrottleSeconds;
+            _log.Debug("[BeatSurgeon] Deferred flush skipped — " + reason + ".");
         }
 
         private bool CanContinueDeferredQueueFlush(int sceneVersion)
         {
-            return _deferredEventQueue != null
+            return EnsureDeferredEventQueue() != null
                 && IsInMap
                 && sceneVersion == _deferredQueueSceneVersion
                 && !RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking;
@@ -535,7 +794,7 @@ namespace BeatSurgeon.Gameplay
                             SenderName = entry.DisplayName,
                             MessageText = "!fmsg " + displayText,
                             Source = ChatSource.NativeTwitch,
-                            TriggerSource = TriggerSource.Chat
+                            TriggerSource = TriggerSource.AutomaticEvent
                         };
                         await ApplyFollowerMessageAsync(ctx, displayText, CancellationToken.None).ConfigureAwait(false);
                         _log.Info("[BeatSurgeon] Deferred Follow effect fired for " + entry.DisplayName);
@@ -565,7 +824,7 @@ namespace BeatSurgeon.Gameplay
                             SenderName = entry.DisplayName,
                             MessageText = "!smsg " + displayText,
                             Source = ChatSource.NativeTwitch,
-                            TriggerSource = TriggerSource.Chat
+                            TriggerSource = TriggerSource.AutomaticEvent
                         };
                         await ApplySubscriberMessageAsync(
                             ctx,
@@ -585,7 +844,7 @@ namespace BeatSurgeon.Gameplay
                             SenderName = entry.DisplayName,
                             MessageText = "!raid " + noteCount,
                             Source = ChatSource.NativeTwitch,
-                            TriggerSource = TriggerSource.Chat
+                            TriggerSource = TriggerSource.AutomaticEvent
                         };
                         await ApplyRaidEffectAsync(ctx, entry.DisplayName, noteCount, CancellationToken.None).ConfigureAwait(false);
                         _log.Info("[BeatSurgeon] Deferred Raid effect fired for " + entry.DisplayName + " notes=" + noteCount);
@@ -597,10 +856,10 @@ namespace BeatSurgeon.Gameplay
             {
                 if (entry.RetryCount == 0)
                 {
-                    _log.Warn("[BeatSurgeon] Deferred " + entry.EventKind + " for " + entry.DisplayName + " failed (will retry next scene): " + ex.Message);
+                    _log.Warn("[BeatSurgeon] Deferred " + entry.EventKind + " for " + entry.DisplayName + " failed (will retry this scene): " + ex.Message);
                     if (entry.EventKind == EventKind.Subscription)
                     {
-                        _deferredEventQueue.Enqueue(new DeferredEventEntry(
+                        _deferredEventQueue.EnqueuePreserve(new DeferredEventEntry(
                             entry.EventKind,
                             entry.DisplayName,
                             entry.QueuedAtUtc,
@@ -612,7 +871,7 @@ namespace BeatSurgeon.Gameplay
                     }
                     else
                     {
-                        _deferredEventQueue.Enqueue(new DeferredEventEntry(entry.EventKind, entry.DisplayName, entry.BitAmount, entry.QueuedAtUtc, 1));
+                        _deferredEventQueue.EnqueuePreserve(new DeferredEventEntry(entry.EventKind, entry.DisplayName, entry.BitAmount, entry.QueuedAtUtc, 1));
                     }
                 }
                 else
@@ -1326,14 +1585,28 @@ namespace BeatSurgeon.Gameplay
             {
                 throw new InvalidOperationException(effectName + " could not be armed (not in map or queue is full).");
             }
+
+            if (ctx?.TriggerSource != TriggerSource.MultiplayerSync)
+            {
+                string cheererName = string.IsNullOrWhiteSpace(ctx?.Username) ? "Unknown" : ctx.Username.Trim();
+                MultiplayerEffectPublisher.NotifyInstantStarted(
+                    "glitter",
+                    "glitter " + Math.Max(1, queuedBits > 0 ? queuedBits : requestedBits),
+                    cheererName);
+            }
         }
 
         internal Task ApplyNoteColorAsync(ChatContext ctx, UnityEngine.Color left, UnityEngine.Color right, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
-            bool started = RainbowManager.Instance.StartNoteColor(left, right, CommandRuntimeSettings.RainbowEffectSeconds);
+            // NotifyDurationStarted (inside StartNoteColor) handles host->client sync and the
+            // 3-cap duration-effect tracking; skip it when this call is itself a client applying
+            // a synced command so we don't republish.
+            string requesterName = ctx?.TriggerSource == TriggerSource.MultiplayerSync ? null : ctx?.Username;
+            bool started = RainbowManager.Instance.StartNoteColor(left, right, CommandRuntimeSettings.RainbowEffectSeconds, requesterName);
             _log.Effect("NoteColor", started, "requestedBy=" + (ctx?.Username ?? "Unknown"));
             if (!started) throw new InvalidOperationException("NoteColor could not be started (not in map).");
+
             return Task.CompletedTask;
         }
 
@@ -1406,54 +1679,126 @@ namespace BeatSurgeon.Gameplay
             }
 
             bool started = false;
+            string requesterName = string.IsNullOrWhiteSpace(ctx?.Username) ? "Unknown" : ctx.Username.Trim();
             await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
                 .StartNew(() =>
                 {
-                    started = FollowerMessageManager.Instance.EnqueueMessage(ctx?.Username, displayText);
+                    started = FollowerMessageManager.Instance.EnqueueMessage(requesterName, displayText);
                 })
                 .ConfigureAwait(false);
 
-            string requestedBy = ctx?.Username ?? "Unknown";
             string detail = string.IsNullOrWhiteSpace(displayText)
-                ? "requestedBy=" + requestedBy
-                : "requestedBy=" + requestedBy + " displayText=" + displayText;
+                ? "requestedBy=" + requesterName
+                : "requestedBy=" + requesterName + " displayText=" + displayText;
             _log.Effect("FollowerMessage", started, detail);
             if (!started) throw new InvalidOperationException("Follower message could not be started (not in map, queue full, or follower canvas unavailable).");
+
+            // EventSub/automatic follows stay host-only. Chat/CP !fmsg syncs canvas text to the room.
+            if (ctx?.TriggerSource != TriggerSource.MultiplayerSync
+                && ctx?.TriggerSource != TriggerSource.AutomaticEvent
+                && !string.IsNullOrWhiteSpace(displayText))
+            {
+                MultiplayerEffectPublisher.NotifyInstantStarted("fmsg", "fmsg " + displayText.Trim(), requesterName);
+            }
         }
 
         internal async Task ApplySubscriberMessageAsync(ChatContext ctx, string displayText, CancellationToken ct, int trailCubeCount = 5)
         {
             ct.ThrowIfCancellationRequested();
 
-            await FontBundleLoader.EnsureBombFontReadyAsync().ConfigureAwait(false);
-            ct.ThrowIfCancellationRequested();
+            bool isMultiplayerSync = ctx?.TriggerSource == TriggerSource.MultiplayerSync;
+            bool isAutomaticEvent = ctx?.TriggerSource == TriggerSource.AutomaticEvent;
+            int normalizedTrailCubeCount = Mathf.Max(0, trailCubeCount);
+            // Host EventSub + chat commands with text show canvas locally.
+            // Synced !smsg includes text → clients show canvas. Synced !subcubes has empty text → cubes only.
+            bool canvasWanted = !string.IsNullOrWhiteSpace(displayText);
 
-            if (!FontBundleLoader.IsBombFontReady)
+            if (canvasWanted)
             {
-                throw new InvalidOperationException("Bomb font bundle could not be loaded.");
+                await FontBundleLoader.EnsureBombFontReadyAsync().ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+
+                if (!FontBundleLoader.IsBombFontReady)
+                {
+                    throw new InvalidOperationException("Bomb font bundle could not be loaded.");
+                }
             }
 
             bool started = false;
             bool queuedTrailCubes = false;
-            int normalizedTrailCubeCount = Mathf.Max(0, trailCubeCount);
+            string requesterName = string.IsNullOrWhiteSpace(ctx?.Username) ? "Unknown" : ctx.Username.Trim();
             await IPA.Utilities.Async.UnityMainThreadTaskScheduler.Factory
                 .StartNew(() =>
                 {
-                    started = SubscriberMessageManager.Instance.EnqueueMessage(ctx?.Username, displayText);
+                    if (canvasWanted)
+                    {
+                        started = SubscriberMessageManager.Instance.EnqueueMessage(requesterName, displayText);
+                    }
+
                     if (normalizedTrailCubeCount > 0)
                     {
-                        queuedTrailCubes = SubscriberTrailCubeManager.Instance.QueueNotes(normalizedTrailCubeCount, ctx?.Username);
+                        queuedTrailCubes = SubscriberTrailCubeManager.Instance.QueueNotes(
+                            normalizedTrailCubeCount,
+                            requesterName);
+                    }
+
+                    if (!canvasWanted)
+                    {
+                        started = normalizedTrailCubeCount <= 0 || queuedTrailCubes;
                     }
                 })
                 .ConfigureAwait(false);
 
-            string requestedBy = ctx?.Username ?? "Unknown";
             string detail = string.IsNullOrWhiteSpace(displayText)
-                ? "requestedBy=" + requestedBy
-                : "requestedBy=" + requestedBy + " displayText=" + displayText;
-            detail += " trailCubeCount=" + normalizedTrailCubeCount + " trailQueued=" + queuedTrailCubes;
+                ? "requestedBy=" + requesterName
+                : "requestedBy=" + requesterName + " displayText=" + displayText;
+            detail += " trailCubeCount=" + normalizedTrailCubeCount
+                + " trailQueued=" + queuedTrailCubes
+                + " multiplayerSync=" + isMultiplayerSync
+                + " automaticEvent=" + isAutomaticEvent
+                + " canvas=" + canvasWanted;
             _log.Effect("SubscriberMessage", started, detail);
-            if (!started) throw new InvalidOperationException("Subscriber message could not be started (not in map, queue full, or subscriber canvas unavailable).");
+
+            if (!started)
+            {
+                throw new InvalidOperationException(
+                    canvasWanted
+                        ? "Subscriber message could not be started (not in map, queue full, or subscriber canvas unavailable)."
+                        : "Subscriber trail cubes could not be queued (not in map or queue full).");
+            }
+
+            if (isMultiplayerSync)
+            {
+                return;
+            }
+
+            if (isAutomaticEvent)
+            {
+                // EventSub sub on host: sync cubes+name only to the room.
+                // Local host (and any MP client with their own Twitch AutomaticEvent) already
+                // ran full canvas+cubes above — only the host publishes.
+                MultiplayerEffectPublisher.NotifyInstantStarted(
+                    "subcubes",
+                    "subcubes " + normalizedTrailCubeCount,
+                    requesterName);
+                return;
+            }
+
+            // Chat/CP !smsg: sync full canvas text + cube count to other players.
+            if (!string.IsNullOrWhiteSpace(displayText))
+            {
+                MultiplayerEffectPublisher.NotifyInstantStarted(
+                    "smsg",
+                    "smsg " + normalizedTrailCubeCount + " " + displayText.Trim(),
+                    requesterName);
+            }
+            else if (normalizedTrailCubeCount > 0)
+            {
+                MultiplayerEffectPublisher.NotifyInstantStarted(
+                    "subcubes",
+                    "subcubes " + normalizedTrailCubeCount,
+                    requesterName);
+            }
         }
 
         internal async Task ApplyRaidEffectAsync(ChatContext ctx, string raiderName, int noteCount, CancellationToken ct)
@@ -1489,6 +1834,12 @@ namespace BeatSurgeon.Gameplay
             if (!queued)
             {
                 throw new InvalidOperationException("Raid fountain could not be queued (not in map or queue full).");
+            }
+
+            if (ctx?.TriggerSource != TriggerSource.MultiplayerSync)
+            {
+                // active_command_user carries the raider name for clients; notes stay in the command args.
+                MultiplayerEffectPublisher.NotifyInstantStarted("raid", "raid " + clampedNotes, displayName);
             }
         }
 
@@ -2020,12 +2371,14 @@ namespace BeatSurgeon.Gameplay
             using (UpdateProfiler.Auto())
             {
                 // Scene-driven map detection; intentionally no object discovery in Update.
+                // Flush waits for glitter/font warmup, then plays deferred EventSub effects with spacing.
+                // Schedule whenever pending exists — do not require !_completed (mid-map re-enqueue).
+                DeferredEventQueue deferredQueue = EnsureDeferredEventQueue();
                 if (IsInMap
-                    && _deferredEventQueue != null
-                    && _deferredEventQueue.HasPendingEntries
-                    && !_deferredQueueFlushCompletedForCurrentScene
+                    && deferredQueue != null
+                    && deferredQueue.HasPendingEntries
                     && !_deferredQueueFlushInProgress
-                    && !RankedMapDetectionService.Instance.IsCurrentMapRankedOrChecking)
+                    && Time.realtimeSinceStartup >= _deferredFlushNotBeforeRealtime)
                 {
                     _ = FlushDeferredQueueAsync(_deferredQueueSceneVersion);
                 }

@@ -174,17 +174,19 @@ namespace BeatSurgeon.Twitch
                 return;
             }
 
+            string messageText = BuildChannelPointMessage(command, userInput);
             var ctx = new ChatContext
             {
                 SenderName = string.IsNullOrWhiteSpace(userLogin) ? "Unknown" : userLogin,
-                MessageText = command,
+                MessageText = messageText,
                 Source = ChatSource.NativeTwitch,
                 TriggerSource = TriggerSource.ChannelPoints,
                 IsChannelPoint = true,
                 IsSubscriber = true
             };
 
-            _log.ChannelPoint(rewardId, "Dispatching", "command=" + command + " user=" + userLogin);
+            _log.ChannelPoint(rewardId, "Dispatching", "command=" + messageText + " user=" + userLogin);
+            MultiplayerEffectPublisher.BeginSuppressHostPublish();
             try
             {
                 CommandExecutionResult result = await _commandHandler
@@ -193,15 +195,29 @@ namespace BeatSurgeon.Twitch
 
                 if (result != null && result.Executed)
                 {
-                    _log.ChannelPoint(rewardId, "DispatchedOK", "command=" + command + " user=" + userLogin);
+                    _log.ChannelPoint(rewardId, "DispatchedOK", "command=" + messageText + " user=" + userLogin);
                     await TryFulfillAsync(rewardId, redemptionId, ct).ConfigureAwait(false);
+
+                    // Only sync after a real fulfill path (not refunded). All effects share the
+                    // concurrent-active cap (long-running + instant/bomb/bits/subs/etc.).
+                    string publishCommand = MultiplayerEffectPublisher.NormalizeCommandForPublish(messageText);
+                    string durationKey = MultiplayerEffectPublisher.TryGetDurationEffectKey(publishCommand);
+                    if (durationKey != null)
+                    {
+                        MultiplayerEffectPublisher.NotifyDurationStartedForChannelPoint(durationKey, publishCommand, ctx.SenderName);
+                    }
+                    else
+                    {
+                        string instantKey = MultiplayerEffectPublisher.CanonicalizeEffectKey(publishCommand);
+                        MultiplayerEffectPublisher.NotifyInstantStartedForChannelPoint(instantKey, publishCommand, ctx.SenderName);
+                    }
                     return;
                 }
 
                 string reason = result == null
                     ? "UnknownFailure"
                     : result.Reason.ToString();
-                _log.ChannelPoint(rewardId, "Rejected", "command=" + command + " user=" + userLogin + " reason=" + reason);
+                _log.ChannelPoint(rewardId, "Rejected", "command=" + messageText + " user=" + userLogin + " reason=" + reason);
                 await TryRefundAsync(rewardId, redemptionId, userLogin, command, reason, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -209,6 +225,38 @@ namespace BeatSurgeon.Twitch
                 _log.Exception(ex, "ExecuteRedemptionAsync rewardId=" + rewardId + " user=" + userLogin);
                 await TryRefundAsync(rewardId, redemptionId, userLogin, command, "ExecutionFailed", ct).ConfigureAwait(false);
             }
+            finally
+            {
+                MultiplayerEffectPublisher.EndSuppressHostPublish();
+            }
+        }
+
+        private static string BuildChannelPointMessage(string command, string userInput)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                return command;
+            }
+
+            string trimmedInput = string.IsNullOrWhiteSpace(userInput) ? null : userInput.Trim();
+            if (string.IsNullOrWhiteSpace(trimmedInput))
+            {
+                return command;
+            }
+
+            string bombName = "!" + (CommandRuntimeSettings.BombCommandName ?? "bomb");
+            if (string.Equals(command, bombName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(command, "!bomb", StringComparison.OrdinalIgnoreCase))
+            {
+                if (trimmedInput.Length > 70)
+                {
+                    trimmedInput = trimmedInput.Substring(0, 70).TrimEnd();
+                }
+
+                return "!bmsg " + trimmedInput;
+            }
+
+            return command + " " + trimmedInput;
         }
 
         private async Task TryFulfillAsync(string rewardId, string redemptionId, CancellationToken ct)

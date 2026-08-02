@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -346,8 +346,10 @@
     <Compile Include="Gameplay\GlitterExplosionPool.cs" />
     <Compile Include="Gameplay\GlitterLoopEmitterManager.cs" />
     <Compile Include="Gameplay\BitParticleEmitterPool.cs" />
+    <Compile Include="Gameplay\BeatSurgeonOwnedVfxSpace.cs" />
     <Compile Include="Gameplay\VrVfxMaterialHelper.cs" />
     <Compile Include="Gameplay\BombExplosionEffectSettings.cs" />
+    <Compile Include="Gameplay\RaidCutEffectSettings.cs" />
     <Compile Include="Gameplay\RaidFountainNoteManager.cs" />
     <Compile Include="Gameplay\BombFontPreloadService.cs" />
     <Compile Include="Gameplay\SurgeonEffectsPreloadService.cs" />
@@ -402,6 +404,9 @@
     <Compile Include="Installers\BeatSurgeonAppInstaller.cs" />
     <Compile Include="Installers\BeatSurgeonMenuInstaller.cs" />
     <Compile Include="Multiplayer\Multiplayer.cs" />
+    <Compile Include="Multiplayer\MultiplayerEffectPublisher.cs" />
+    <Compile Include="Multiplayer\MultiplayerHostCooldownBridge.cs" />
+    <Compile Include="Multiplayer\MultiplayerLocalEffectGate.cs" />
     <Compile Include="Multiplayer\MultiplayerRoomSyncClient.cs" />
     <Compile Include="Twitch\ChannelPointCommandExecutor.cs" />
     <Compile Include="Twitch\ChannelPointRouter.cs" />

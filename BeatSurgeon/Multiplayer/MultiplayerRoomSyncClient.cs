@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
@@ -6,6 +7,7 @@ using System.Threading.Tasks;
 using BeatSurgeon.Chat;
 using BeatSurgeon.Utils;
 using Newtonsoft.Json;
+using UnityEngine;
 using Zenject;
 
 namespace BeatSurgeon
@@ -17,24 +19,53 @@ namespace BeatSurgeon
             [JsonProperty("type")] internal string Type { get; set; }
             [JsonProperty("room_code")] internal string RoomCode { get; set; }
             [JsonProperty("active_command")] internal string ActiveCommand { get; set; }
+            // Additive: older servers omit this; used to re-fire identical one-shots.
+            [JsonProperty("active_command_token")] internal string ActiveCommandToken { get; set; }
             [JsonProperty("active_command_user")] internal string ActiveCommandUser { get; set; }
             [JsonProperty("control")] internal bool? Control { get; set; }
+            // Additive: host-only cooldown snapshot; omitted by hosts that haven't sent one yet.
+            [JsonProperty("cooldowns")] internal HostCooldownsMessage Cooldowns { get; set; }
         }
 
-        private sealed class SyncMessage
+        private sealed class HostCooldownsMessage
         {
-            internal string Type { get; set; }
-            internal string TargetPlayerId { get; set; }
-            internal string Command { get; set; }
-            internal string SenderName { get; set; }
+            [JsonProperty("per_command_enabled")] internal bool PerCommandEnabled { get; set; } = true;
+            [JsonProperty("values")] internal Dictionary<string, double> Values { get; set; }
+        }
+
+        /// <summary>
+        /// A host-synced effect awaiting reliable local application. Retried (with backoff) until
+        /// CommandHandler reports success or a non-retryable rejection, or the room is left.
+        /// </summary>
+        private sealed class PendingSyncEntry
+        {
+            internal string Command;
+            internal string SenderName;
+            internal string Token;
+            internal int AttemptCount;
+            internal float NextAttemptRealtime;
+            internal Task<CommandExecutionResult> InFlightTask;
         }
 
         private static readonly LogUtil _log = LogUtil.GetLogger("MultiplayerRoomSyncClient");
         private static MultiplayerRoomSyncClient _instance;
 
-        private readonly System.Collections.Generic.Queue<SyncMessage> _pendingBatch =
-            new System.Collections.Generic.Queue<SyncMessage>();
-        private readonly object _batchLock = new object();
+        private const float RetryBackoffSeconds = 0.5f;
+        private const int MaxRecentTokens = 32;
+
+        private readonly List<PendingSyncEntry> _pendingSync = new List<PendingSyncEntry>();
+        private readonly object _pendingLock = new object();
+
+        // Bounded history of recently-applied one-shot tokens so a redelivered/resent copy of the
+        // same host event (e.g. the host's POST-failure resend path) is not re-applied.
+        private readonly HashSet<string> _recentAppliedTokens = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Queue<string> _recentAppliedTokenOrder = new Queue<string>();
+
+        // Fallback dedupe for hosts that never attach a one-shot token (no nonce at all) - keeps
+        // legacy sticky-style heartbeats from being reapplied every message.
+        private string _lastAppliedLegacyCommandKey;
+        private string _lastAppliedLegacyUserKey;
+
         private readonly object _connectionLock = new object();
 
         private const string WsBaseUrl = "wss://phoenixblaze0.duckdns.org/mp";
@@ -60,6 +91,7 @@ namespace BeatSurgeon
         {
             _log.Lifecycle("Initialize");
             SceneHelper.Init();
+            MultiplayerStateClient.Init();
             SceneHelper.MpPlusInRoomChanged += OnMpPlusInRoomChanged;
             SceneHelper.MpPlusRoomInfoChanged += OnRoomMaybeChanged;
             OnRoomMaybeChanged();
@@ -71,52 +103,109 @@ namespace BeatSurgeon
             SceneHelper.MpPlusInRoomChanged -= OnMpPlusInRoomChanged;
             SceneHelper.MpPlusRoomInfoChanged -= OnRoomMaybeChanged;
             Disconnect();
-
-            lock (_batchLock)
-            {
-                _pendingBatch.Clear();
-            }
         }
 
         public void Tick()
         {
-            SyncMessage[] batch;
-            lock (_batchLock)
+            List<PendingSyncEntry> snapshot;
+            lock (_pendingLock)
             {
-                if (_pendingBatch.Count == 0) return;
-                batch = _pendingBatch.ToArray();
-                _pendingBatch.Clear();
+                if (_pendingSync.Count == 0) return;
+                snapshot = new List<PendingSyncEntry>(_pendingSync);
             }
 
-            _log.MultiplayerSync("BatchFlush", "messageCount=" + batch.Length);
-            foreach (SyncMessage msg in batch)
+            float now = Time.realtimeSinceStartup;
+
+            foreach (PendingSyncEntry entry in snapshot)
             {
-                try
+                if (entry.InFlightTask != null)
                 {
-                    SendSyncMessage(msg);
-                    _log.MultiplayerSync("MessageSent", "type=" + msg.Type + " target=" + msg.TargetPlayerId);
+                    if (!entry.InFlightTask.IsCompleted) continue;
+
+                    Task<CommandExecutionResult> completedTask = entry.InFlightTask;
+                    entry.InFlightTask = null;
+
+                    if (completedTask.IsFaulted)
+                    {
+                        _log.Exception(completedTask.Exception, "MultiplayerSync apply command=" + entry.Command);
+                        entry.AttemptCount++;
+                        entry.NextAttemptRealtime = now + RetryBackoffSeconds;
+                        continue;
+                    }
+
+                    CommandExecutionResult result = completedTask.Result;
+                    if (result.Executed)
+                    {
+                        _log.MultiplayerSync(
+                            "Applied",
+                            "command=" + entry.Command + " token=" + entry.Token + " attempts=" + entry.AttemptCount);
+                        RemovePending(entry);
+                        continue;
+                    }
+
+                    // Only retry transient local gates (typically not-in-map yet via ProcessorRejected).
+                    // RankedMap is intentional client policy — do not spin forever on a ranked map.
+                    // Unknown/disabled/permission/execution errors are also non-retryable.
+                    bool retryable = result.Reason == CommandRejectReason.ProcessorRejected;
+
+                    if (!retryable)
+                    {
+                        _log.MultiplayerSync(
+                            "Dropped",
+                            "command=" + entry.Command + " reason=" + result.Reason + " attempts=" + entry.AttemptCount);
+                        RemovePending(entry);
+                        continue;
+                    }
+
+                    entry.AttemptCount++;
+                    entry.NextAttemptRealtime = now + RetryBackoffSeconds;
+                    continue;
                 }
-                catch (Exception ex)
+
+                if (now < entry.NextAttemptRealtime) continue;
+
+                if (!MultiplayerEffectsEnabled
+                    || !SceneHelper.MpPlusInRoom
+                    || SceneHelper.MpPlusIsHost
+                    || MultiplayerStateClient.GetLocalControl())
                 {
-                    _log.Exception(ex, "SendSyncMessage type=" + msg.Type);
+                    // No longer applicable to this client (left room, became host, or has local
+                    // control) - retrying would never succeed; drop rather than retry forever.
+                    _log.MultiplayerSync("Dropped", "command=" + entry.Command + " reason=NoLongerApplicable");
+                    RemovePending(entry);
+                    continue;
                 }
+
+                entry.InFlightTask = ApplySyncEntryAsync(entry);
             }
         }
 
-        internal void EnqueueSync(string command, string senderName = null)
+        private static Task<CommandExecutionResult> ApplySyncEntryAsync(PendingSyncEntry entry)
         {
-            if (!MultiplayerEffectsEnabled) return;
-            if (string.IsNullOrWhiteSpace(command)) return;
-            var message = new SyncMessage
+            string messageText = entry.Command.StartsWith("!", StringComparison.Ordinal)
+                ? entry.Command
+                : "!" + entry.Command;
+
+            var ctx = new ChatContext
             {
-                Type = "host_state",
-                Command = command,
-                SenderName = string.IsNullOrWhiteSpace(senderName) ? null : senderName.Trim()
+                // Prefer host-published requester; keep RoomHost only when name was not synced.
+                SenderName = string.IsNullOrWhiteSpace(entry.SenderName) ? "RoomHost" : entry.SenderName,
+                MessageText = messageText,
+                IsBroadcaster = true,
+                IsModerator = true,
+                IsSubscriber = true,
+                IsChannelPoint = true,
+                TriggerSource = TriggerSource.MultiplayerSync
             };
-            lock (_batchLock)
+
+            return CommandHandler.Instance.HandleMessageAsync(ctx, TriggerSource.MultiplayerSync, CancellationToken.None);
+        }
+
+        private void RemovePending(PendingSyncEntry entry)
+        {
+            lock (_pendingLock)
             {
-                _pendingBatch.Enqueue(message);
-                _log.MultiplayerSync("Enqueued", "type=" + message.Type + " pendingCount=" + _pendingBatch.Count);
+                _pendingSync.Remove(entry);
             }
         }
 
@@ -191,11 +280,23 @@ namespace BeatSurgeon
             try { cts?.Dispose(); } catch { }
             try { receiveTask?.Wait(300); } catch { }
 
-            lock (_batchLock)
+            lock (_pendingLock)
             {
-                _pendingBatch.Clear();
+                _pendingSync.Clear();
+                _recentAppliedTokens.Clear();
+                _recentAppliedTokenOrder.Clear();
             }
-            _log.Info("Pending sync batch cleared on disconnect");
+
+            _lastAppliedLegacyCommandKey = null;
+            _lastAppliedLegacyUserKey = null;
+
+            // Leaving the room (as host or client) invalidates any host-scoped state: a fresh
+            // room/host session must start with an empty duration-effect cap and no stale
+            // host-cooldown overrides carried over from the previous room.
+            MultiplayerHostCooldownBridge.Clear();
+            MultiplayerEffectPublisher.ClearDurationTracking();
+
+            _log.Info("Pending sync queue cleared on disconnect");
         }
 
         private async Task ReceiveLoopAsync(string roomCode, CancellationToken ct)
@@ -237,10 +338,41 @@ namespace BeatSurgeon
                     if (msg == null || !string.Equals(msg.Type, "host_state", StringComparison.OrdinalIgnoreCase))
                         continue;
 
+                    if (msg.Cooldowns != null)
+                    {
+                        MultiplayerHostCooldownBridge.ApplyFromHost(msg.Cooldowns.PerCommandEnabled, msg.Cooldowns.Values);
+                    }
+
+                    // Heartbeats / control-only updates carry no active_command - cooldowns above
+                    // were still processed, but there is no effect to apply.
                     if (string.IsNullOrWhiteSpace(msg.ActiveCommand))
                         continue;
 
-                    EnqueueSync(msg.ActiveCommand, msg.ActiveCommandUser);
+                    // Newer servers put playable text in active_command and uniqueness in
+                    // active_command_token. Older servers (or mid-rollout) may still embed #mp
+                    // in active_command - StripOneShotNonce keeps both shapes working.
+                    string commandKey = MultiplayerEffectPublisher.StripOneShotNonce(msg.ActiveCommand.Trim());
+                    if (string.IsNullOrWhiteSpace(commandKey))
+                        continue;
+
+                    string tokenKey = string.IsNullOrWhiteSpace(msg.ActiveCommandToken)
+                        ? string.Empty
+                        : msg.ActiveCommandToken.Trim();
+                    // Legacy fallback: if token omitted but raw still had #mp, keep raw for dedupe.
+                    if (tokenKey.Length == 0
+                        && !string.Equals(commandKey, msg.ActiveCommand.Trim(), StringComparison.Ordinal))
+                    {
+                        tokenKey = msg.ActiveCommand.Trim();
+                    }
+
+                    string userKey = string.IsNullOrWhiteSpace(msg.ActiveCommandUser)
+                        ? string.Empty
+                        : msg.ActiveCommandUser.Trim();
+
+                    if (!TryAcceptForApply(commandKey, tokenKey, userKey))
+                        continue;
+
+                    EnqueuePendingSync(commandKey, msg.ActiveCommandUser, tokenKey);
                 }
             }
             catch (OperationCanceledException)
@@ -251,32 +383,68 @@ namespace BeatSurgeon
             {
                 _log.Exception(ex, "ReceiveLoopAsync");
             }
-            finally
-            {
-                lock (_batchLock) { _pendingBatch.Clear(); }
-            }
         }
 
-        private void SendSyncMessage(SyncMessage msg)
+        /// <summary>
+        /// Deduplicates by one-shot token only (per product rule) - a distinct token is always
+        /// accepted even if the command/user text repeats. Falls back to last-value comparison
+        /// only for the rare host that sends no token at all.
+        /// </summary>
+        private bool TryAcceptForApply(string commandKey, string tokenKey, string userKey)
+        {
+            if (tokenKey.Length > 0)
+            {
+                lock (_pendingLock)
+                {
+                    if (_recentAppliedTokens.Contains(tokenKey))
+                    {
+                        return false;
+                    }
+
+                    _recentAppliedTokens.Add(tokenKey);
+                    _recentAppliedTokenOrder.Enqueue(tokenKey);
+                    while (_recentAppliedTokenOrder.Count > MaxRecentTokens)
+                    {
+                        string oldest = _recentAppliedTokenOrder.Dequeue();
+                        _recentAppliedTokens.Remove(oldest);
+                    }
+                }
+
+                return true;
+            }
+
+            if (string.Equals(_lastAppliedLegacyCommandKey, commandKey, StringComparison.Ordinal)
+                && string.Equals(_lastAppliedLegacyUserKey, userKey, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _lastAppliedLegacyCommandKey = commandKey;
+            _lastAppliedLegacyUserKey = userKey;
+            return true;
+        }
+
+        private void EnqueuePendingSync(string command, string senderName, string token)
         {
             if (!MultiplayerEffectsEnabled) return;
-            if (!SceneHelper.MpPlusInRoom) return;
-            if (SceneHelper.MpPlusIsHost) return;
-            if (MultiplayerStateClient.GetLocalControl()) return;
-            if (string.IsNullOrWhiteSpace(msg.Command)) return;
 
-            var ctx = new ChatContext
+            var entry = new PendingSyncEntry
             {
-                // Prefer host-published requester; keep RoomHost only when name was not synced.
-                SenderName = string.IsNullOrWhiteSpace(msg.SenderName) ? "RoomHost" : msg.SenderName,
-                MessageText = msg.Command.StartsWith("!") ? msg.Command : "!" + msg.Command,
-                IsBroadcaster = true,
-                IsModerator = true,
-                IsSubscriber = true,
-                IsChannelPoint = true
+                Command = command,
+                SenderName = string.IsNullOrWhiteSpace(senderName) ? null : senderName.Trim(),
+                Token = token,
+                AttemptCount = 0,
+                NextAttemptRealtime = 0f,
             };
 
-            _ = CommandHandler.Instance.HandleMessageAsync(ctx, CancellationToken.None);
+            int pendingCount;
+            lock (_pendingLock)
+            {
+                _pendingSync.Add(entry);
+                pendingCount = _pendingSync.Count;
+            }
+
+            _log.MultiplayerSync("Queued", "command=" + command + " token=" + token + " pendingCount=" + pendingCount);
         }
     }
 }

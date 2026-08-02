@@ -33,16 +33,21 @@ namespace BeatSurgeon.Chat.Processors
         public async Task ExecuteAsync(ChatContext ctx, CancellationToken ct)
         {
             int requestedBits = NumericBitCommandParser.ParseRequestedBits(ctx?.MessageText, "!glitter");
-            if (ctx?.TriggerSource == TriggerSource.BitEvent)
+            if (ctx?.TriggerSource == TriggerSource.BitEvent
+                || ctx?.TriggerSource == TriggerSource.MultiplayerSync)
             {
-                await BitEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(ct).ConfigureAwait(false);
+                if (ctx.TriggerSource != TriggerSource.MultiplayerSync)
+                {
+                    await BitEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(ct).ConfigureAwait(false);
+                }
             }
             else
             {
                 await BitEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
             }
 
-            if (ctx?.TriggerSource != TriggerSource.BitEvent)
+            if (ctx?.TriggerSource != TriggerSource.BitEvent
+                && ctx?.TriggerSource != TriggerSource.MultiplayerSync)
             {
                 // Hard cap: chat commands cannot exceed 10000 glitter.
                 if (requestedBits > 10000)

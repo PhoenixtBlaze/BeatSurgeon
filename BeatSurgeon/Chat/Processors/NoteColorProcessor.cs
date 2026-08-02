@@ -41,7 +41,8 @@ namespace BeatSurgeon.Chat.Processors
                 return false;
             }
 
-            if (!ctx.HasPermission(PluginConfig.Instance.RainbowNotePermission))
+            if (ctx?.TriggerSource != TriggerSource.MultiplayerSync
+                && !ctx.HasPermission(PluginConfig.Instance.RainbowNotePermission))
             {
                 _log.Command(ctx.Username, ctx.Command, false, "InsufficientPermission");
                 return false;

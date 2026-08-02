@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using BeatSurgeon.Twitch;
 
 namespace BeatSurgeon.Chat
@@ -39,7 +40,11 @@ namespace BeatSurgeon.Chat
 
         internal static bool PerCommandCooldownsEnabled
         {
-            get => PluginConfig.Instance?.PerCommandCooldownsEnabled ?? true;
+            // Clients in a Multiplayer+ room (not hosting) follow the host's cooldown toggle so
+            // synced effects apply cooldowns consistently with the host's local run.
+            get => MultiplayerHostCooldownBridge.ShouldUseHostValues
+                ? MultiplayerHostCooldownBridge.PerCommandCooldownsEnabled
+                : (PluginConfig.Instance?.PerCommandCooldownsEnabled ?? true);
             set { if (PluginConfig.Instance != null) PluginConfig.Instance.PerCommandCooldownsEnabled = value; }
         }
 
@@ -327,7 +332,17 @@ namespace BeatSurgeon.Chat
 
         internal static double GetCooldownSeconds(string commandName)
         {
-            switch ((commandName ?? string.Empty).Trim().ToLowerInvariant())
+            string key = (commandName ?? string.Empty).Trim().ToLowerInvariant();
+
+            // Clients in a Multiplayer+ room (not hosting) use the host's cooldown seconds so
+            // client-side lockout matches the host's actual effect availability.
+            if (MultiplayerHostCooldownBridge.ShouldUseHostValues
+                && MultiplayerHostCooldownBridge.TryGetCooldownSeconds(key, out double hostSeconds))
+            {
+                return hostSeconds;
+            }
+
+            switch (key)
             {
                 case "rainbow":
                 case "rainbownotes":
@@ -356,6 +371,26 @@ namespace BeatSurgeon.Chat
                 default:
                     return 0;
             }
+        }
+
+        /// <summary>
+        /// Snapshot of this host's local cooldown configuration, sent to Multiplayer+ clients so
+        /// they can enforce the same cooldowns locally (product rule: clients use HOST values).
+        /// </summary>
+        internal static Dictionary<string, double> BuildHostCooldownSnapshot()
+        {
+            return new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["rainbow"] = RainbowCooldownSeconds,
+                ["disappear"] = DisappearCooldownSeconds,
+                ["ghost"] = GhostCooldownSeconds,
+                ["bomb"] = BombCooldownSeconds,
+                ["glitter"] = GlitterCooldownSeconds,
+                ["faster"] = FasterCooldownSeconds,
+                ["superfast"] = SuperFastCooldownSeconds,
+                ["slower"] = SlowerCooldownSeconds,
+                ["flashbang"] = FlashbangCooldownSeconds,
+            };
         }
 
         internal static int GetCooldownSecondsForRewardKey(string rewardKey)

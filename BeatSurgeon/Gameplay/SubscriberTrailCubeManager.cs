@@ -210,6 +210,10 @@ namespace BeatSurgeon.Gameplay
             _activeEntries.Remove(controller);
             requesterName = activeEntry.RequesterName;
             CleanupVisual(activeEntry.VisualRoot);
+            if (_pendingEntries.Count == 0 && _activeEntries.Count == 0)
+            {
+                MultiplayerEffectPublisher.NotifyEffectEnded("subcubes");
+            }
             return true;
         }
 
@@ -266,6 +270,8 @@ namespace BeatSurgeon.Gameplay
                     UnityEngine.Object.Destroy(pooled);
                 }
             }
+
+            MultiplayerEffectPublisher.NotifyEffectEnded("subcubes");
 
             if (!string.IsNullOrWhiteSpace(reason))
             {

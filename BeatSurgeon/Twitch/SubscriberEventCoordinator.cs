@@ -87,7 +87,7 @@ namespace BeatSurgeon.Twitch
                     notification.CumulativeMonths,
                     notification.GiftCount,
                     notification.EventSubKind));
-                _log.Debug("Subscription event deferred for " + displayName + " — " + deferredReason + ".");
+                _log.Info("[BeatSurgeon] Subscription event deferred for " + displayName + " — " + deferredReason + ".");
                 return;
             }
 
@@ -108,7 +108,7 @@ namespace BeatSurgeon.Twitch
                 SenderName = displayName,
                 MessageText = "!smsg " + displayText,
                 Source = ChatSource.NativeTwitch,
-                TriggerSource = TriggerSource.Chat
+                TriggerSource = TriggerSource.AutomaticEvent
             };
 
             try

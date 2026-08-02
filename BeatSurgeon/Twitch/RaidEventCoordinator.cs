@@ -77,7 +77,7 @@ namespace BeatSurgeon.Twitch
                     displayName,
                     noteCount,
                     DateTime.UtcNow));
-                _log.Debug("[BeatSurgeon] Raid event deferred for " + displayName + " notes=" + noteCount + " — " + deferredReason + ".");
+                _log.Info("[BeatSurgeon] Raid event deferred for " + displayName + " notes=" + noteCount + " — " + deferredReason + ".");
                 return;
             }
 
@@ -96,7 +96,7 @@ namespace BeatSurgeon.Twitch
                 SenderName = displayName,
                 MessageText = "!raid " + noteCount,
                 Source = ChatSource.NativeTwitch,
-                TriggerSource = TriggerSource.Chat
+                TriggerSource = TriggerSource.AutomaticEvent
             };
 
             try

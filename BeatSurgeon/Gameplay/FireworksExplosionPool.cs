@@ -1,4 +1,4 @@
-﻿using BeatSurgeon.Twitch;
+using BeatSurgeon.Twitch;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -43,19 +43,6 @@ namespace BeatSurgeon.Gameplay
         public void Spawn(Vector3 position, Color baseColor, int burstCount = 220, float life = 1.6f)
         {
             SpawnForSelection(BombExplosionEffectSettings.GetSelectedOption(), position, baseColor, life, attachToGameplayAnchor: true);
-        }
-
-        /// <summary>
-        /// Dedicated lightweight raid-cut firework (Sparks). Independent of bomb explosion setting.
-        /// </summary>
-        internal void SpawnRaidCutExplosion(Vector3 position)
-        {
-            SpawnEmitterByName(
-                BundleRegistry.SurgeonExplosionRefs.SparkEmitterName,
-                position,
-                Color.white,
-                life: 1.25f,
-                attachToGameplayAnchor: true);
         }
 
         internal void SpawnPreview(string selection, Vector3 position)
@@ -636,21 +623,13 @@ namespace BeatSurgeon.Gameplay
                 return _gameplayVfxAnchor;
             }
 
-            NoteCutCoreEffectsSpawner spawner = Resources.FindObjectsOfTypeAll<NoteCutCoreEffectsSpawner>().FirstOrDefault();
-            if (spawner == null)
-            {
-                return null;
-            }
-
-            BombExplosionEffect bombExplosionEffect = spawner.GetComponentInChildren<BombExplosionEffect>(true);
-            _gameplayVfxAnchor = bombExplosionEffect != null
-                ? bombExplosionEffect.transform
-                : spawner.transform;
-
+            // Own space only — never parent under NoteCutCoreEffectsSpawner / BombExplosionEffect
+            // (ParticleOverdrive and other note-cut mods patch that hierarchy).
+            _gameplayVfxAnchor = BeatSurgeonOwnedVfxSpace.GetRoot();
             if (_gameplayVfxAnchor != null)
             {
                 LogUtils.Debug(() =>
-                    "FireworksExplosionPool: Using gameplay VFX anchor '"
+                    "FireworksExplosionPool: Using BeatSurgeon-owned VFX root '"
                     + GetTransformPath(_gameplayVfxAnchor)
                     + "' layer="
                     + _gameplayVfxAnchor.gameObject.layer
@@ -667,69 +646,55 @@ namespace BeatSurgeon.Gameplay
 
         private ParticleSystemRenderer GetReferenceBombParticleRenderer(out bool isAnchoredReference)
         {
+            // Prefer bootstrapped owned Sparks, else ExplosionSparkles reference-only, else raw owned.
+            // Do not permanently cache ExplosionSparkles so map-entry bootstrap can replace it.
+            ParticleSystemRenderer spiReference = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer();
+            if (spiReference != null)
+            {
+                bool isOwned = BeatSurgeonOwnedVfxSpace.TryGetOwnedSpiReferenceRenderer() == spiReference;
+                if (isOwned)
+                {
+                    _referenceBombParticleRenderer = spiReference;
+                    isAnchoredReference = true;
+                }
+                else
+                {
+                    isAnchoredReference = false;
+                }
+
+                return spiReference;
+            }
+
             if (_referenceBombParticleRenderer != null)
             {
                 isAnchoredReference = true;
                 return _referenceBombParticleRenderer;
             }
 
-            ParticleSystemRenderer anchoredReference = GetAnchoredReferenceBombParticleRenderer();
-            if (anchoredReference != null)
-            {
-                _referenceBombParticleRenderer = anchoredReference;
-                isAnchoredReference = true;
-                return _referenceBombParticleRenderer;
-            }
-
-            // No live GameCore bomb explosion effect is resident yet (e.g. the Supporter tab
-            // preview is played from the main menu before any song has loaded this session).
-            // Fall back to any other Custom/CustomParticles-capable renderer already resident
-            // in memory so the menu preview still renders correctly in both eyes. This result
-            // is intentionally not cached, so the proper GameCore reference is adopted as soon
-            // as it becomes available.
+            // Menu / missing-bundle fallback: any non-vanilla SPI-capable renderer already resident.
             isAnchoredReference = false;
             return FindFallbackSpiParticleRenderer("FireworksExplosionPool");
         }
 
         private ParticleSystemRenderer GetAnchoredReferenceBombParticleRenderer()
         {
-            Transform anchor = _gameplayVfxAnchor != null ? _gameplayVfxAnchor : GetGameplayVfxAnchor();
-            if (anchor == null)
-            {
-                return null;
-            }
-
-            BombExplosionEffect bombExplosionEffect = anchor.GetComponent<BombExplosionEffect>();
-            if (bombExplosionEffect == null)
-            {
-                return null;
-            }
-
-            var referenceRenderers = bombExplosionEffect.GetComponentsInChildren<ParticleSystemRenderer>(true);
-            ParticleSystemRenderer reference = referenceRenderers
-                .Where(renderer => GetReferenceRendererScore(renderer) > 0)
-                .OrderByDescending(GetReferenceRendererScore)
-                .FirstOrDefault()
-                ?? referenceRenderers.FirstOrDefault(renderer => renderer != null && renderer.renderMode != ParticleSystemRenderMode.Mesh)
-                ?? referenceRenderers.FirstOrDefault();
-
-            if (reference != null)
-            {
-                LogUtils.Debug(() =>
-                    "FireworksExplosionPool: Using reference particle renderer '"
-                    + GetTransformPath(reference.transform)
-                    + "' shader='"
-                    + (reference.sharedMaterial != null && reference.sharedMaterial.shader != null
-                        ? reference.sharedMaterial.shader.name
-                        : "<missing>")
-                    + "'.");
-            }
-
-            return reference;
+            return BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer()
+                ?? BeatSurgeonOwnedVfxSpace.TryGetOwnedSpiReferenceRenderer();
         }
 
         internal static ParticleSystemRenderer FindFallbackSpiParticleRenderer(string callerName)
         {
+            ParticleSystemRenderer spi = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer();
+            if (spi != null)
+            {
+                LogUtils.Debug(() =>
+                    callerName
+                    + ": Using SPI reference '"
+                    + GetTransformPath(spi.transform)
+                    + "'.");
+                return spi;
+            }
+
             ParticleSystemRenderer fallback = Resources.FindObjectsOfTypeAll<ParticleSystemRenderer>()
                 .Where(renderer => GetReferenceRendererScore(renderer) > 0)
                 .OrderByDescending(GetReferenceRendererScore)
@@ -765,9 +730,18 @@ namespace BeatSurgeon.Gameplay
                 : string.Empty;
             string materialName = renderer.sharedMaterial != null ? renderer.sharedMaterial.name : string.Empty;
 
+            // Never borrow vanilla NoteCut / BombExplosion particles (ParticleOverdrive patches them).
+            if (path.IndexOf("notecutcoreeffectsspawner", StringComparison.OrdinalIgnoreCase) >= 0
+                || path.IndexOf("bombexplosioneffect", StringComparison.OrdinalIgnoreCase) >= 0
+                || transformName.IndexOf("ExplosionSparkles", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return int.MinValue;
+            }
+
             // Never use our own prepared emitters as the SPI reference. After the first menu
             // preview they score highest (Billboard + Custom/CustomParticles) and poison later
             // clones with self-referential materials / vertex streams.
+            // Exception: the dedicated owned Sparks SPI host is resolved via BeatSurgeonOwnedVfxSpace.
             if (IsBeatSurgeonOwnedParticleRenderer(transformName, path, materialName))
             {
                 return int.MinValue;
@@ -778,16 +752,6 @@ namespace BeatSurgeon.Gameplay
             if (shaderName.IndexOf("Custom/CustomParticles", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 score += 2000;
-            }
-
-            if (transformName.IndexOf("ExplosionSparkles", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                score += 1600;
-            }
-
-            if (path.IndexOf("bombexplosion", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                score += 1400;
             }
 
             if (path.IndexOf("menueenvironment", StringComparison.OrdinalIgnoreCase) >= 0

@@ -65,7 +65,7 @@ namespace BeatSurgeon.Gameplay
                 return false;
             }
 
-            MultiplayerStateClient.SetActiveCommand("flashbang");
+            MultiplayerEffectPublisher.NotifyDurationStarted("flashbang", "flashbang");
             _flashCoroutine = StartCoroutine(FlashRoutine(intensityMultiplier, holdSeconds, fadeSeconds));
             return true;
         }
@@ -148,7 +148,7 @@ namespace BeatSurgeon.Gameplay
             RestoreLights();
 
             FlashbangActive = false;
-            MultiplayerStateClient.SetActiveCommand(null);
+            MultiplayerEffectPublisher.NotifyDurationEnded("flashbang");
             _flashCoroutine = null;
             Plugin.Log.Info("FlashbangManager: Flashbang finished.");
         }

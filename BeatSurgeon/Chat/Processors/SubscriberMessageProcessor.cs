@@ -18,7 +18,7 @@ namespace BeatSurgeon.Chat.Processors
             _gameplayManager = gameplayManager;
         }
 
-        public string[] HandledCommands => new[] { "!smsg" };
+        public string[] HandledCommands => new[] { "!smsg", "!subcubes" };
 
         public bool CanHandle(ChatContext ctx)
         {
@@ -33,14 +33,80 @@ namespace BeatSurgeon.Chat.Processors
 
         public async Task ExecuteAsync(ChatContext ctx, CancellationToken ct)
         {
-            string displayText = ExtractMessageSuffix(ctx?.MessageText);
-            await SubscriberEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
-            _log.Command(ctx.Username, ctx.Command, true, "displayText=" + displayText);
-            await _gameplayManager.ApplySubscriberMessageAsync(ctx, displayText, ct).ConfigureAwait(false);
+            bool isSubCubes = string.Equals(ctx?.Command, "!subcubes", StringComparison.OrdinalIgnoreCase);
+            bool isMultiplayerSync = ctx?.TriggerSource == TriggerSource.MultiplayerSync;
+
+            if (isSubCubes)
+            {
+                int trailCubeCount = ParseSubCubesCount(ctx?.MessageText);
+                if (!isMultiplayerSync)
+                {
+                    await SubscriberEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+                }
+
+                _log.Command(ctx.Username, ctx.Command, true, "trailCubeCount=" + trailCubeCount + " multiplayerSync=" + isMultiplayerSync);
+                // Cubes only — empty display text; ApplySubscriberMessageAsync skips canvas on MultiplayerSync.
+                await _gameplayManager.ApplySubscriberMessageAsync(
+                    ctx,
+                    displayText: string.Empty,
+                    ct,
+                    trailCubeCount).ConfigureAwait(false);
+                return;
+            }
+
+            string displayText = ExtractMessageSuffix(ctx?.MessageText, out int smsgTrailCount);
+            if (!isMultiplayerSync)
+            {
+                await SubscriberEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+            }
+
+            _log.Command(
+                ctx.Username,
+                ctx.Command,
+                true,
+                "displayText=" + displayText + " trailCubeCount=" + smsgTrailCount + " multiplayerSync=" + isMultiplayerSync);
+
+            // Legacy multiplayer !smsg payloads: still cubes-only on clients (no canvas text).
+            await _gameplayManager.ApplySubscriberMessageAsync(ctx, displayText, ct, smsgTrailCount).ConfigureAwait(false);
         }
 
-        private static string ExtractMessageSuffix(string messageText)
+        private static int ParseSubCubesCount(string messageText)
         {
+            if (string.IsNullOrWhiteSpace(messageText))
+            {
+                return 5;
+            }
+
+            if (!ChatContext.TryExtractFirstCommandToken(messageText, out _, out int commandStart, out int commandLength))
+            {
+                return 5;
+            }
+
+            int suffixStart = commandStart + commandLength;
+            if (suffixStart >= messageText.Length)
+            {
+                return 5;
+            }
+
+            string raw = messageText.Substring(suffixStart).Trim();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return 5;
+            }
+
+            int space = raw.IndexOf(' ');
+            string token = space > 0 ? raw.Substring(0, space) : raw;
+            if (int.TryParse(token, out int count) && count >= 0)
+            {
+                return count;
+            }
+
+            return 5;
+        }
+
+        private static string ExtractMessageSuffix(string messageText, out int trailCubeCount)
+        {
+            trailCubeCount = 5;
             if (string.IsNullOrWhiteSpace(messageText))
             {
                 throw new InvalidOperationException("Usage: !smsg <message>");
@@ -58,6 +124,21 @@ namespace BeatSurgeon.Chat.Processors
             }
 
             string raw = messageText.Substring(suffixStart).Trim();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                throw new InvalidOperationException("Usage: !smsg <message>");
+            }
+
+            // Optional multiplayer/host encoding: "!smsg 8 Alice subscribed!"
+            int firstSpace = raw.IndexOf(' ');
+            if (firstSpace > 0
+                && int.TryParse(raw.Substring(0, firstSpace), out int parsedTrail)
+                && parsedTrail >= 0)
+            {
+                trailCubeCount = parsedTrail;
+                raw = raw.Substring(firstSpace + 1).Trim();
+            }
+
             if (string.IsNullOrWhiteSpace(raw))
             {
                 throw new InvalidOperationException("Usage: !smsg <message>");

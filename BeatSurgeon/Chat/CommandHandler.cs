@@ -26,7 +26,12 @@ namespace BeatSurgeon.Chat
         ExecutionFailed,
         Cancelled,
         RankedMap,
-        InsufficientEntitlement
+        InsufficientEntitlement,
+        /// <summary>
+        /// A Multiplayer+ client's local chat/CP/bits trigger tried to (re)start an effect that is
+        /// already running locally (product rule: clients must not re-run an active local effect).
+        /// </summary>
+        EffectAlreadyActiveLocally
     }
 
     internal sealed class CommandExecutionResult
@@ -249,6 +254,8 @@ namespace BeatSurgeon.Chat
 
             _log.Info("HandleMessageAsync: user=" + ctx.Username + " normalized=" + normalized);
 
+            bool isMultiplayerSync = source == TriggerSource.MultiplayerSync;
+
             if (source == TriggerSource.Chat && TryHandleSurgeonCommand(ctx, normalized))
             {
                 _log.Info("SurgeonCommand handled successfully");
@@ -261,10 +268,24 @@ namespace BeatSurgeon.Chat
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.GlobalDisabled);
             }
 
-            if (source == TriggerSource.Chat && !CommandRuntimeSettings.IsCommandEnabled(normalized))
+            // Host already authorized the effect — clients replay it even if their local toggles differ.
+            if (!isMultiplayerSync && source == TriggerSource.Chat && !CommandRuntimeSettings.IsCommandEnabled(normalized))
             {
                 _log.Command(ctx.Username, normalized, false, "CommandDisabled");
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.CommandDisabled);
+            }
+
+            // Multiplayer+ clients: block re-running long-running effects via their own chat/CP
+            // while already active. Bit cheers, EventSub follow/sub (AutomaticEvent), and synced
+            // host one-shots are never blocked here — clients must still play full local follow/
+            // sub/bits visuals from their own Twitch chat while in someone else's MP room.
+            bool isClientInRoom = SceneHelper.MpPlusInRoom && !SceneHelper.MpPlusIsHost;
+            if (isClientInRoom
+                && (source == TriggerSource.Chat || source == TriggerSource.ChannelPoints)
+                && MultiplayerLocalEffectGate.IsEffectAlreadyActive(commandKey))
+            {
+                _log.Command(ctx.Username, normalized, false, "EffectAlreadyActiveLocally(MP client)");
+                return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.EffectAlreadyActiveLocally);
             }
 
             /*
@@ -285,7 +306,7 @@ namespace BeatSurgeon.Chat
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.UnknownCommand);
             }
 
-            if (source == TriggerSource.Chat && !CommandRuntimeSettings.IsChatCommandAllowed(ctx))
+            if (!isMultiplayerSync && source == TriggerSource.Chat && !CommandRuntimeSettings.IsChatCommandAllowed(ctx))
             {
                 _log.Command(ctx.Username, normalized, false, "InsufficientPermission");
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.InsufficientPermission);
@@ -303,9 +324,10 @@ namespace BeatSurgeon.Chat
                 }
             }
 
-            if (source != TriggerSource.BitEvent &&
-                !CommandRuntimeSettings.IsCooldownExempt(normalized) &&
-                _cooldownService.TryGetCooldownRemaining(commandKey, out TimeSpan remaining))
+            if (!isMultiplayerSync
+                && source != TriggerSource.BitEvent
+                && !CommandRuntimeSettings.IsCooldownExempt(normalized)
+                && _cooldownService.TryGetCooldownRemaining(commandKey, out TimeSpan remaining))
             {
                 _log.Command(ctx.Username, normalized, false, "OnCooldown");
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.OnCooldown, remaining);
@@ -323,6 +345,9 @@ namespace BeatSurgeon.Chat
                 }
 
                 await processor.ExecuteAsync(ctx, ct).ConfigureAwait(false);
+                // Synced effects apply cooldowns too (product rule 6: clients use host cooldown
+                // values, recorded here via CommandRuntimeSettings' MultiplayerHostCooldownBridge
+                // routing) so a client's own chat/CP cannot immediately re-trigger the same effect.
                 if (source != TriggerSource.BitEvent)
                 {
                     _cooldownService.ApplyCooldown(normalized);

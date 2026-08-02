@@ -1,4 +1,4 @@
-﻿<bg xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+<bg xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
     xsi:schemaLocation='https://monkeymanboy.github.io/BSML-Docs/ https://raw.githubusercontent.com/monkeymanboy/BSML-Docs/gh-pages/BSMLSchema.xsd'>
 
 	<vertical child-control-height="false"
@@ -312,6 +312,15 @@
 									apply-on-change="true"
 									on-change="OnBombExplosionEffectChanged"
 									hover-hint="Select the explosion effect used when bomb notes detonate"/>
+
+								<dropdown-list-setting
+									id="raid-cut-effect-dropdown"
+									text="Raid Cut Effects"
+									value="raid_cut_effect_selected"
+									choices="raid_cut_effect_options"
+									apply-on-change="true"
+									on-change="OnRaidCutEffectChanged"
+									hover-hint="Select the cut explosion effect used for raid notes"/>
 							</modifier-container>
 						</tab>
 					</horizontal>

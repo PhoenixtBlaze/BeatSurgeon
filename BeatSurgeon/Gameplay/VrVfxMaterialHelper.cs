@@ -503,12 +503,13 @@ namespace BeatSurgeon.Gameplay
             bool sourceUsesSpritesDefault = UsesSpritesDefaultShader(sourceMaterial?.shader);
             bool sourceUsesAuthoredTexture = HasAuthoredParticleTexture(sourceMaterial);
             Color authoredStartColor = GetApproximateAuthoredStartColor(particleSystem);
+            // Prefer an SPI-capable shader. Owned Sparks may still be Particles/Standard Unlit
+            // until ExplosionSparkles bootstrap runs; never bake that into Lightning trails.
+            Shader spiShader = ResolveSpiCapableParticleShader(referenceRenderer);
+            ParticleSystemRenderer stereoStreamReference = ResolveStereoStreamReference(referenceRenderer);
             Material spiMaterial;
             if (sourceUsesSpritesDefault)
             {
-                Shader spiShader = referenceRenderer.sharedMaterial != null
-                    ? referenceRenderer.sharedMaterial.shader
-                    : null;
                 spiMaterial = CreateAuthoredSpiParticleMaterial(
                     sourceMaterial,
                     spiShader,
@@ -517,17 +518,16 @@ namespace BeatSurgeon.Gameplay
             }
             else if (sourceUsesAuthoredTexture)
             {
-                spiMaterial = CreateTexturedSpiParticleMaterial(sourceMaterial, referenceRenderer);
+                spiMaterial = CreateTexturedSpiParticleMaterial(sourceMaterial, stereoStreamReference);
             }
             else
             {
-                Shader spiShader = referenceRenderer.sharedMaterial != null
-                    ? referenceRenderer.sharedMaterial.shader
-                    : null;
                 spiMaterial = CreateAuthoredSpiParticleMaterial(
                     sourceMaterial,
                     spiShader,
-                    referenceMaterial: referenceRenderer.sharedMaterial,
+                    referenceMaterial: stereoStreamReference != null
+                        ? stereoStreamReference.sharedMaterial
+                        : referenceRenderer.sharedMaterial,
                     vertexColorDrivenTintOverride: authoredStartColor);
             }
             if (spiMaterial != null)
@@ -539,7 +539,7 @@ namespace BeatSurgeon.Gameplay
             particleRenderer.enableGPUInstancing = false;
             SyncParticleRendererStereoState(
                 particleRenderer,
-                referenceRenderer,
+                stereoStreamReference,
                 preserveAuthoredLayout: true,
                 preserveAuthoredVertexStreams: sourceUsesAuthoredTexture);
             HardenParticleRendererStereoCulling(particleRenderer);
@@ -1952,22 +1952,104 @@ namespace BeatSurgeon.Gameplay
 
         private static ParticleSystemRenderer FindVanillaParticleRenderer()
         {
-            foreach (NoteCutCoreEffectsSpawner spawner in Resources.FindObjectsOfTypeAll<NoteCutCoreEffectsSpawner>())
+            // Prefer bootstrapped owned Sparks or ExplosionSparkles (reference-only).
+            ParticleSystemRenderer spi = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer();
+            if (spi != null && spi.sharedMaterial != null)
             {
-                ParticleSystemRenderer spawnerRenderer = spawner
-                    .GetComponentsInChildren<ParticleSystemRenderer>(true)
-                    .FirstOrDefault(IsUsableVanillaParticleRenderer);
+                return spi;
+            }
 
-                if (spawnerRenderer != null)
-                {
-                    return spawnerRenderer;
-                }
+            ParticleSystemRenderer owned = BeatSurgeonOwnedVfxSpace.TryGetOwnedSpiReferenceRenderer();
+            if (owned != null && owned.sharedMaterial != null)
+            {
+                return owned;
             }
 
             return Resources.FindObjectsOfTypeAll<ParticleSystemRenderer>()
                 .Where(IsUsableVanillaParticleRenderer)
                 .OrderByDescending(GetRendererScore)
                 .FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Resolves a Single Pass Instanced capable particle shader for trail emitters (Lightning).
+        /// Rejects menu-safe fallbacks like Particles/Standard Unlit that render in one eye.
+        /// </summary>
+        private static Shader ResolveSpiCapableParticleShader(ParticleSystemRenderer referenceRenderer)
+        {
+            Shader candidate = referenceRenderer != null && referenceRenderer.sharedMaterial != null
+                ? referenceRenderer.sharedMaterial.shader
+                : null;
+            if (IsSpiCapableParticleShader(candidate))
+            {
+                return candidate;
+            }
+
+            Shader customParticles = Shader.Find("Custom/CustomParticles");
+            if (customParticles != null)
+            {
+                return customParticles;
+            }
+
+            ParticleSystemRenderer sparkles = BeatSurgeonOwnedVfxSpace.TryFindVanillaExplosionSparklesRenderer();
+            if (sparkles != null
+                && sparkles.sharedMaterial != null
+                && IsSpiCapableParticleShader(sparkles.sharedMaterial.shader))
+            {
+                return sparkles.sharedMaterial.shader;
+            }
+
+            ParticleSystemRenderer spi = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer();
+            if (spi != null
+                && spi.sharedMaterial != null
+                && IsSpiCapableParticleShader(spi.sharedMaterial.shader))
+            {
+                return spi.sharedMaterial.shader;
+            }
+
+            return candidate;
+        }
+
+        private static ParticleSystemRenderer ResolveStereoStreamReference(ParticleSystemRenderer referenceRenderer)
+        {
+            if (referenceRenderer != null
+                && referenceRenderer.sharedMaterial != null
+                && IsSpiCapableParticleShader(referenceRenderer.sharedMaterial.shader))
+            {
+                return referenceRenderer;
+            }
+
+            ParticleSystemRenderer spi = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer();
+            if (spi != null)
+            {
+                return spi;
+            }
+
+            ParticleSystemRenderer sparkles = BeatSurgeonOwnedVfxSpace.TryFindVanillaExplosionSparklesRenderer();
+            if (sparkles != null)
+            {
+                return sparkles;
+            }
+
+            return referenceRenderer;
+        }
+
+        private static bool IsSpiCapableParticleShader(Shader shader)
+        {
+            if (shader == null)
+            {
+                return false;
+            }
+
+            // Forced-safe list are known non-SPI (or menu fallback) particle shaders.
+            if (ShouldForceSafeParticleShader(shader))
+            {
+                return false;
+            }
+
+            string shaderName = shader.name ?? string.Empty;
+            return shaderName.IndexOf("Custom/CustomParticles", StringComparison.OrdinalIgnoreCase) >= 0
+                || shaderName.IndexOf("Custom/SimpleLit", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static bool IsUsableVanillaParticleRenderer(ParticleSystemRenderer renderer)
@@ -1978,7 +2060,18 @@ namespace BeatSurgeon.Gameplay
             }
 
             string path = GetTransformPath(renderer.transform).ToLowerInvariant();
+            string transformName = renderer.transform != null ? renderer.transform.name : string.Empty;
             string shaderName = renderer.sharedMaterial.shader.name;
+
+            // Prefer not to use NoteCut particles for generic material bases, but ExplosionSparkles
+            // is allowed via TryFindVanillaExplosionSparklesRenderer / TryGetSpiStereoReferenceRenderer.
+            if (path.Contains("notecutcoreeffectsspawner")
+                || path.Contains("bombexplosioneffect")
+                || transformName.IndexOf("ExplosionSparkles", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return false;
+            }
+
             return !path.Contains("beatsurgeon")
                 && !path.Contains("surgeonexplosion")
                 && !path.Contains("outlineparticles")
@@ -1994,7 +2087,8 @@ namespace BeatSurgeon.Gameplay
             string path = GetTransformPath(renderer.transform).ToLowerInvariant();
             int score = 0;
 
-            if (path.Contains("notecut")) score += 500;
+            // Penalize any remaining NoteCut adjacency; prefer environment / saber dust sparks.
+            if (path.Contains("notecut")) score -= 2000;
             if (path.Contains("shockwave")) score -= 400;
             if (path.Contains("saber")) score += 300;
             if (path.Contains("spark")) score += 150;

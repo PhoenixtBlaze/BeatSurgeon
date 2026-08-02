@@ -19,13 +19,22 @@ namespace BeatSurgeon.Installers
         {
             _log.Lifecycle("InstallBindings - registering App-scoped singletons");
 
-            // Legacy singleton bridge for existing gameplay call sites.
-            Container.Bind<GameplayManager>()
-                .FromMethod(_ => GameplayManager.GetInstance())
+            // Must bind before GameplayManager so FromMethod can hand the same singleton
+            // to the manually constructed MonoBehaviour (Zenject FromMethod does not Inject).
+            Container.BindInterfacesAndSelfTo<DeferredEventQueue>()
                 .AsSingle()
                 .NonLazy();
 
-            Container.BindInterfacesAndSelfTo<DeferredEventQueue>()
+            // Legacy singleton bridge for existing gameplay call sites.
+            // Do not Container.Inject(gm): EnvironmentsListModel / BeatmapLevelsModel are
+            // often unavailable at App install; EnsureDependencies resolves those later.
+            Container.Bind<GameplayManager>()
+                .FromMethod(ctx =>
+                {
+                    GameplayManager gameplayManager = GameplayManager.GetInstance();
+                    gameplayManager.SetDeferredEventQueue(ctx.Container.Resolve<DeferredEventQueue>());
+                    return gameplayManager;
+                })
                 .AsSingle()
                 .NonLazy();
 

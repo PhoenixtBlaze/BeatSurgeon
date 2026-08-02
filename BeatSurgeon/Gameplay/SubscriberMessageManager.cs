@@ -169,6 +169,7 @@ namespace BeatSurgeon.Gameplay
             }
 
             _playbackRoutine = null;
+            MultiplayerEffectPublisher.NotifyEffectEnded("smsg");
         }
 
         private void ShowMessage(string userName, string displayText)
@@ -366,6 +367,7 @@ namespace BeatSurgeon.Gameplay
             }
 
             DestroyCanvasInstance();
+            MultiplayerEffectPublisher.NotifyEffectEnded("smsg");
         }
 
         private void DestroyCanvasInstance()

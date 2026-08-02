@@ -163,6 +163,10 @@ namespace BeatSurgeon.Gameplay
             public const string Glitter5000EmitterName  = "Glitter5000";
             public const string Glitter10000EmitterName = "Glitter10000";
 
+            // Raid fountain world-space TMP text emitters (authored in SurgeonExplosion)
+            public const string RaidFountainOutlineEmitterName = "RaidFountainOutline";
+            public const string RaidFountainCutBurstEmitterName = "RaidFountainCutBurst";
+
             /// <summary>Returns the SurgeonExplosion child emitter name that matches <paramref name="denomination"/>.</summary>
             public static string GetGlitterEmitterName(int denomination)
             {

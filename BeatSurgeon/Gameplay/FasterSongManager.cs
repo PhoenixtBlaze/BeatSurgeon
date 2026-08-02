@@ -50,6 +50,12 @@ namespace BeatSurgeon.Gameplay
         public string ActiveEffectKey => _activeEffectKey;
 
         /// <summary>
+        /// True if a speed effect is currently active. Checks the existing instance without
+        /// triggering lazy creation via <see cref="Instance"/>.
+        /// </summary>
+        public static bool IsAnyActive => _instance != null && _instance._active;
+
+        /// <summary>
         /// True if a speed effect was applied at any point during the current (or most recent) map run.
         /// Reset to false at map start by OnGameSceneLoaded.
         /// </summary>
@@ -142,12 +148,18 @@ namespace BeatSurgeon.Gameplay
             }
             else
             {
-                // Already active - just change speed and mark the new effect
+                // Already active - if switching to a different speed key (e.g. faster -> slower),
+                // end tracking for the previous key so it doesn't stay counted against the 3-cap.
+                if (!string.Equals(_activeEffectKey, effectKey, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    MultiplayerEffectPublisher.NotifyDurationEnded(_activeEffectKey);
+                }
+
                 FasterSongPatch.Multiplier = multiplier;
                 _activeEffectKey = effectKey;
             }
 
-            MultiplayerStateClient.SetActiveCommand(effectKey); // "faster" / "superfast" / "slower"
+            MultiplayerEffectPublisher.NotifyDurationStarted(effectKey, effectKey); // "faster" / "superfast" / "slower"
 
             // Reset/extend timer
             if (_routine != null)
@@ -167,10 +179,11 @@ namespace BeatSurgeon.Gameplay
             // Effect ended - reset multiplier
             FasterSongPatch.Multiplier = 1.0f;
             _active = false;
+            string endedEffectKey = _activeEffectKey;
             _activeEffectKey = null;
             _routine = null;
 
-            MultiplayerStateClient.SetActiveCommand(null);
+            MultiplayerEffectPublisher.NotifyDurationEnded(endedEffectKey);
 
             // IMPORTANT: Remove the prolonged disable key when effect ends
             // This allows scores to submit on the NEXT map if no speed effect is active

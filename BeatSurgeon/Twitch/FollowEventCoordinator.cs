@@ -72,7 +72,7 @@ namespace BeatSurgeon.Twitch
                     displayName,
                     0,
                     DateTime.UtcNow));
-                _log.Debug("[BeatSurgeon] Follow event deferred for " + displayName + " — " + deferredReason + ".");
+                _log.Info("[BeatSurgeon] Follow event deferred for " + displayName + " — " + deferredReason + ".");
                 return;
             }
 
@@ -93,7 +93,7 @@ namespace BeatSurgeon.Twitch
                 SenderName = displayName,
                 MessageText = "!fmsg " + displayText,
                 Source = ChatSource.NativeTwitch,
-                TriggerSource = TriggerSource.Chat
+                TriggerSource = TriggerSource.AutomaticEvent
             };
 
             try

@@ -34,7 +34,10 @@ namespace BeatSurgeon.Chat.Processors
         {
             int requestedNotes = NumericBitCommandParser.ParseRequestedBits(ctx?.MessageText, "!raid");
             int clampedNotes = RaidFountainNoteManager.ClampNoteCount(requestedNotes);
-            await RaidEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+            if (ctx?.TriggerSource != TriggerSource.MultiplayerSync)
+            {
+                await RaidEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+            }
 
             string displayName = string.IsNullOrWhiteSpace(ctx?.Username) ? "Someone" : ctx.Username.Trim();
             _log.Command(ctx.Username, ctx.Command, true, "notes=" + clampedNotes + " displayName=" + displayName);

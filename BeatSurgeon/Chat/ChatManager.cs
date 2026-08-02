@@ -560,7 +560,7 @@ namespace BeatSurgeon.Chat
                                 ctx.SenderName,
                                 ctx.Bits,
                                 DateTime.UtcNow));
-                            _log.Debug(
+                            _log.Info(
                                 "[BeatSurgeon] Bits event deferred for "
                                 + ctx.SenderName
                                 + " ("

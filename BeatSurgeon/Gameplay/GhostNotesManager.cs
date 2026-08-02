@@ -59,7 +59,7 @@ namespace BeatSurgeon.Gameplay
                 _ghostCoroutine = null;
             }
 
-            MultiplayerStateClient.SetActiveCommand("ghost");
+            MultiplayerEffectPublisher.NotifyDurationStarted("ghost", "ghost", requesterName);
             _ghostCoroutine = StartCoroutine(GhostCoroutine(durationSeconds, requesterName));
             return true;
         }
@@ -78,7 +78,7 @@ namespace BeatSurgeon.Gameplay
             if (GhostActive)
             {
                 GhostActive = false;
-                MultiplayerStateClient.SetActiveCommand(null);
+                MultiplayerEffectPublisher.NotifyDurationEnded("ghost");
                 LogUtils.Debug(() => "GhostNotesManager: Ghost notes manually stopped");
                 //ChatManager.GetInstance().SendChatMessage("Ghost notes effect has been stopped.");
             }
@@ -112,7 +112,7 @@ namespace BeatSurgeon.Gameplay
             _ghostCoroutine = null;
 
             LogUtils.Debug(() => "GhostNotesManager: Ghost notes finished");
-            MultiplayerStateClient.SetActiveCommand(null);
+            MultiplayerEffectPublisher.NotifyDurationEnded("ghost");
             ChatManager.GetInstance().SendMutedChatMessage("Effect ghost notes has ended.");
         }
     }

@@ -1,10 +1,12 @@
-﻿using System;
+using System;
 using System.Collections;
+using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.Networking;
 
+using BeatSurgeon.Chat; // for CommandRuntimeSettings
 using BeatSurgeon.Gameplay; // for CoroutineHost
 
 namespace BeatSurgeon
@@ -46,7 +48,25 @@ namespace BeatSurgeon
             /// </summary>
             [JsonProperty("control")]
             public bool Control { get; set; }
+
+            /// <summary>
+            /// Host-only cooldown snapshot so clients enforce the same cooldowns as the host.
+            /// Null when not sent by the host.
+            /// </summary>
+            [JsonProperty("cooldowns", NullValueHandling = NullValueHandling.Ignore)]
+            public CooldownSnapshotPayload Cooldowns { get; set; }
         }
+
+        [Serializable]
+        private class CooldownSnapshotPayload
+        {
+            [JsonProperty("per_command_enabled")]
+            public bool PerCommandEnabled { get; set; }
+
+            [JsonProperty("values")]
+            public Dictionary<string, double> Values { get; set; }
+        }
+
         private static string _activeCommand;
         private static string _activeCommandUser;
         private static bool _control;
@@ -75,6 +95,60 @@ namespace BeatSurgeon
 
             // Push initial state once
             OnMpPlusChanged();
+        }
+
+        /// <summary>
+        /// Force-publish even when the command text matches the last sticky value
+        /// (used after one-shot nonces make each publish unique).
+        /// </summary>
+        public static void SetActiveCommand(string command, string activeCommandUser = null)
+        {
+            SetActiveCommand(command, activeCommandUser, forceSend: false);
+        }
+
+        public static void SetActiveCommand(string command, string activeCommandUser, bool forceSend)
+        {
+            // Channel-point dispatch suppresses host publishes until fulfill, then publishes once.
+            if (MultiplayerEffectPublisher.HostPublishesSuppressed
+                && !string.IsNullOrWhiteSpace(command)
+                && !forceSend)
+            {
+                return;
+            }
+
+            _activeCommand = string.IsNullOrWhiteSpace(command) ? null : command;
+            // Clear requester when command clears; otherwise only keep a non-empty trimmed name.
+            _activeCommandUser = _activeCommand == null
+                ? null
+                : (string.IsNullOrWhiteSpace(activeCommandUser) ? null : activeCommandUser.Trim());
+
+            bool inRoom = SceneHelper.MpPlusInRoom;
+            string roomCode = inRoom ? (SceneHelper.MpPlusRoomCode ?? string.Empty) : string.Empty;
+            bool isHost = inRoom && SceneHelper.MpPlusIsHost;
+            bool canControl =
+                inRoom &&
+                SceneHelper.MpPlusIsHost &&
+                !string.IsNullOrWhiteSpace(SceneHelper.MpPlusRoomCode);
+            bool controlToSend = canControl && _control;
+
+            if (!inRoom)
+            {
+                roomCode = string.Empty;
+                isHost = false;
+                controlToSend = false;
+                lock (_secretLock) { _hostSecret = null; }
+            }
+
+            UpdateState(roomCode, isHost, _activeCommand, _activeCommandUser, controlToSend, forceSend);
+
+            // Every effect syncs as a one-shot the instant it starts (no sticky clear protocol).
+            // Clear local state right after queuing the send so the next heartbeat/state push does
+            // not keep re-broadcasting the same event to clients.
+            if (forceSend && _activeCommand != null)
+            {
+                _activeCommand = null;
+                _activeCommandUser = null;
+            }
         }
 
         public static bool GetLocalControl()
@@ -109,17 +183,6 @@ namespace BeatSurgeon
         }
 
 
-        // Call these from your redeem/effect system:
-        public static void SetActiveCommand(string command, string activeCommandUser = null)
-        {
-            _activeCommand = string.IsNullOrWhiteSpace(command) ? null : command;
-            // Clear requester when command clears; otherwise only keep a non-empty trimmed name.
-            _activeCommandUser = _activeCommand == null
-                ? null
-                : (string.IsNullOrWhiteSpace(activeCommandUser) ? null : activeCommandUser.Trim());
-            OnMpPlusChanged();
-        }
-
         public static void SetControl(bool value)
         {
             _control = value;
@@ -147,7 +210,8 @@ namespace BeatSurgeon
                 IsHost = isHost,
                 ActiveCommand = string.IsNullOrWhiteSpace(activeCommand) ? null : activeCommand,
                 ActiveCommandUser = string.IsNullOrWhiteSpace(activeCommandUser) ? null : activeCommandUser.Trim(),
-                Control = control
+                Control = control,
+                Cooldowns = isHost ? BuildCooldownSnapshot() : null
             };
 
             lock (_lock)
@@ -186,7 +250,38 @@ namespace BeatSurgeon
                 _lastSentState.IsHost == current.IsHost &&
                 string.Equals(_lastSentState.ActiveCommand, current.ActiveCommand, StringComparison.Ordinal) &&
                 string.Equals(_lastSentState.ActiveCommandUser, current.ActiveCommandUser, StringComparison.Ordinal) &&
-                _lastSentState.Control == current.Control;
+                _lastSentState.Control == current.Control &&
+                AreCooldownsEqual(_lastSentState.Cooldowns, current.Cooldowns);
+        }
+
+        private static CooldownSnapshotPayload BuildCooldownSnapshot()
+        {
+            return new CooldownSnapshotPayload
+            {
+                PerCommandEnabled = CommandRuntimeSettings.PerCommandCooldownsEnabled,
+                Values = CommandRuntimeSettings.BuildHostCooldownSnapshot()
+            };
+        }
+
+        private static bool AreCooldownsEqual(CooldownSnapshotPayload a, CooldownSnapshotPayload b)
+        {
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            if (a.PerCommandEnabled != b.PerCommandEnabled) return false;
+
+            Dictionary<string, double> av = a.Values ?? new Dictionary<string, double>();
+            Dictionary<string, double> bv = b.Values ?? new Dictionary<string, double>();
+            if (av.Count != bv.Count) return false;
+
+            foreach (KeyValuePair<string, double> kvp in av)
+            {
+                if (!bv.TryGetValue(kvp.Key, out double bVal) || Math.Abs(bVal - kvp.Value) > 0.0001)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static IEnumerator HostHeartbeatCoroutine()
@@ -257,6 +352,14 @@ namespace BeatSurgeon
                 request.result == UnityWebRequest.Result.ProtocolError)
                 {
                     Plugin.Log.Warn($"[MultiplayerStateClient] POST failed: {request.result} {request.responseCode} {request.error}");
+
+                    // A failed one-shot must not be silently dropped - request a resend of this
+                    // same payload (unless a newer state has already superseded it).
+                    if (!string.IsNullOrWhiteSpace(payload.ActiveCommand))
+                    {
+                        lock (_lock) { _resendRequested = true; }
+                    }
+
                     yield return new WaitForSecondsRealtime(2f); // basic backoff
                 }
                 else

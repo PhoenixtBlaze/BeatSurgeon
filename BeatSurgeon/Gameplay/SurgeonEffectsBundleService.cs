@@ -51,6 +51,8 @@ namespace BeatSurgeon.Gameplay
         private static readonly Dictionary<string, Material> _cachedPreparedBurstMaterials = new Dictionary<string, Material>(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<int, GameObject> _cachedGlitterTemplates = new Dictionary<int, GameObject>();
         private static readonly HashSet<int> _triedGlitterLoads = new HashSet<int>();
+        private static readonly Dictionary<string, GameObject> _cachedRaidFountainTextTemplates = new Dictionary<string, GameObject>(StringComparer.OrdinalIgnoreCase);
+        private static readonly HashSet<string> _triedRaidFountainTextLoads = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, GameObject> _cachedBombExplosionEmitterTemplates = new Dictionary<string, GameObject>(StringComparer.OrdinalIgnoreCase);
         private static readonly HashSet<string> _triedBombExplosionEmitterLoads = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static AssetBundle _surgeonEffectsBundle;
@@ -711,6 +713,8 @@ namespace BeatSurgeon.Gameplay
         {
             try
             {
+                BeatSurgeonOwnedVfxSpace.Reset();
+
                 if (_cachedOutlineTemplate != null)
                 {
                     var templateRoot = _cachedOutlineTemplate.transform != null && _cachedOutlineTemplate.transform.root != null
@@ -808,6 +812,17 @@ namespace BeatSurgeon.Gameplay
 
                 _cachedGlitterTemplates.Clear();
                 _triedGlitterLoads.Clear();
+
+                foreach (var raidTextTemplate in _cachedRaidFountainTextTemplates.Values)
+                {
+                    if (raidTextTemplate != null)
+                    {
+                        UnityEngine.Object.Destroy(raidTextTemplate);
+                    }
+                }
+
+                _cachedRaidFountainTextTemplates.Clear();
+                _triedRaidFountainTextLoads.Clear();
 
                 foreach (var bombExplosionTemplate in _cachedBombExplosionEmitterTemplates.Values)
                 {
@@ -1958,6 +1973,92 @@ namespace BeatSurgeon.Gameplay
             catch (Exception ex)
             {
                 Plugin.Log.Warn("SurgeonEffectsBundleService: unexpected glitter template load error: " + ex.Message);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Returns a DontDestroyOnLoad inactive clone of the authored raid fountain TMP emitter
+        /// (<c>RaidFountainOutline</c> or <c>RaidFountainCutBurst</c>) from SurgeonExplosion.
+        /// </summary>
+        public static GameObject GetRaidFountainTextTemplate(bool isOutline)
+        {
+            string emitterName = isOutline
+                ? BundleRegistry.SurgeonExplosionRefs.RaidFountainOutlineEmitterName
+                : BundleRegistry.SurgeonExplosionRefs.RaidFountainCutBurstEmitterName;
+
+            if (_cachedRaidFountainTextTemplates.TryGetValue(emitterName, out GameObject cached) && cached != null)
+            {
+                return cached;
+            }
+
+            if (_triedRaidFountainTextLoads.Contains(emitterName))
+            {
+                return null;
+            }
+
+            try
+            {
+                if (!TryGetLoadedSurgeonEffectsBundle(out AssetBundle bundle, out string[] assets))
+                {
+                    return null;
+                }
+
+                _triedRaidFountainTextLoads.Add(emitterName);
+
+                string surgeonExplosionAssetName = ResolveBundleAssetName(assets, BundleRegistry.PrefabSurgeonExplosion);
+                if (string.IsNullOrWhiteSpace(surgeonExplosionAssetName))
+                {
+                    Plugin.Log.Warn(
+                        "SurgeonEffectsBundleService: SurgeonExplosion prefab not found in bundle for raid text emitter='"
+                        + emitterName
+                        + "'.");
+                    return null;
+                }
+
+                GameObject surgeonExplosionPrefab = bundle.LoadAsset<GameObject>(surgeonExplosionAssetName);
+                if (surgeonExplosionPrefab == null)
+                {
+                    Plugin.Log.Warn(
+                        "SurgeonEffectsBundleService: could not load SurgeonExplosion prefab for raid text emitter='"
+                        + emitterName
+                        + "'.");
+                    return null;
+                }
+
+                Transform emitterChild = FindDescendantByNormalizedName(surgeonExplosionPrefab.transform, emitterName)
+                    ?? surgeonExplosionPrefab.transform.Find(emitterName);
+                if (emitterChild == null)
+                {
+                    // Optional authored nodes — older surgeoneffects bundles omit them; raid uses C# TMP fallback.
+                    LogUtils.Debug(() =>
+                        "SurgeonEffectsBundleService: raid text emitter '"
+                        + emitterName
+                        + "' not in SurgeonExplosion (old bundle OK; using code fallback).");
+                    return null;
+                }
+
+                GameObject template = UnityEngine.Object.Instantiate(emitterChild.gameObject);
+                UnityEngine.Object.DontDestroyOnLoad(template);
+                template.transform.SetParent(null, false);
+                template.name = "BeatSurgeonRaidTextTemplate_" + emitterName;
+                template.SetActive(false);
+
+                _cachedRaidFountainTextTemplates[emitterName] = template;
+                Plugin.Log.Info(
+                    "SurgeonEffectsBundleService: cached raid fountain text template '"
+                    + emitterName
+                    + "'.");
+                return template;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn(
+                    "SurgeonEffectsBundleService: unexpected raid text template load error for '"
+                    + emitterName
+                    + "': "
+                    + ex.Message);
             }
 
             return null;

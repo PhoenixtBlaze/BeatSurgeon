@@ -1,4 +1,4 @@
-﻿using BeatSurgeon.Chat;
+using BeatSurgeon.Chat;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Profiling;
@@ -102,7 +102,10 @@ namespace BeatSurgeon.Gameplay
             BombArmed = true;
             BombConsumed = false;
 
-            MultiplayerStateClient.SetActiveCommand("bomb", requesterName);
+            MultiplayerEffectPublisher.NotifyInstantStarted(
+                "bomb",
+                string.IsNullOrWhiteSpace(displayText) ? "bomb" : ("bmsg " + displayText.Trim()),
+                requesterName);
             string requesterNameLocal = bombRequest.RequesterName;
             string displayTextLocal = bombRequest.DisplayText;
             int queueCount = _pendingBombRequests.Count;
@@ -195,7 +198,7 @@ namespace BeatSurgeon.Gameplay
             int queueCount = _pendingBombRequests.Count;
 
             if (_pendingBombRequests.Count == 0 && _bombNotes.Count == 0)
-                MultiplayerStateClient.SetActiveCommand(null);
+                MultiplayerEffectPublisher.NotifyEffectEnded("bomb");
 
             LogUtils.Debug(() => $"BombManager: Bomb cut by {requesterNameLocal}! (display='{displayTextLocal}', queue={queueCount})");
             return true;
@@ -277,6 +280,10 @@ namespace BeatSurgeon.Gameplay
             CurrentBomberName = "Unknown";
 
             ClearBombVisuals();
+            if (_pendingBombRequests.Count == 0)
+            {
+                MultiplayerEffectPublisher.NotifyEffectEnded("bomb");
+            }
         }
 
         private void Update()
@@ -315,6 +322,7 @@ namespace BeatSurgeon.Gameplay
             _bombNotes.Clear();
             _pendingBombRequests.Clear();
             _activeBombVisuals.Clear();
+            MultiplayerEffectPublisher.NotifyEffectEnded("bomb");
         }
     }
 }

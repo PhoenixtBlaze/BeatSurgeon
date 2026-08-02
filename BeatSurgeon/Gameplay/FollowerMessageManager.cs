@@ -172,6 +172,7 @@ namespace BeatSurgeon.Gameplay
             }
 
             _playbackRoutine = null;
+            MultiplayerEffectPublisher.NotifyEffectEnded("fmsg");
         }
 
         private IEnumerator AnimateMessage(RectTransform messageRect)
@@ -382,6 +383,7 @@ namespace BeatSurgeon.Gameplay
 
             DestroyActiveMessageText();
             DestroyCanvasInstance();
+            MultiplayerEffectPublisher.NotifyEffectEnded("fmsg");
         }
 
         private void DestroyActiveMessageText()

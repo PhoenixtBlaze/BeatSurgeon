@@ -211,6 +211,7 @@ namespace BeatSurgeon.Gameplay
             bool blRanked = false;
             bool ssRanked = false;
             bool accSaberRanked = false;
+            bool completedAsActiveCheck = false;
 
             try
             {
@@ -230,23 +231,59 @@ namespace BeatSurgeon.Gameplay
                 blRanked = blTask.Status == TaskStatus.RanToCompletion && blTask.Result;
                 ssRanked = ssTask.Status == TaskStatus.RanToCompletion && ssTask.Result;
                 accSaberRanked = accSaberTask.Status == TaskStatus.RanToCompletion && accSaberTask.Result;
+
+                // Discard the result if this check was superseded by a newer one.
+                if (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                bool ranked = blRanked || ssRanked || accSaberRanked;
+                _log.Info("Ranked check complete: hash=" + hash + " BL=" + blRanked + " SS=" + ssRanked + " AccSaber=" + accSaberRanked + " → ranked=" + ranked);
+
+                _cache[cacheKey] = ranked;
+                _isRanked = ranked;
+                _isChecking = false;
+                completedAsActiveCheck = true;
+
+                if (ranked)
+                {
+                    NotifyIfRanked();
+                }
+                else
+                {
+                    // Ranked gate cleared — kick deferred automatic effects if any are waiting.
+                    TryKickDeferredFlush();
+                }
             }
             catch (Exception ex)
             {
                 _log.Warn("CheckRankedAsync unexpected error for hash=" + hash + ": " + ex.Message);
             }
+            finally
+            {
+                // Cancelled/error paths used to leave _isChecking true forever.
+                // Only clear when this check is still the active one for cacheKey (do not clear a
+                // newer superseding check that already set _isChecking for a different key).
+                if (!completedAsActiveCheck
+                    && string.Equals(_lastCheckedHash, cacheKey, StringComparison.Ordinal)
+                    && _isChecking)
+                {
+                    _isChecking = false;
+                }
+            }
+        }
 
-            // Discard the result if this check was superseded by a newer one.
-            if (ct.IsCancellationRequested) return;
-
-            bool ranked = blRanked || ssRanked || accSaberRanked;
-            _log.Info("Ranked check complete: hash=" + hash + " BL=" + blRanked + " SS=" + ssRanked + " AccSaber=" + accSaberRanked + " → ranked=" + ranked);
-
-            _cache[cacheKey] = ranked;
-            _isRanked = ranked;
-            _isChecking = false;
-
-            if (ranked) NotifyIfRanked();
+        private static void TryKickDeferredFlush()
+        {
+            try
+            {
+                GameplayManager.GetInstance()?.TryFlushDeferredQueue();
+            }
+            catch (Exception ex)
+            {
+                _log.Debug("TryKickDeferredFlush failed: " + ex.Message);
+            }
         }
 
         private static async Task<bool> CheckAccSaberAsync(string hash, int diffNum, string modeStr, CancellationToken ct)

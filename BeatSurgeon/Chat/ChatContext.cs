@@ -15,7 +15,11 @@ namespace BeatSurgeon.Chat
         Chat,
         ChannelPoints,
         BitEvent,
-        ExternalIntegration
+        ExternalIntegration,
+        /// <summary>Effect replayed on a Multiplayer+ client from the room host.</summary>
+        MultiplayerSync,
+        /// <summary>Automatic EventSub/integration celebration (follow/sub), not a chat command.</summary>
+        AutomaticEvent
     }
 
     /// <summary>
