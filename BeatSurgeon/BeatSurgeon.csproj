@@ -495,20 +495,20 @@
   <ItemGroup>
     <EmbeddedResource Include="Assets\Flashbang.png" />
     <EmbeddedResource Include="Assets\FlashbangGB.png" />
-    <EmbeddedResource Include="Assets\Bit.png" />
-    <EmbeddedResource Include="Assets\BitGB.png" />
-    <EmbeddedResource Include="Assets\Sub.png" />
-    <EmbeddedResource Include="Assets\SubGB.png" />
-    <EmbeddedResource Include="Assets\Follow.png" />
-    <EmbeddedResource Include="Assets\FollowGB.png" />
-    <EmbeddedResource Include="Assets\Raid.png" />
-    <EmbeddedResource Include="Assets\RaidGB.png" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Assets\Endless.png" />
     <EmbeddedResource Include="libs\Chaos.NaCl.dll" />
     <EmbeddedResource Include="Assets\Twitch-Logo.png" />
     <EmbeddedResource Include="Assets\Patreon-Logo.png" />
+    <EmbeddedResource Include="Assets\Bit.png" />
+    <EmbeddedResource Include="Assets\BitGB.png" />
+    <EmbeddedResource Include="Assets\Follow.png" />
+    <EmbeddedResource Include="Assets\FollowGB.png" />
+    <EmbeddedResource Include="Assets\Raid.png" />
+    <EmbeddedResource Include="Assets\RaidGB.png" />
+    <EmbeddedResource Include="Assets\Sub.png" />
+    <EmbeddedResource Include="Assets\SubGB.png" />
     <Content Include="server.js" />
   </ItemGroup>
   <ItemGroup />
@@ -520,7 +520,7 @@
 		  IF %ERRORLEVEL% LEQ 1 SET ERRORLEVEL=0
 
 		  REM Copy BeatSurgeon.dll to Plugins; fall back to IPA\Pending\Plugins if the game is running (DLL locked)
-		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='$(GameDirectory)\Plugins\BeatSurgeon.dll'; $pend='$(GameDirectory)\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -> Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -> IPA\Pending\Plugins (game running - will apply on next start)' }"
+		  powershell -NoProfile -Command "$src='$(TargetPath)'; $dest='$(GameDirectory)\Plugins\BeatSurgeon.dll'; $pend='$(GameDirectory)\IPA\Pending\Plugins\BeatSurgeon.dll'; try { Copy-Item $src $dest -Force; Write-Host 'BeatSurgeon.dll -&gt; Plugins (live)' } catch { $null = New-Item (Split-Path $pend) -ItemType Directory -Force; Copy-Item $src $pend -Force; Write-Host 'BeatSurgeon.dll -&gt; IPA\Pending\Plugins (game running - will apply on next start)' }"
 		  IF %ERRORLEVEL% NEQ 0 EXIT %ERRORLEVEL%
 	  </PostBuildEvent>
   </PropertyGroup>

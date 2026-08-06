@@ -646,26 +646,18 @@ namespace BeatSurgeon.Gameplay
 
         private ParticleSystemRenderer GetReferenceBombParticleRenderer(out bool isAnchoredReference)
         {
-            // Prefer bootstrapped owned Sparks, else ExplosionSparkles reference-only, else raw owned.
-            // Do not permanently cache ExplosionSparkles so map-entry bootstrap can replace it.
+            // Prefer bootstrapped owned Sparks only. Never use live ExplosionSparkles —
+            // ParticleOverdrive mutates that NoteCut / BombExplosion hierarchy.
             ParticleSystemRenderer spiReference = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer();
             if (spiReference != null)
             {
-                bool isOwned = BeatSurgeonOwnedVfxSpace.TryGetOwnedSpiReferenceRenderer() == spiReference;
-                if (isOwned)
-                {
-                    _referenceBombParticleRenderer = spiReference;
-                    isAnchoredReference = true;
-                }
-                else
-                {
-                    isAnchoredReference = false;
-                }
-
+                _referenceBombParticleRenderer = spiReference;
+                isAnchoredReference = true;
                 return spiReference;
             }
 
-            if (_referenceBombParticleRenderer != null)
+            if (_referenceBombParticleRenderer != null
+                && !BeatSurgeonOwnedVfxSpace.IsVanillaNoteCutParticleHierarchy(_referenceBombParticleRenderer))
             {
                 isAnchoredReference = true;
                 return _referenceBombParticleRenderer;

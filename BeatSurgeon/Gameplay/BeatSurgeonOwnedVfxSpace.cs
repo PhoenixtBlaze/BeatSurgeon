@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using IPA.Loader;
 using UnityEngine;
 
 namespace BeatSurgeon.Gameplay
@@ -9,11 +11,13 @@ namespace BeatSurgeon.Gameplay
     /// vanilla <see cref="NoteCutCoreEffectsSpawner"/> / <see cref="BombExplosionEffect"/>.
     /// ParticleOverdrive and other note-cut particle mods therefore do not share our hierarchy.
     /// SPI stereo reference is our surgeoneffects Sparks host, optionally bootstrapped
-    /// (material + vertex streams) from vanilla ExplosionSparkles as a read-only source.
+    /// (material + vertex streams only) from vanilla ExplosionSparkles as a one-shot read.
+    /// Live SPI references never point at NoteCut / ExplosionSparkles after bootstrap.
     /// </summary>
     internal static class BeatSurgeonOwnedVfxSpace
     {
         private const string CustomParticlesShaderName = "Custom/CustomParticles";
+        private const string ParticleOverdrivePluginId = "ParticleOverdrive";
 
         private static Transform _root;
         private static ParticleSystemRenderer _ownedSpiReference;
@@ -21,6 +25,8 @@ namespace BeatSurgeon.Gameplay
         private static GameObject _ownedSpiReferenceHost;
         private static bool _bootstrappedOwnedSpiFromVanilla;
         private static bool _loggedVanillaSparklesMissing;
+        private static bool _loggedParticleOverdrivePresence;
+        private static bool? _particleOverdriveEnabled;
 
         internal static Transform GetRoot()
         {
@@ -32,7 +38,34 @@ namespace BeatSurgeon.Gameplay
             GameObject rootGo = new GameObject("BeatSurgeon_OwnedVfxRoot");
             UnityEngine.Object.DontDestroyOnLoad(rootGo);
             _root = rootGo.transform;
+            LogParticleOverdrivePresenceOnce();
             return _root;
+        }
+
+        /// <summary>
+        /// True when ParticleOverdrive is among IPA enabled plugins.
+        /// </summary>
+        internal static bool IsParticleOverdriveEnabled()
+        {
+            if (_particleOverdriveEnabled.HasValue)
+            {
+                return _particleOverdriveEnabled.Value;
+            }
+
+            try
+            {
+                _particleOverdriveEnabled = PluginManager.EnabledPlugins != null
+                    && PluginManager.EnabledPlugins.Any(plugin =>
+                        plugin != null
+                        && (string.Equals(plugin.Id, ParticleOverdrivePluginId, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(plugin.Name, "Particle Overdrive", StringComparison.OrdinalIgnoreCase)));
+            }
+            catch
+            {
+                _particleOverdriveEnabled = false;
+            }
+
+            return _particleOverdriveEnabled.Value;
         }
 
         /// <summary>
@@ -112,36 +145,32 @@ namespace BeatSurgeon.Gameplay
 
         /// <summary>
         /// Best SPI stereo reference for material/stream sync.
-        /// Prefers bootstrapped owned Sparks; otherwise reads ExplosionSparkles reference-only
-        /// (never parents under it); finally falls back to raw owned Sparks.
+        /// Always returns the owned Sparks host (bootstrapped when possible).
+        /// Never returns a live vanilla NoteCut / ExplosionSparkles renderer — that tree is
+        /// mutated by ParticleOverdrive (maxParticles, size/lifetime multipliers).
         /// </summary>
         internal static ParticleSystemRenderer TryGetSpiStereoReferenceRenderer()
         {
             ParticleSystemRenderer owned = TryGetOwnedSpiReferenceRenderer();
-            if (owned != null && IsSpiCapableRenderer(owned))
+            if (owned != null)
             {
+                // Ensure bootstrap has run once ExplosionSparkles is resident.
+                if (!IsSpiCapableRenderer(owned))
+                {
+                    TryBootstrapOwnedSpiFromVanillaExplosionSparkles();
+                }
+
                 return owned;
             }
 
-            ParticleSystemRenderer vanillaSparkles = TryFindVanillaExplosionSparklesRenderer();
-            if (vanillaSparkles != null)
-            {
-                // Opportunistically bootstrap owned from this live reference, then prefer owned.
-                TryBootstrapOwnedSpiFromVanillaExplosionSparkles(vanillaSparkles);
-                if (_ownedSpiReference != null && IsSpiCapableRenderer(_ownedSpiReference))
-                {
-                    return _ownedSpiReference;
-                }
-
-                return vanillaSparkles;
-            }
-
-            return owned;
+            // Owned host unavailable (missing surgeoneffects Sparks). Do not fall back to
+            // vanilla ExplosionSparkles as a live reference — PO patches that hierarchy.
+            return null;
         }
 
         /// <summary>
-        /// Read-only lookup of vanilla ExplosionSparkles for SPI shader/stream bootstrap.
-        /// Never used as a parenting anchor.
+        /// Read-only lookup of vanilla ExplosionSparkles for one-shot SPI shader/stream bootstrap.
+        /// Never used as a parenting anchor or long-lived stereo reference.
         /// </summary>
         internal static ParticleSystemRenderer TryFindVanillaExplosionSparklesRenderer()
         {
@@ -201,12 +230,32 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
+        /// <summary>
+        /// True when the renderer lives under vanilla note-cut / bomb-explosion particle trees
+        /// that ParticleOverdrive and similar mods patch.
+        /// </summary>
+        internal static bool IsVanillaNoteCutParticleHierarchy(ParticleSystemRenderer renderer)
+        {
+            if (renderer == null || renderer.transform == null)
+            {
+                return false;
+            }
+
+            string path = GetTransformPath(renderer.transform);
+            string transformName = renderer.transform.name ?? string.Empty;
+            return path.IndexOf("NoteCutCoreEffectsSpawner", StringComparison.OrdinalIgnoreCase) >= 0
+                || path.IndexOf("BombExplosionEffect", StringComparison.OrdinalIgnoreCase) >= 0
+                || transformName.IndexOf("ExplosionSparkles", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         internal static void Reset()
         {
             _ownedSpiReference = null;
             _triedOwnedSpiReference = false;
             _bootstrappedOwnedSpiFromVanilla = false;
             _loggedVanillaSparklesMissing = false;
+            _loggedParticleOverdrivePresence = false;
+            // Keep _particleOverdriveEnabled — plugin set does not change mid-session.
 
             if (_ownedSpiReferenceHost != null)
             {
@@ -219,6 +268,26 @@ namespace BeatSurgeon.Gameplay
                 UnityEngine.Object.Destroy(_root.gameObject);
                 _root = null;
             }
+        }
+
+        private static void LogParticleOverdrivePresenceOnce()
+        {
+            if (_loggedParticleOverdrivePresence)
+            {
+                return;
+            }
+
+            _loggedParticleOverdrivePresence = true;
+            if (!IsParticleOverdriveEnabled())
+            {
+                return;
+            }
+
+            Plugin.Log.Info(
+                "BeatSurgeonOwnedVfxSpace: ParticleOverdrive detected — "
+                + "BeatSurgeon VFX stays on BeatSurgeon_OwnedVfxRoot; "
+                + "vanilla ExplosionSparkles is read once for SPI material/streams only "
+                + "(never as live emit/parent/reference).");
         }
 
         private static void TryBootstrapOwnedSpiFromVanillaExplosionSparkles()
@@ -249,6 +318,8 @@ namespace BeatSurgeon.Gameplay
 
             try
             {
+                // Material + vertex streams only. Do not copy MainModule (PO sets maxParticles /
+                // size / lifetime multipliers on the vanilla particle systems).
                 Material bootMaterial = new Material(vanilla.sharedMaterial)
                 {
                     name = (vanilla.sharedMaterial.name ?? "ExplosionSparkles") + "_BeatSurgeonOwnedSpiBootstrap"
@@ -289,7 +360,7 @@ namespace BeatSurgeon.Gameplay
                     + vertexStreams.Count
                     + " trailStreams="
                     + trailStreams.Count
-                    + " (reference-only; not parenting under NoteCut).");
+                    + " (one-shot material/streams only; ParticleOverdrive MainModule ignored).");
             }
             catch (Exception ex)
             {

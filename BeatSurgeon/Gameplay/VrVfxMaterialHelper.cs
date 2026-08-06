@@ -1988,7 +1988,8 @@ namespace BeatSurgeon.Gameplay
 
         private static ParticleSystemRenderer FindVanillaParticleRenderer()
         {
-            // Prefer bootstrapped owned Sparks or ExplosionSparkles (reference-only).
+            // Prefer owned Sparks (SPI-bootstrapped). Never use live NoteCut / ExplosionSparkles —
+            // ParticleOverdrive mutates that hierarchy.
             ParticleSystemRenderer spi = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer();
             if (spi != null && spi.sharedMaterial != null)
             {
@@ -2027,6 +2028,7 @@ namespace BeatSurgeon.Gameplay
                 return customParticles;
             }
 
+            // One-shot shader name read from vanilla ExplosionSparkles (not used as live reference).
             ParticleSystemRenderer sparkles = BeatSurgeonOwnedVfxSpace.TryFindVanillaExplosionSparklesRenderer();
             if (sparkles != null
                 && sparkles.sharedMaterial != null
@@ -2050,24 +2052,27 @@ namespace BeatSurgeon.Gameplay
         {
             if (referenceRenderer != null
                 && referenceRenderer.sharedMaterial != null
-                && IsSpiCapableParticleShader(referenceRenderer.sharedMaterial.shader))
+                && IsSpiCapableParticleShader(referenceRenderer.sharedMaterial.shader)
+                && !BeatSurgeonOwnedVfxSpace.IsVanillaNoteCutParticleHierarchy(referenceRenderer))
             {
                 return referenceRenderer;
             }
 
-            ParticleSystemRenderer spi = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer();
-            if (spi != null)
+            ParticleSystemRenderer owned = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer()
+                ?? BeatSurgeonOwnedVfxSpace.TryGetOwnedSpiReferenceRenderer();
+            if (owned != null)
             {
-                return spi;
+                return owned;
             }
 
-            ParticleSystemRenderer sparkles = BeatSurgeonOwnedVfxSpace.TryFindVanillaExplosionSparklesRenderer();
-            if (sparkles != null)
+            // Last resort only when owned Sparks host is missing entirely.
+            if (referenceRenderer != null
+                && !BeatSurgeonOwnedVfxSpace.IsVanillaNoteCutParticleHierarchy(referenceRenderer))
             {
-                return sparkles;
+                return referenceRenderer;
             }
 
-            return referenceRenderer;
+            return null;
         }
 
         private static bool IsSpiCapableParticleShader(Shader shader)
@@ -2099,8 +2104,9 @@ namespace BeatSurgeon.Gameplay
             string transformName = renderer.transform != null ? renderer.transform.name : string.Empty;
             string shaderName = renderer.sharedMaterial.shader.name;
 
-            // Prefer not to use NoteCut particles for generic material bases, but ExplosionSparkles
-            // is allowed via TryFindVanillaExplosionSparklesRenderer / TryGetSpiStereoReferenceRenderer.
+            // Prefer not to use NoteCut / BombExplosion / ExplosionSparkles as generic material bases
+            // (ParticleOverdrive mutates that hierarchy). SPI bootstrap uses
+            // TryFindVanillaExplosionSparklesRenderer separately as a one-shot read.
             if (path.Contains("notecutcoreeffectsspawner")
                 || path.Contains("bombexplosioneffect")
                 || transformName.IndexOf("ExplosionSparkles", StringComparison.OrdinalIgnoreCase) >= 0)
