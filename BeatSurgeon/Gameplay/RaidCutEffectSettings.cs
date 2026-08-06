@@ -5,10 +5,12 @@ namespace BeatSurgeon.Gameplay
     internal static class RaidCutEffectSettings
     {
         internal const string DefaultOption = "Default";
+        internal const string SpiralOption = "Spiral";
 
         internal static readonly string[] AllOptions =
         {
-            DefaultOption
+            DefaultOption,
+            SpiralOption
         };
 
         internal static string GetSelectedOption()

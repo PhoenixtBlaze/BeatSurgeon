@@ -19,6 +19,7 @@ namespace BeatSurgeon.Gameplay
         private const float ReturnMotionUnitsPerSecond = 5f;
         private const float MinReturnMotionDuration = 0.55f;
         private const float MaxReturnMotionDuration = 1.8f;
+        private const float DefaultCanvasTravelSeconds = 4.0f;
         private static bool _loggedBurstMotionSnapshot;
         private static bool _loggedFollowerLineTargetSnapshot;
         private readonly struct BitBurstProfile
@@ -132,7 +133,8 @@ namespace BeatSurgeon.Gameplay
             emitterRoot.transform.position = position - spawnAnchorOffset;
             SyncToGameplayVfxLayer(emitterRoot);
             float lifetime = EstimateEmitterLifetime(emitterRoot);
-            ConfigureBurstMotion(emitterRoot, position, returnTarget, lifetime);
+            float motionDuration = ConfigureBurstMotion(emitterRoot, position, returnTarget, lifetime);
+            lifetime = Mathf.Max(lifetime, motionDuration + 0.15f);
             emitterRoot.SetActive(true);
 
             if (!TriggerBitBurst(emitterRoot, denomination))
@@ -148,6 +150,13 @@ namespace BeatSurgeon.Gameplay
 
         internal static Vector3 ResolveReturnTarget(GameNoteController noteController, Vector3 origin)
         {
+            if (SurgeonEffectsBundleService.TryResolveFollowerCanvasStartWorldPosition(out Vector3 canvasStart)
+                && IsFinite(canvasStart)
+                && (canvasStart - origin).sqrMagnitude > 0.04f)
+            {
+                return canvasStart;
+            }
+
             if (TryResolveFollowerCanvasLineTarget(origin, out Vector3 followerLineTarget))
             {
                 return followerLineTarget;
@@ -607,25 +616,43 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
-        private static void ConfigureBurstMotion(GameObject emitterRoot, Vector3 startPosition, Vector3 returnTarget, float lifetime)
+        private static float ConfigureBurstMotion(GameObject emitterRoot, Vector3 startPosition, Vector3 returnTarget, float lifetime)
         {
             if (emitterRoot == null)
             {
-                return;
+                return 0f;
             }
 
             BeatSurgeonBurstMotionDriver motionDriver = emitterRoot.GetComponent<BeatSurgeonBurstMotionDriver>();
             if (motionDriver == null)
             {
-                return;
+                return 0f;
             }
 
-            Vector3 clampedTarget = ClampReturnTarget(startPosition, returnTarget);
-            float duration = CalculateReturnMotionDuration(startPosition, clampedTarget, lifetime);
+            bool targetingCanvasStart = IsResolvedCanvasStartTarget(returnTarget);
+            Vector3 clampedTarget = ClampReturnTarget(startPosition, returnTarget, targetingCanvasStart);
+            float duration = CalculateReturnMotionDuration(startPosition, clampedTarget, lifetime, targetingCanvasStart);
             motionDriver.Configure(startPosition, clampedTarget, duration);
+            return duration;
         }
 
-        private static Vector3 ClampReturnTarget(Vector3 startPosition, Vector3 returnTarget)
+        private static bool IsResolvedCanvasStartTarget(Vector3 returnTarget)
+        {
+            if (!IsFinite(returnTarget))
+            {
+                return false;
+            }
+
+            if (!SurgeonEffectsBundleService.TryResolveFollowerCanvasStartWorldPosition(out Vector3 canvasStart)
+                || !IsFinite(canvasStart))
+            {
+                return false;
+            }
+
+            return (returnTarget - canvasStart).sqrMagnitude <= 0.01f;
+        }
+
+        private static Vector3 ClampReturnTarget(Vector3 startPosition, Vector3 returnTarget, bool targetingCanvasStart)
         {
             Vector3 delta = returnTarget - startPosition;
             if (!IsFinite(returnTarget) || delta.sqrMagnitude <= 0.04f)
@@ -633,16 +660,34 @@ namespace BeatSurgeon.Gameplay
                 return startPosition;
             }
 
+            // Do not clip follower canvas Start — it can sit beyond the old 12u fallback clamp.
+            if (targetingCanvasStart)
+            {
+                return returnTarget;
+            }
+
             float clampedDistance = Mathf.Min(delta.magnitude, MaxReturnTravelDistance);
             return startPosition + (delta.normalized * clampedDistance);
         }
 
-        private static float CalculateReturnMotionDuration(Vector3 startPosition, Vector3 targetPosition, float lifetime)
+        private static float CalculateReturnMotionDuration(
+            Vector3 startPosition,
+            Vector3 targetPosition,
+            float lifetime,
+            bool targetingCanvasStart)
         {
             float distance = Vector3.Distance(startPosition, targetPosition);
             if (distance <= 0.2f)
             {
                 return 0f;
+            }
+
+            if (targetingCanvasStart)
+            {
+                return Mathf.Clamp(
+                    Plugin.Settings?.FlyingTextTravelSeconds ?? DefaultCanvasTravelSeconds,
+                    0.5f,
+                    20f);
             }
 
             float unclampedDuration = distance / ReturnMotionUnitsPerSecond;
@@ -1356,10 +1401,17 @@ namespace BeatSurgeon.Gameplay
 
                 _elapsed += Time.deltaTime;
                 float t = _duration <= 0f ? 1f : Mathf.Clamp01(_elapsed / _duration);
-                float eased = 1f - Mathf.Pow(1f - t, 3f);
-                for (int i = 0; i < _trackedParticleSystems.Count; i++)
+                // Linear travel from frame 0 so the burst clears the play lane immediately
+                // (previous ease-out left early moveStep ~0.25 u/s and lingered at the cut).
+                Vector3 desired = Vector3.Lerp(_startPosition, _targetPosition, t);
+                Vector3 delta = desired - transform.position;
+                if (delta.sqrMagnitude > 0.0000001f)
                 {
-                    ApplyParticleAttraction(_trackedParticleSystems[i], eased);
+                    transform.position = desired;
+                    for (int i = 0; i < _trackedParticleSystems.Count; i++)
+                    {
+                        TranslateParticles(_trackedParticleSystems[i], delta);
+                    }
                 }
 
                 if (t >= 1f)
@@ -1468,10 +1520,23 @@ namespace BeatSurgeon.Gameplay
                 return false;
             }
 
-            private void ApplyParticleAttraction(TrackedParticleSystemState trackedState, float easedProgress)
+            private void TranslateParticles(TrackedParticleSystemState trackedState, Vector3 delta)
             {
                 ParticleSystem particleSystem = trackedState?.ParticleSystem;
                 if (particleSystem == null || !particleSystem.gameObject.activeInHierarchy)
+                {
+                    return;
+                }
+
+                // Bits force World simulation space in PrepareTrackedParticleSystemState; guard anyway.
+                try
+                {
+                    if (particleSystem.main.simulationSpace != ParticleSystemSimulationSpace.World)
+                    {
+                        return;
+                    }
+                }
+                catch
                 {
                     return;
                 }
@@ -1508,21 +1573,7 @@ namespace BeatSurgeon.Gameplay
 
                 for (int i = 0; i < particleCount; i++)
                 {
-                    float startLifetime = Mathf.Max(0.01f, trackedState.Buffer[i].startLifetime);
-                    float lifeProgress = 1f - (trackedState.Buffer[i].remainingLifetime / startLifetime);
-                    float attraction = Mathf.Clamp01(Mathf.Max(lifeProgress, easedProgress));
-                    Vector3 particlePosition = trackedState.Buffer[i].position;
-                    Vector3 delta = _targetPosition - particlePosition;
-                    float distance = delta.magnitude;
-                    if (distance <= 0.001f)
-                    {
-                        continue;
-                    }
-
-                    float moveStep = Mathf.Lerp(0.25f, 14f, attraction) * Time.deltaTime;
-                    Vector3 direction = delta / distance;
-                    trackedState.Buffer[i].position = Vector3.MoveTowards(particlePosition, _targetPosition, moveStep);
-                    trackedState.Buffer[i].velocity += direction * (Mathf.Lerp(0.5f, 8f, attraction) * Time.deltaTime);
+                    trackedState.Buffer[i].position += delta;
                 }
 
                 try

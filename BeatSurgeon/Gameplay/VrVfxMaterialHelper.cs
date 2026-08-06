@@ -328,6 +328,23 @@ namespace BeatSurgeon.Gameplay
                 return null;
             }
 
+            // Prefer SPI-capable shader. Owned Sparks may still be Particles/Standard Unlit
+            // until ExplosionSparkles bootstrap; never bake that into Lightning glow children.
+            Shader spiShader = ResolveSpiCapableParticleShader(referenceRenderer);
+            if (spiShader == null)
+            {
+                return null;
+            }
+
+            ParticleSystemRenderer stereoStreamReference = ResolveStereoStreamReference(referenceRenderer);
+            Material spiReferenceMaterial = stereoStreamReference != null
+                && stereoStreamReference.sharedMaterial != null
+                && IsSpiCapableParticleShader(stereoStreamReference.sharedMaterial.shader)
+                    ? stereoStreamReference.sharedMaterial
+                    : IsSpiCapableParticleShader(referenceRenderer.sharedMaterial.shader)
+                        ? referenceRenderer.sharedMaterial
+                        : null;
+
             // Sprites/Default encodes appearance in particle vertex color with no atlas texture.
             // Cloning the vanilla bomb reference material would apply the Sparkle texture and
             // make authored Lightning/glow particles look like vanilla bomb sparkles.
@@ -335,7 +352,7 @@ namespace BeatSurgeon.Gameplay
             {
                 return CreateAuthoredSpiParticleMaterial(
                     sourceMaterial,
-                    referenceRenderer.sharedMaterial.shader,
+                    spiShader,
                     referenceMaterial: null,
                     vertexColorDrivenTintOverride: GetApproximateAuthoredStartColor(ownerParticleSystem));
             }
@@ -350,10 +367,21 @@ namespace BeatSurgeon.Gameplay
                         GetApproximateAuthoredStartColor(ownerParticleSystem))
                     : SafeGetMaterialColor(sourceMaterial);
 
-            Material safemat = new Material(referenceRenderer.sharedMaterial)
+            Material safemat;
+            if (spiReferenceMaterial != null)
             {
-                name = (sourceMaterial?.name ?? "VfxParticle") + "_BeatSurgeonBillboardVfx"
-            };
+                safemat = new Material(spiReferenceMaterial)
+                {
+                    name = (sourceMaterial?.name ?? "VfxParticle") + "_BeatSurgeonBillboardVfx"
+                };
+            }
+            else
+            {
+                safemat = new Material(spiShader)
+                {
+                    name = (sourceMaterial?.name ?? "VfxParticle") + "_BeatSurgeonBillboardVfx"
+                };
+            }
 
             if (sourceMaterial != null)
             {
@@ -1399,6 +1427,14 @@ namespace BeatSurgeon.Gameplay
 
             try
             {
+                // Prefer SPI-capable stream host when the caller still holds pre-bootstrap
+                // owned Sparks (Particles/Standard Unlit / empty SPI streams).
+                ParticleSystemRenderer stereoStreamReference = ResolveStereoStreamReference(referenceRenderer);
+                if (stereoStreamReference != null)
+                {
+                    referenceRenderer = stereoStreamReference;
+                }
+
                 bool syncLayout = UsesBillboardStyleVertexStreams(particleRenderer.renderMode)
                     && UsesBillboardStyleVertexStreams(referenceRenderer.renderMode);
                 bool renderModesMatch = particleRenderer.renderMode == referenceRenderer.renderMode;

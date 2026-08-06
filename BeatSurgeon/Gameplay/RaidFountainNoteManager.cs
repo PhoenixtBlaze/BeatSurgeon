@@ -47,8 +47,10 @@ namespace BeatSurgeon.Gameplay
             internal Vector3 Velocity;
             internal Vector3 FlyStart;
             internal Vector3 FlyTarget;
-            /// <summary>Slow post-expand end position for cut bursts.</summary>
+            /// <summary>Travel end for cut bursts (follower canvas Start, or radial fallback).</summary>
             internal Vector3 FlyDriftTarget;
+            /// <summary>Outward burst direction used for concurrent radial expand while traveling.</summary>
+            internal Vector3 FlyExpandDirection;
             internal float Elapsed;
             internal float Lifetime;
             internal float HueOffset;
@@ -60,6 +62,10 @@ namespace BeatSurgeon.Gameplay
             internal bool IsOutline;
             /// <summary>Cut shards expand on a sphere biased off the note highway.</summary>
             internal bool IsCutBurst;
+            /// <summary>Spiral cut: travel from spawn; spiral expand then faster helix toward Start.</summary>
+            internal bool IsSpiralCut;
+            /// <summary>Per-shard helix angle offset so shards are not identical.</summary>
+            internal float SpiralPhase;
             /// <summary>Menu Effects-tab preview; survives map-exit cleanup.</summary>
             internal bool IsMenuPreview;
         }
@@ -74,19 +80,28 @@ namespace BeatSurgeon.Gameplay
         private const int OutlineShardsPerNote = 36;
         private const int CutBurstShards = 6;
         private const int MaxPoolSize = 384;
-        // Phase 1: snap to full sphere radius with no fade. Phase 2: short slow drift while fading.
+        // Concurrent with canvas travel: fast radial expand (opaque), then hold while fading on the path.
+        // Travel duration matches bomb flying text (PluginConfig.FlyingTextTravelSeconds).
         private const float CutBurstExpandSeconds = 0.35f;
-        private const float CutBurstDriftSeconds = 1.50f;
-        private const float CutBurstLifetimeSeconds = CutBurstExpandSeconds + CutBurstDriftSeconds;
+        private const float CutBurstDefaultTravelSeconds = 4.0f;
         private const float CutBurstSphereRadiusMin = 0.2f;
-        private const float CutBurstSphereRadiusMax = 2.0f;
-        private const float CutBurstSphereRadiusDriftMax = 2.75f;
+        private const float CutBurstSphereRadiusMax = 6.0f;
+        private const float CutBurstSphereRadiusDriftMax = 8.25f;
+        /// <summary>Helix revolutions after expand completes — kept low so names stay readable on the way to Start.</summary>
+        private const float SpiralTravelTurns = 1.25f;
+        /// <summary>Spiral expand window; path toward Start still runs from spawn.</summary>
+        private const float SpiralExpandSeconds = 0.65f;
+        /// <summary>Revolutions during expand; angular rate stays below post-expand travel helix.</summary>
+        private const float SpiralExpandTurns = 0.75f;
         private const float OutlineShellRadius = 0.38f;
         private const float SpectrumCycleSeconds = 0.5f;
         private const float OutlineFontSize = 0.18f;
-        private const float CutBurstFontSize = 1.35f;
+        /// <summary>Full cut-burst font size — matches glitter/bomb flying name text.</summary>
+        private const float CutBurstFontSize = 4.0f;
+        /// <summary>Spawn scale relative to full size; grows to 1 during radial expand, then holds.</summary>
+        private const float CutBurstSpawnScale = 0.5f;
         private const float OutlineTextWidth = 1.2f;
-        private const float CutBurstTextWidth = 6.5f;
+        private const float CutBurstTextWidth = 8.0f;
 
         private static RaidFountainNoteManager _instance;
         private static GameObject _go;
@@ -294,7 +309,7 @@ namespace BeatSurgeon.Gameplay
             if (explode)
             {
                 int layer = controller.gameObject != null ? controller.gameObject.layer : 0;
-                SpawnCutExplosion(cutPoint, raiderName, layer);
+                SpawnSelectedCutExplosion(cutPoint, raiderName, layer, isMenuPreview: false);
             }
 
             if (_pendingEntries.Count == 0 && _activeEntries.Count == 0 && !HasNonPreviewLiveShards())
@@ -374,14 +389,7 @@ namespace BeatSurgeon.Gameplay
         {
             ClearMenuPreviewShards();
 
-            string selection = RaidCutEffectSettings.GetSelectedOption();
-            switch (selection)
-            {
-                case RaidCutEffectSettings.DefaultOption:
-                default:
-                    SpawnCutExplosion(origin, "Preview", layer: 0, isMenuPreview: true);
-                    break;
-            }
+            SpawnSelectedCutExplosion(origin, "Preview", layer: 0, isMenuPreview: true);
         }
 
         internal void ClearMenuPreviewShards()
@@ -493,7 +501,15 @@ namespace BeatSurgeon.Gameplay
 
                 if (shard.IsCutBurst)
                 {
-                    TickCutBurstShard(shard, color);
+                    if (shard.IsSpiralCut)
+                    {
+                        TickSpiralCutBurstShard(shard, color);
+                    }
+                    else
+                    {
+                        TickCutBurstShard(shard, color);
+                    }
+
                     if (shard.Active)
                     {
                         _shardScratch.Add(shard);
@@ -565,6 +581,8 @@ namespace BeatSurgeon.Gameplay
                 shard.FollowsNote = true;
                 shard.IsOutline = true;
                 shard.IsCutBurst = false;
+                shard.IsSpiralCut = false;
+                shard.SpiralPhase = 0f;
                 shard.IsMenuPreview = false;
 
                 shard.Root.transform.SetParent(noteParent, false);
@@ -594,34 +612,168 @@ namespace BeatSurgeon.Gameplay
 
         private void TickCutBurstShard(ShardState shard, Color color)
         {
+            float travelSeconds = Mathf.Max(0.01f, shard.Lifetime);
             float expandSeconds = Mathf.Max(0.01f, CutBurstExpandSeconds);
-            float driftSeconds = Mathf.Max(0.01f, CutBurstDriftSeconds);
+            float travelT = Mathf.Clamp01(shard.Elapsed / travelSeconds);
 
-            if (shard.Elapsed < expandSeconds)
+            // Travel toward follower Start (or radial fallback) from the first frame — same timing as bomb fonts.
+            Vector3 pathPosition = Vector3.Lerp(shard.FlyStart, shard.FlyDriftTarget, travelT);
+
+            // Radial expand runs concurrently (fast ease-out), then eases out toward the canvas
+            // so shards land on Start instead of overshooting past it.
+            float expandT = Mathf.Clamp01(shard.Elapsed / expandSeconds);
+            float expandEased = 1f - ((1f - expandT) * (1f - expandT));
+            float radialExtra = Mathf.Lerp(0f, CutBurstSphereRadiusMax - CutBurstSphereRadiusMin, expandEased);
+            radialExtra *= 1f - travelT;
+            Vector3 expandDirection = shard.FlyExpandDirection;
+            if (expandDirection.sqrMagnitude < 0.0001f)
             {
-                // Fast ease-out to full radius; stay fully opaque.
-                float expandT = Mathf.Clamp01(shard.Elapsed / expandSeconds);
-                float eased = 1f - ((1f - expandT) * (1f - expandT));
-                shard.Root.transform.position = Vector3.Lerp(shard.FlyStart, shard.FlyTarget, eased);
-                shard.Root.transform.localScale = Vector3.one;
-                color.a = shard.BaseColor.a;
-                shard.Text.color = color;
-                return;
+                expandDirection = Vector3.up;
             }
 
-            float driftElapsed = shard.Elapsed - expandSeconds;
-            float driftT = Mathf.Clamp01(driftElapsed / driftSeconds);
-            // Linear, slow crawl past full radius while fading out.
-            shard.Root.transform.position = Vector3.Lerp(shard.FlyTarget, shard.FlyDriftTarget, driftT);
-            float scale = Mathf.Lerp(1f, 0.7f, driftT);
-            shard.Root.transform.localScale = Vector3.one * scale;
-            color.a = shard.BaseColor.a * (1f - driftT);
+            shard.Root.transform.position = pathPosition + (expandDirection * radialExtra);
+            ApplyCutBurstExpandScale(shard, expandEased);
+
+            // Opaque through the expand window, then fade over the remaining bomb-font travel (like bomb text).
+            float fadeT = travelT;
+            if (shard.Elapsed < expandSeconds)
+            {
+                color.a = shard.BaseColor.a;
+            }
+            else
+            {
+                float fadeElapsed = shard.Elapsed - expandSeconds;
+                float fadeSeconds = Mathf.Max(0.01f, travelSeconds - expandSeconds);
+                fadeT = Mathf.Clamp01(fadeElapsed / fadeSeconds);
+                color.a = shard.BaseColor.a * (1f - fadeT);
+            }
+
             shard.Text.color = color;
 
-            if (driftT >= 1f)
+            if (travelT >= 1f)
             {
                 RecycleShard(shard);
             }
+        }
+
+        /// <summary>
+        /// Grow from spawn scale to full (glitter-name) size over expand; hold full size afterward.
+        /// </summary>
+        private static void ApplyCutBurstExpandScale(ShardState shard, float expandEased)
+        {
+            float scale = Mathf.Lerp(CutBurstSpawnScale, 1f, Mathf.Clamp01(expandEased));
+            shard.Root.transform.localScale = Vector3.one * scale;
+        }
+
+        /// <summary>
+        /// Spiral cut: same continuous shards travel toward canvas Start from spawn.
+        /// Radius expands fully in a spiral first, then a slower helix continues while fading in.
+        /// </summary>
+        private void TickSpiralCutBurstShard(ShardState shard, Color color)
+        {
+            float travelSeconds = Mathf.Max(0.01f, shard.Lifetime);
+            float expandSeconds = Mathf.Min(
+                Mathf.Max(0.01f, SpiralExpandSeconds),
+                travelSeconds * 0.85f);
+            float travelT = Mathf.Clamp01(shard.Elapsed / travelSeconds);
+            float maxRadius = CutBurstSphereRadiusMax - CutBurstSphereRadiusMin;
+
+            // Path toward Start from the first frame (clears the play lane / vision).
+            Vector3 pathCenter = Vector3.Lerp(shard.FlyStart, shard.FlyDriftTarget, travelT);
+
+            Vector3 axis = shard.FlyDriftTarget - shard.FlyStart;
+            if (axis.sqrMagnitude < 0.0001f)
+            {
+                axis = shard.FlyExpandDirection;
+                if (axis.sqrMagnitude < 0.0001f)
+                {
+                    axis = Vector3.up;
+                }
+            }
+
+            axis.Normalize();
+            BuildOrthonormalBasis(axis, out Vector3 basisU, out Vector3 basisV);
+
+            float expandT = Mathf.Clamp01(shard.Elapsed / expandSeconds);
+            float expandEased = 1f - ((1f - expandT) * (1f - expandT));
+            float expandEndAngle = shard.SpiralPhase + (SpiralExpandTurns * (Mathf.PI * 2f));
+
+            float radius;
+            float angle;
+            if (shard.Elapsed < expandSeconds)
+            {
+                // Expand fully in a spiral (slower wind) while already sliding toward Start.
+                radius = maxRadius * expandEased;
+                angle = shard.SpiralPhase + (expandEased * SpiralExpandTurns * (Mathf.PI * 2f));
+            }
+            else
+            {
+                // Continue the same spiral more slowly for the remaining path to Start; radius → 0.
+                float postExpandSeconds = Mathf.Max(0.01f, travelSeconds - expandSeconds);
+                float postExpandT = Mathf.Clamp01((shard.Elapsed - expandSeconds) / postExpandSeconds);
+                radius = maxRadius * (1f - postExpandT);
+                angle = expandEndAngle + (postExpandT * SpiralTravelTurns * (Mathf.PI * 2f));
+            }
+
+            Vector3 offset = (basisU * Mathf.Cos(angle)) + (basisV * Mathf.Sin(angle));
+            shard.Root.transform.position = pathCenter + (offset * radius);
+
+            ApplyCutBurstExpandScale(shard, expandEased);
+
+            if (shard.Elapsed < expandSeconds)
+            {
+                color.a = shard.BaseColor.a;
+            }
+            else
+            {
+                float fadeElapsed = shard.Elapsed - expandSeconds;
+                float fadeSeconds = Mathf.Max(0.01f, travelSeconds - expandSeconds);
+                float fadeT = Mathf.Clamp01(fadeElapsed / fadeSeconds);
+                color.a = shard.BaseColor.a * (1f - fadeT);
+            }
+
+            shard.Text.color = color;
+
+            if (travelT >= 1f)
+            {
+                RecycleShard(shard);
+            }
+        }
+
+        private static void BuildOrthonormalBasis(Vector3 axis, out Vector3 u, out Vector3 v)
+        {
+            Vector3 arbitrary = Mathf.Abs(axis.y) < 0.9f ? Vector3.up : Vector3.right;
+            u = Vector3.Cross(axis, arbitrary);
+            if (u.sqrMagnitude < 0.0001f)
+            {
+                u = Vector3.Cross(axis, Vector3.forward);
+            }
+
+            u.Normalize();
+            v = Vector3.Cross(axis, u);
+        }
+
+        /// <summary>
+        /// Same travel duration as bomb flying text (<see cref="PluginConfig.FlyingTextTravelSeconds"/>).
+        /// </summary>
+        private static float ResolveCutBurstTravelSeconds()
+        {
+            return Mathf.Clamp(
+                Plugin.Settings?.FlyingTextTravelSeconds ?? CutBurstDefaultTravelSeconds,
+                0.5f,
+                20f);
+        }
+
+        private void SpawnSelectedCutExplosion(Vector3 origin, string raiderName, int layer, bool isMenuPreview)
+        {
+            string selection = RaidCutEffectSettings.GetSelectedOption();
+            if (string.Equals(selection, RaidCutEffectSettings.SpiralOption, StringComparison.Ordinal))
+            {
+                SpawnSpiralCutExplosion(origin, raiderName, layer, isMenuPreview);
+                return;
+            }
+
+            SpawnCutExplosion(origin, raiderName, layer, isMenuPreview);
         }
 
         private void SpawnCutExplosion(Vector3 origin, string raiderName, int layer)
@@ -644,12 +796,79 @@ namespace BeatSurgeon.Gameplay
                 Vector3 direction = BiasAwayFromNoteApproach(FibonacciDirection(index, CutBurstShards));
                 Vector3 flyStart = sphereOrigin + (direction * CutBurstSphereRadiusMin);
                 Vector3 flyTarget = sphereOrigin + (direction * CutBurstSphereRadiusMax);
-                // Phase 2: prefer flying toward the follower canvas Start (same anchor bits/fmsg use).
-                // Fall back to a short radial drift when the canvas template is unavailable.
+                // Travel toward follower canvas Start from spawn (bomb-font speed). Radial fallback if missing.
                 Vector3 flyDriftTarget = sphereOrigin + (direction * CutBurstSphereRadiusDriftMax);
                 if (SurgeonEffectsBundleService.TryResolveFollowerCanvasStartWorldPosition(out Vector3 canvasStart)
                     && IsFiniteVector(canvasStart)
-                    && (canvasStart - flyTarget).sqrMagnitude > 0.04f)
+                    && (canvasStart - flyStart).sqrMagnitude > 0.04f)
+                {
+                    flyDriftTarget = canvasStart;
+                }
+
+                float travelSeconds = ResolveCutBurstTravelSeconds();
+                shard.Velocity = Vector3.zero;
+                shard.FlyStart = flyStart;
+                shard.FlyTarget = flyTarget;
+                shard.FlyDriftTarget = flyDriftTarget;
+                shard.FlyExpandDirection = direction;
+                shard.Elapsed = 0f;
+                shard.HueOffset = index * (SpectrumCycleSeconds / CutBurstShards);
+                shard.Lifetime = travelSeconds;
+                shard.BaseColor = Color.white;
+                shard.Active = true;
+                shard.FollowsNote = false;
+                shard.IsOutline = false;
+                shard.IsCutBurst = true;
+                shard.IsSpiralCut = false;
+                shard.SpiralPhase = 0f;
+                shard.IsMenuPreview = isMenuPreview;
+
+                shard.Root.transform.SetParent(null, false);
+                shard.Root.transform.position = flyStart;
+                shard.Root.transform.rotation = Quaternion.identity;
+                shard.Root.transform.localScale = Vector3.one * CutBurstSpawnScale;
+                SetLayerRecursively(shard.Root, layer);
+
+                // Ensure menu preview / live cut always matches current Surgeon Font selection.
+                ApplySelectedFontToText(shard.Text, ResolveTekoFont());
+
+                shard.Text.text = raiderName;
+                shard.Text.fontSize = CutBurstFontSize;
+                if (shard.Text.rectTransform != null)
+                {
+                    shard.Text.rectTransform.sizeDelta = new Vector2(CutBurstTextWidth, 2.5f);
+                }
+
+                shard.Text.color = Color.HSVToRGB(
+                    Mathf.Repeat(shard.HueOffset / SpectrumCycleSeconds, 1f),
+                    1f,
+                    1f);
+                shard.Root.SetActive(true);
+                _liveShards.Add(shard);
+            }
+        }
+
+        private void SpawnSpiralCutExplosion(Vector3 origin, string raiderName, int layer, bool isMenuPreview)
+        {
+            Vector3 sphereOrigin = origin + (Vector3.up * 0.35f);
+            // Lifetime = bomb-font travel only; expand is a window inside that path from spawn.
+            float travelSeconds = ResolveCutBurstTravelSeconds();
+
+            for (int index = 0; index < CutBurstShards; index++)
+            {
+                ShardState shard = GetOrCreateShard(isOutline: false);
+                if (shard == null)
+                {
+                    break;
+                }
+
+                Vector3 direction = BiasAwayFromNoteApproach(FibonacciDirection(index, CutBurstShards));
+                Vector3 flyStart = sphereOrigin + (direction * CutBurstSphereRadiusMin);
+                Vector3 flyTarget = sphereOrigin + (direction * CutBurstSphereRadiusMax);
+                Vector3 flyDriftTarget = sphereOrigin + (direction * CutBurstSphereRadiusDriftMax);
+                if (SurgeonEffectsBundleService.TryResolveFollowerCanvasStartWorldPosition(out Vector3 canvasStart)
+                    && IsFiniteVector(canvasStart)
+                    && (canvasStart - flyStart).sqrMagnitude > 0.04f)
                 {
                     flyDriftTarget = canvasStart;
                 }
@@ -658,23 +877,25 @@ namespace BeatSurgeon.Gameplay
                 shard.FlyStart = flyStart;
                 shard.FlyTarget = flyTarget;
                 shard.FlyDriftTarget = flyDriftTarget;
+                shard.FlyExpandDirection = direction;
                 shard.Elapsed = 0f;
                 shard.HueOffset = index * (SpectrumCycleSeconds / CutBurstShards);
-                shard.Lifetime = CutBurstLifetimeSeconds;
+                shard.Lifetime = travelSeconds;
                 shard.BaseColor = Color.white;
                 shard.Active = true;
                 shard.FollowsNote = false;
                 shard.IsOutline = false;
                 shard.IsCutBurst = true;
+                shard.IsSpiralCut = true;
+                shard.SpiralPhase = index * ((Mathf.PI * 2f) / CutBurstShards);
                 shard.IsMenuPreview = isMenuPreview;
 
                 shard.Root.transform.SetParent(null, false);
                 shard.Root.transform.position = flyStart;
                 shard.Root.transform.rotation = Quaternion.identity;
-                shard.Root.transform.localScale = Vector3.one;
+                shard.Root.transform.localScale = Vector3.one * CutBurstSpawnScale;
                 SetLayerRecursively(shard.Root, layer);
 
-                // Ensure menu preview / live cut always matches current Surgeon Font selection.
                 ApplySelectedFontToText(shard.Text, ResolveTekoFont());
 
                 shard.Text.text = raiderName;
@@ -851,7 +1072,7 @@ namespace BeatSurgeon.Gameplay
                     Text = text,
                     Billboard = billboard,
                     Active = false,
-                    Lifetime = CutBurstLifetimeSeconds,
+                    Lifetime = CutBurstDefaultTravelSeconds,
                     BaseColor = Color.white,
                     IsOutline = isOutline
                 };
@@ -948,7 +1169,7 @@ namespace BeatSurgeon.Gameplay
                     Text = text,
                     Billboard = billboard,
                     Active = false,
-                    Lifetime = CutBurstLifetimeSeconds,
+                    Lifetime = CutBurstDefaultTravelSeconds,
                     BaseColor = Color.white,
                     IsOutline = isOutline
                 };
@@ -1114,11 +1335,14 @@ namespace BeatSurgeon.Gameplay
             shard.FollowsNote = false;
             shard.IsOutline = false;
             shard.IsCutBurst = false;
+            shard.IsSpiralCut = false;
+            shard.SpiralPhase = 0f;
             shard.IsMenuPreview = false;
             shard.Velocity = Vector3.zero;
             shard.FlyStart = Vector3.zero;
             shard.FlyTarget = Vector3.zero;
             shard.FlyDriftTarget = Vector3.zero;
+            shard.FlyExpandDirection = Vector3.zero;
             shard.Elapsed = 0f;
             shard.HueOffset = 0f;
             if (shard.Root != null)

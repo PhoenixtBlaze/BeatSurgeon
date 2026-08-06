@@ -2401,6 +2401,8 @@ namespace BeatSurgeon.Gameplay
                     {
                         try
                         {
+                            var clonedMain = clonedParticleSystem.main;
+                            clonedMain.prewarm = true;
                             clonedParticleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                         }
                         catch { }
@@ -3252,8 +3254,10 @@ namespace BeatSurgeon.Gameplay
                 return;
             }
 
-            // Prefab-authored maxParticles / rate / prewarm / sortingFudge are preserved.
-            // OutlineParticleDensityMultiplier is intentionally not applied on this path.
+            // Prefab-authored maxParticles / emission rate are preserved (density multiplier unused).
+            // Force prewarm so warm-pool / first activation absorbs simulation cost off the note hot path.
+            var main = particleSystem.main;
+            main.prewarm = true;
 
             try
             {

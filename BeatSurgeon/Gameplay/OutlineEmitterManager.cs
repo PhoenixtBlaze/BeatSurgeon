@@ -247,10 +247,44 @@ namespace BeatSurgeon.Gameplay
                 }
 
                 VrVfxMaterialHelper.RepairShaders(_templateParticleSystem.gameObject, "OutlineEmitterManager template");
+                PrepareOutlineStereo(_templateParticleSystem.gameObject);
             }
             catch (Exception ex)
             {
                 Plugin.Log.Warn("OutlineEmitterManager: RepairTemplateShaders failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// SPI stream/culling harden only — keeps authored Sparkle / Additive look (no material bake).
+        /// </summary>
+        private static void PrepareOutlineStereo(GameObject root)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            ParticleSystemRenderer reference = BeatSurgeonOwnedVfxSpace.TryGetSpiStereoReferenceRenderer();
+            ParticleSystemRenderer[] renderers = root.GetComponentsInChildren<ParticleSystemRenderer>(true);
+            for (int index = 0; index < renderers.Length; index++)
+            {
+                ParticleSystemRenderer particleRenderer = renderers[index];
+                if (particleRenderer == null)
+                {
+                    continue;
+                }
+
+                if (reference != null)
+                {
+                    VrVfxMaterialHelper.SyncParticleRendererStereoState(
+                        particleRenderer,
+                        reference,
+                        preserveAuthoredLayout: true,
+                        preserveAuthoredVertexStreams: true);
+                }
+
+                VrVfxMaterialHelper.HardenParticleRendererStereoCulling(particleRenderer);
             }
         }
         
@@ -298,7 +332,10 @@ namespace BeatSurgeon.Gameplay
 
                     try
                     {
+                        // Clear then short Simulate so the shell is already filled (size-over-lifetime
+                        // peaks mid-life). Full particle prewarm/sim cost is paid in EnsureWarmPoolSize.
                         particleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        particleSystem.Simulate(0.35f, true, true, true);
                         particleSystem.Play(true);
                     }
                     catch { }
@@ -417,10 +454,12 @@ namespace BeatSurgeon.Gameplay
             if (clonedParticleTransform != null)
             {
                 VrVfxMaterialHelper.RepairShaders(clonedParticleTransform.gameObject, "OutlineEmitterManager instance");
+                PrepareOutlineStereo(clonedParticleTransform.gameObject);
             }
             else
             {
                 VrVfxMaterialHelper.RepairShaders(newObj, "OutlineEmitterManager instance");
+                PrepareOutlineStereo(newObj);
             }
 
             OutlineEmitterInstanceData instanceData = GetInstanceData(newObj);
@@ -549,6 +588,7 @@ namespace BeatSurgeon.Gameplay
             main.startColor = Color.white;
             main.maxParticles = 400;
             main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            main.prewarm = true;
 
             var emission = ps.emission;
             emission.rateOverTime = 0f;

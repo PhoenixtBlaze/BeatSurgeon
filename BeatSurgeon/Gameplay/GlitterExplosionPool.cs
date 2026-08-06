@@ -23,6 +23,189 @@ namespace BeatSurgeon.Gameplay
             internal int ActiveSpawnId;
         }
 
+        /// <summary>
+        /// Translates the glitter emitter cloud toward follower canvas Start (or radial fallback)
+        /// with linear motion from frame 0, matching bomb flying-text travel timing.
+        /// </summary>
+        private sealed class GlitterTravelMotionDriver : MonoBehaviour
+        {
+            private sealed class TrackedParticleSystemState
+            {
+                internal ParticleSystem ParticleSystem;
+                internal ParticleSystem.Particle[] Buffer;
+            }
+
+            private readonly List<TrackedParticleSystemState> _trackedParticleSystems = new List<TrackedParticleSystemState>();
+            private Vector3 _startPosition;
+            private Vector3 _targetPosition;
+            private float _duration;
+            private float _elapsed;
+            private bool _hasMotion;
+
+            internal void Configure(Vector3 startPosition, Vector3 targetPosition, float duration, ParticleSystem[] particleSystems)
+            {
+                _startPosition = startPosition;
+                _targetPosition = targetPosition;
+                _duration = Mathf.Max(0f, duration);
+                _elapsed = 0f;
+                transform.position = startPosition;
+                RebuildTrackedParticleSystems(particleSystems);
+                _hasMotion = _duration > 0f
+                    && (_targetPosition - _startPosition).sqrMagnitude > 0.04f
+                    && _trackedParticleSystems.Count > 0;
+                enabled = _hasMotion;
+            }
+
+            internal void ResetState()
+            {
+                _startPosition = Vector3.zero;
+                _targetPosition = Vector3.zero;
+                _duration = 0f;
+                _elapsed = 0f;
+                _hasMotion = false;
+                enabled = false;
+            }
+
+            private void LateUpdate()
+            {
+                if (!_hasMotion)
+                {
+                    enabled = false;
+                    return;
+                }
+
+                _elapsed += Time.deltaTime;
+                float t = _duration <= 0f ? 1f : Mathf.Clamp01(_elapsed / _duration);
+                Vector3 desired = Vector3.Lerp(_startPosition, _targetPosition, t);
+                Vector3 delta = desired - transform.position;
+                if (delta.sqrMagnitude > 0.0000001f)
+                {
+                    transform.position = desired;
+                    TranslateTrackedParticles(delta);
+                }
+
+                if (t >= 1f)
+                {
+                    _hasMotion = false;
+                    enabled = false;
+                }
+            }
+
+            private void RebuildTrackedParticleSystems(ParticleSystem[] particleSystems)
+            {
+                _trackedParticleSystems.Clear();
+                if (particleSystems == null)
+                {
+                    return;
+                }
+
+                for (int i = 0; i < particleSystems.Length; i++)
+                {
+                    ParticleSystem particleSystem = particleSystems[i];
+                    if (particleSystem == null)
+                    {
+                        continue;
+                    }
+
+                    TrackedParticleSystemState trackedState = new TrackedParticleSystemState
+                    {
+                        ParticleSystem = particleSystem
+                    };
+                    PrepareTrackedParticleSystemState(trackedState);
+                    _trackedParticleSystems.Add(trackedState);
+                }
+            }
+
+            private static void PrepareTrackedParticleSystemState(TrackedParticleSystemState trackedState)
+            {
+                if (trackedState == null || trackedState.ParticleSystem == null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    int maxParticles = Mathf.Max(128, trackedState.ParticleSystem.main.maxParticles);
+                    if (trackedState.Buffer == null || trackedState.Buffer.Length < maxParticles)
+                    {
+                        trackedState.Buffer = new ParticleSystem.Particle[maxParticles];
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            private void TranslateTrackedParticles(Vector3 delta)
+            {
+                for (int i = 0; i < _trackedParticleSystems.Count; i++)
+                {
+                    TrackedParticleSystemState trackedState = _trackedParticleSystems[i];
+                    ParticleSystem particleSystem = trackedState?.ParticleSystem;
+                    if (particleSystem == null || !particleSystem.gameObject.activeInHierarchy)
+                    {
+                        continue;
+                    }
+
+                    // Local-space particles already follow the root transform; only translate World particles.
+                    try
+                    {
+                        if (particleSystem.main.simulationSpace != ParticleSystemSimulationSpace.World)
+                        {
+                            continue;
+                        }
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    int requiredSize;
+                    try
+                    {
+                        requiredSize = Mathf.Max(128, particleSystem.main.maxParticles);
+                    }
+                    catch
+                    {
+                        requiredSize = trackedState.Buffer != null ? trackedState.Buffer.Length : 128;
+                    }
+
+                    if (trackedState.Buffer == null || trackedState.Buffer.Length < requiredSize)
+                    {
+                        trackedState.Buffer = new ParticleSystem.Particle[requiredSize];
+                    }
+
+                    int particleCount;
+                    try
+                    {
+                        particleCount = particleSystem.GetParticles(trackedState.Buffer);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    if (particleCount <= 0)
+                    {
+                        continue;
+                    }
+
+                    for (int p = 0; p < particleCount; p++)
+                    {
+                        trackedState.Buffer[p].position += delta;
+                    }
+
+                    try
+                    {
+                        particleSystem.SetParticles(trackedState.Buffer, particleCount);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+
         private readonly struct PendingDespawn
         {
             internal PendingDespawn(int denomination, GameObject instance, int spawnId, float despawnTime)
@@ -188,7 +371,11 @@ namespace BeatSurgeon.Gameplay
                 catch { }
             }
 
-            float lifetime = EstimateLifetime(instanceData);
+            float travelSeconds = ResolveTravelSeconds();
+            Vector3 travelTarget = ResolveTravelTarget(position);
+            ConfigureTravelMotion(emitterRoot, position, travelTarget, travelSeconds, instanceData.CachedParticleSystems);
+
+            float lifetime = Mathf.Max(EstimateLifetime(instanceData), travelSeconds + 0.15f);
             int spawnId = AllocateSpawnId();
             instanceData.ActiveSpawnId = spawnId;
             EnqueueDespawn(denomination, emitterRoot, spawnId, lifetime);
@@ -387,6 +574,63 @@ namespace BeatSurgeon.Gameplay
                 }
                 catch { }
             }
+
+            GlitterTravelMotionDriver motionDriver = instanceData.GetComponent<GlitterTravelMotionDriver>();
+            if (motionDriver != null)
+            {
+                motionDriver.ResetState();
+            }
+        }
+
+        private static float ResolveTravelSeconds()
+        {
+            return Mathf.Clamp(Plugin.Settings?.FlyingTextTravelSeconds ?? 4.0f, 0.5f, 20f);
+        }
+
+        private static Vector3 ResolveTravelTarget(Vector3 origin)
+        {
+            if (SurgeonEffectsBundleService.TryResolveFollowerCanvasStartWorldPosition(out Vector3 canvasStart)
+                && IsFinite(canvasStart)
+                && (canvasStart - origin).sqrMagnitude > 0.04f)
+            {
+                return canvasStart;
+            }
+
+            float spawnDistance = Mathf.Clamp(Plugin.Settings?.BombSpawnDistance ?? 10.0f, 2f, 20f);
+            Vector3 forward = Camera.main != null ? Camera.main.transform.forward : Vector3.forward;
+            if (!IsFinite(forward) || forward.sqrMagnitude <= 0.0001f)
+            {
+                forward = Vector3.forward;
+            }
+
+            return origin + (forward.normalized * spawnDistance) + (Vector3.up * 2f);
+        }
+
+        private static void ConfigureTravelMotion(
+            GameObject emitterRoot,
+            Vector3 startPosition,
+            Vector3 travelTarget,
+            float travelSeconds,
+            ParticleSystem[] particleSystems)
+        {
+            if (emitterRoot == null)
+            {
+                return;
+            }
+
+            GlitterTravelMotionDriver motionDriver = emitterRoot.GetComponent<GlitterTravelMotionDriver>();
+            if (motionDriver == null)
+            {
+                motionDriver = emitterRoot.AddComponent<GlitterTravelMotionDriver>();
+            }
+
+            motionDriver.Configure(startPosition, travelTarget, travelSeconds, particleSystems);
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return !(float.IsNaN(value.x) || float.IsNaN(value.y) || float.IsNaN(value.z)
+                || float.IsInfinity(value.x) || float.IsInfinity(value.y) || float.IsInfinity(value.z));
         }
 
         private static float EstimateLifetime(GlitterExplosionInstanceData instanceData)
