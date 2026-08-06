@@ -194,7 +194,7 @@ namespace BeatSurgeon.Twitch
 
             if (requiresToggle && !GetEnabled(config, feature))
             {
-                throw new InvalidOperationException(featureDisplayName + " are disabled in the Supporter tab.");
+                throw new InvalidOperationException(featureDisplayName + " are disabled in Surgeon Commands.");
             }
         }
 

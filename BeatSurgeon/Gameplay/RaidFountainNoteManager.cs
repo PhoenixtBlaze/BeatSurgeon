@@ -453,6 +453,19 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
+        /// <summary>
+        /// Called when Surgeon Font selection changes. No-ops if the manager was never created.
+        /// </summary>
+        internal static void NotifySelectedFontChanged()
+        {
+            if (_instance == null)
+            {
+                return;
+            }
+
+            _instance.ApplySelectedSurgeonFontToAllRaidText();
+        }
+
         private void TickLiveShards()
         {
             if (_liveShards.Count == 0)
@@ -1001,6 +1014,8 @@ namespace BeatSurgeon.Gameplay
                 ShardState pooled = _pool.Dequeue();
                 if (pooled != null && pooled.Root != null && pooled.Text != null)
                 {
+                    // Pool may have been warmed before a font change — always match current selection.
+                    ApplySelectedFontToText(pooled.Text, ResolveTekoFont());
                     return pooled;
                 }
             }
@@ -1036,20 +1051,16 @@ namespace BeatSurgeon.Gameplay
                 TMP_FontAsset tekoFont = ResolveTekoFont();
 
                 stage = "TryApplySelectedBombFont";
-                if (!FontBundleLoader.TryApplySelectedBombFont(text, tekoFont, cloneMaterial: true))
+                if (!TryApplySurgeonFontOrFallback(text, tekoFont))
                 {
-                    stage = "TekoFallback";
-                    if (!TrySetFontSafe(text, tekoFont))
-                    {
-                        _log.Warn(
-                            "RaidFountainNoteManager: failed to apply bomb/Teko font to raid text shard"
-                            + " | teko="
-                            + (tekoFont != null ? tekoFont.name : "null"));
-                        UnityEngine.Object.Destroy(root);
-                        return null;
-                    }
-
-                    _log.Warn("RaidFountainNoteManager: bomb font apply failed; using Teko fallback for raid shards.");
+                    _log.Warn(
+                        "RaidFountainNoteManager: failed to apply Surgeon Font / Teko to raid text shard"
+                        + " | selected="
+                        + (FontBundleLoader.BombUsernameFont != null ? FontBundleLoader.BombUsernameFont.name : "null")
+                        + " teko="
+                        + (tekoFont != null ? tekoFont.name : "null"));
+                    UnityEngine.Object.Destroy(root);
+                    return null;
                 }
 
                 stage = "ValidateMaterial";
@@ -1136,17 +1147,15 @@ namespace BeatSurgeon.Gameplay
                     billboard = root.AddComponent<LookAtCamera>();
                 }
 
-                // Prefer authored bundle font/material; optionally overlay selected bomb font.
+                // Always overlay the current Surgeon Font selection (Default = bundle default,
+                // or the explicitly chosen font). Template font is only a bootstrap fallback.
                 stage = "TryApplySelectedBombFont";
                 TMP_FontAsset tekoFont = ResolveTekoFont();
-                if (!FontBundleLoader.TryApplySelectedBombFont(text, tekoFont, cloneMaterial: true))
+                if (!TryApplySurgeonFontOrFallback(text, tekoFont))
                 {
-                    if (text.font == null && !TrySetFontSafe(text, tekoFont))
-                    {
-                        _log.Warn("RaidFountainNoteManager: bundle raid shard has no usable font.");
-                        UnityEngine.Object.Destroy(root);
-                        return null;
-                    }
+                    _log.Warn("RaidFountainNoteManager: bundle raid shard has no usable font.");
+                    UnityEngine.Object.Destroy(root);
+                    return null;
                 }
 
                 stage = "ValidateMaterial";
@@ -1464,10 +1473,29 @@ namespace BeatSurgeon.Gameplay
                 return;
             }
 
-            if (!FontBundleLoader.TryApplySelectedBombFont(text, tekoFont, cloneMaterial: true))
+            TryApplySurgeonFontOrFallback(text, tekoFont);
+        }
+
+        /// <summary>
+        /// Applies the Surgeon Font dropdown selection. Default maps to the bundle default font
+        /// via <see cref="FontBundleLoader.BombUsernameFont"/>; other options use that asset.
+        /// Teko is only used when no Surgeon Font is loaded yet.
+        /// </summary>
+        private static bool TryApplySurgeonFontOrFallback(TMP_Text text, TMP_FontAsset tekoFont)
+        {
+            if (text == null)
             {
-                TrySetFontSafe(text, tekoFont);
+                return false;
             }
+
+            if (FontBundleLoader.TryApplySelectedBombFont(text, tekoFont, cloneMaterial: true))
+            {
+                return true;
+            }
+
+            // Prefer the selected Surgeon Font (including Default → bundle default) over Teko.
+            TMP_FontAsset preferred = FontBundleLoader.BombUsernameFont ?? tekoFont;
+            return preferred != null && TrySetFontSafe(text, preferred) && text.font != null;
         }
 
         private bool IsInMap()

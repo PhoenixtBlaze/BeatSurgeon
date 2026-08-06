@@ -124,6 +124,24 @@ namespace BeatSurgeon.UI.Controllers
         private static readonly Sprite FlashbangOnSprite =
             LoadEmbeddedSprite("BeatSurgeon.Assets.FlashbangGB.png");
 
+        // Bits / Sub / Follow / Raid icons (off = plain, on = GB)
+        private static readonly Sprite BitOffSprite =
+            LoadEmbeddedSprite("BeatSurgeon.Assets.Bit.png");
+        private static readonly Sprite BitOnSprite =
+            LoadEmbeddedSprite("BeatSurgeon.Assets.BitGB.png");
+        private static readonly Sprite SubOffSprite =
+            LoadEmbeddedSprite("BeatSurgeon.Assets.Sub.png");
+        private static readonly Sprite SubOnSprite =
+            LoadEmbeddedSprite("BeatSurgeon.Assets.SubGB.png");
+        private static readonly Sprite FollowOffSprite =
+            LoadEmbeddedSprite("BeatSurgeon.Assets.Follow.png");
+        private static readonly Sprite FollowOnSprite =
+            LoadEmbeddedSprite("BeatSurgeon.Assets.FollowGB.png");
+        private static readonly Sprite RaidOffSprite =
+            LoadEmbeddedSprite("BeatSurgeon.Assets.Raid.png");
+        private static readonly Sprite RaidOnSprite =
+            LoadEmbeddedSprite("BeatSurgeon.Assets.RaidGB.png");
+
         private const string TwitchSupportUrl = "https://www.twitch.tv/phoenixblaze0";
         private const string PatreonSupportUrl = "https://www.patreon.com/PhoenixBlaze0";
 
@@ -477,9 +495,6 @@ namespace BeatSurgeon.UI.Controllers
             RaidCut
         }
 
-        [UIComponent("supporter-effects-tab")]
-        private Tab _supporterEffectsTab;
-
         [UIComponent("bomb-explosion-effect-dropdown")]
         private DropDownListSetting _bombExplosionEffectDropdown;
 
@@ -488,7 +503,6 @@ namespace BeatSurgeon.UI.Controllers
 
         private Coroutine _bombExplosionPreviewMonitorCoroutine;
         private int _mainTabIndex;
-        private int _supporterSubtabIndex;
         private bool _bombExplosionPreviewActive;
         private EffectsPreviewMode _effectsPreviewMode = EffectsPreviewMode.BombExplosion;
         private GameObject _bombExplosionPreviewAnchor;
@@ -498,18 +512,74 @@ namespace BeatSurgeon.UI.Controllers
         private const float BombExplosionPreviewUpOffset = -0.70f;
         private const float BombExplosionPreviewCubeScale = 0.12f;
         private const float BombExplosionPreviewIntervalSeconds = 2.5f;
+        private const string MainTabSelectorTag = "saber-surgeon-tabs";
 
         [UIAction("OnMainTabSelected")]
         private void OnMainTabSelected(object segmentedControl, int index)
         {
-            _mainTabIndex = index;
+            _mainTabIndex = Mathf.Max(0, index);
             UpdateBombExplosionPreviewState();
         }
 
-        [UIAction("OnSupporterSubtabSelected")]
-        private void OnSupporterSubtabSelected(object segmentedControl, int index)
+        /// <summary>
+        /// BSML TabSelector.Refresh() (PageCount == -1) rebuilds strip labels but does not
+        /// re-activate tab content. After reopen or supporter-tab visibility changes the strip
+        /// can show Surgeon Commands while Live Services content stays visible. Force a full
+        /// Setup + reselect so strip and content stay aligned.
+        /// </summary>
+        private void ForceSyncMainTabSelector(int preferredIndex)
         {
-            _supporterSubtabIndex = index;
+            if (transform == null)
+            {
+                return;
+            }
+
+            foreach (var selector in transform.GetComponentsInChildren<TabSelector>(true))
+            {
+                if (selector == null
+                    || !string.Equals(selector.TabTag, MainTabSelectorTag, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                selector.Setup();
+
+                // TextSegmentedControl lives in SegmentedControl.dll; invoke without a hard reference.
+                object control = typeof(TabSelector)
+                    .GetProperty("TextSegmentedControl", BindingFlags.Instance | BindingFlags.Public)
+                    ?.GetValue(selector);
+                if (control == null)
+                {
+                    _mainTabIndex = 0;
+                    break;
+                }
+
+                int visibleCount = 0;
+                foreach (var tab in transform.GetComponentsInChildren<Tab>(true))
+                {
+                    if (tab != null && tab.Selector == selector && tab.IsVisible)
+                    {
+                        visibleCount++;
+                    }
+                }
+
+                int index = visibleCount <= 0 ? 0 : Mathf.Clamp(preferredIndex, 0, visibleCount - 1);
+                _mainTabIndex = index;
+
+                if (index > 0)
+                {
+                    MethodInfo selectMethod = control.GetType().GetMethod(
+                        "SelectCellWithNumber",
+                        BindingFlags.Instance | BindingFlags.Public,
+                        null,
+                        new[] { typeof(int) },
+                        null);
+                    selectMethod?.Invoke(control, new object[] { index });
+                }
+
+                break;
+            }
+
             UpdateBombExplosionPreviewState();
         }
 
@@ -791,6 +861,8 @@ namespace BeatSurgeon.UI.Controllers
             }
 
             RefreshSupporterUiState();
+            // Strip/content can desync when re-entering the menu; re-align to last selected tab.
+            ForceSyncMainTabSelector(_mainTabIndex);
             _ = RefreshFontDropdownAsync();
 
             // Subscribe to auth events for reauth notification display
@@ -925,6 +997,38 @@ namespace BeatSurgeon.UI.Controllers
                     rt.sizeDelta = new Vector2(12f, 12f);
                 }
 
+                if (bitButton != null)
+                {
+                    BeatSaberUI.SetButtonText(bitButton, string.Empty);
+                    bitButtonImage = bitButton.GetComponent<Image>();
+                }
+
+                ConfigureCommandIconLayout(bitIcon);
+
+                if (subButton != null)
+                {
+                    BeatSaberUI.SetButtonText(subButton, string.Empty);
+                    subButtonImage = subButton.GetComponent<Image>();
+                }
+
+                ConfigureCommandIconLayout(subIcon);
+
+                if (followButton != null)
+                {
+                    BeatSaberUI.SetButtonText(followButton, string.Empty);
+                    followButtonImage = followButton.GetComponent<Image>();
+                }
+
+                ConfigureCommandIconLayout(followIcon);
+
+                if (raidButton != null)
+                {
+                    BeatSaberUI.SetButtonText(raidButton, string.Empty);
+                    raidButtonImage = raidButton.GetComponent<Image>();
+                }
+
+                ConfigureCommandIconLayout(raidIcon);
+
                 ConfigureSupportPlatformLogo(patreonSupportLogo);
                 ConfigureSupportPlatformLogo(twitchSupportLogo);
 
@@ -940,6 +1044,10 @@ namespace BeatSurgeon.UI.Controllers
             UpdateSuperFastButtonVisual();
             UpdateSlowerButtonVisual();
             UpdateFlashbangButtonVisual();
+            UpdateBitButtonVisual();
+            UpdateSubButtonVisual();
+            UpdateFollowButtonVisual();
+            UpdateRaidButtonVisual();
             ApplySupportPlatformLogos();
             BeginSupportPlatformLogoLoads();
             RefreshSupporterUiState();
@@ -981,6 +1089,10 @@ namespace BeatSurgeon.UI.Controllers
             vc.NotifyPropertyChanged(nameof(SuperFastEnabled));
             vc.NotifyPropertyChanged(nameof(SlowerEnabled));
             vc.NotifyPropertyChanged(nameof(FlashbangEnabled));
+            vc.NotifyPropertyChanged(nameof(BitEffectEnabled));
+            vc.NotifyPropertyChanged(nameof(SubEffectsEnabled));
+            vc.NotifyPropertyChanged(nameof(FollowEffectsEnabled));
+            vc.NotifyPropertyChanged(nameof(RaidEffectsEnabled));
 
             // Repaint icons/backgrounds
             vc.UpdateRainbowButtonVisual();
@@ -991,6 +1103,10 @@ namespace BeatSurgeon.UI.Controllers
             vc.UpdateSuperFastButtonVisual();
             vc.UpdateSlowerButtonVisual();
             vc.UpdateFlashbangButtonVisual();
+            vc.UpdateBitButtonVisual();
+            vc.UpdateSubButtonVisual();
+            vc.UpdateFollowButtonVisual();
+            vc.UpdateRaidButtonVisual();
         }
 
         public static void RefreshSupporterUiFromExternal()
@@ -1018,12 +1134,13 @@ namespace BeatSurgeon.UI.Controllers
 
             NotifyPropertyChanged(nameof(BitEffectEnabled));
             NotifyPropertyChanged(nameof(SubEffectsEnabled));
-            NotifyPropertyChanged(nameof(SubEffectsToggleInteractable));
             NotifyPropertyChanged(nameof(FollowEffectsEnabled));
-            NotifyPropertyChanged(nameof(FollowEffectsToggleInteractable));
             NotifyPropertyChanged(nameof(RaidEffectsEnabled));
-            NotifyPropertyChanged(nameof(RaidEffectsToggleInteractable));
             NotifyPropertyChanged(nameof(SubscribeButtonText));
+            UpdateBitButtonVisual();
+            UpdateSubButtonVisual();
+            UpdateFollowButtonVisual();
+            UpdateRaidButtonVisual();
         }
 
 
@@ -1261,7 +1378,7 @@ namespace BeatSurgeon.UI.Controllers
 
 
 
-        // ── Supporter Tab ────────────────────────────────────────── 
+        // ── Bits / Sub / Follow / Raid (Surgeon Commands) ───────────
 
         [UIValue("BitEffectEnabled")]
         public bool BitEffectEnabled
@@ -1270,11 +1387,21 @@ namespace BeatSurgeon.UI.Controllers
             set => PluginConfig.Instance.BitEffectEnabled = value;
         }
 
-        [UIAction("OnBitEffectChanged")]
-        private void OnBitEffectChanged(bool value)
+        [UIComponent("bitbutton")]
+        private Button bitButton;
+
+        [UIComponent("biticon")]
+        private Image bitIcon;
+
+        private Image bitButtonImage;
+
+        [UIAction("OnBitButtonClicked")]
+        private void OnBitButtonClicked()
         {
-            BitEffectAccessController.ApplyManualToggle(value);
+            BitEffectAccessController.ApplyManualToggle(!BitEffectEnabled);
             NotifyPropertyChanged(nameof(BitEffectEnabled));
+            UpdateBitButtonVisual();
+            LogUtils.Debug(() => $"BeatSurgeon: Bit effect enabled = {BitEffectEnabled}");
         }
 
         [UIValue("SubEffectsEnabled")]
@@ -1284,16 +1411,22 @@ namespace BeatSurgeon.UI.Controllers
             set => PluginConfig.Instance.SubEffectsEnabled = value;
         }
 
-        [UIValue("subEffectsToggleInteractable")]
-        public bool SubEffectsToggleInteractable => SubscriberEffectAccessController.IsToggleInteractable;
+        [UIComponent("subbutton")]
+        private Button subButton;
 
-        [UIAction("OnSubEffectsChanged")]
-        private void OnSubEffectsChanged(bool value)
+        [UIComponent("subicon")]
+        private Image subIcon;
+
+        private Image subButtonImage;
+
+        [UIAction("OnSubButtonClicked")]
+        private void OnSubButtonClicked()
         {
-            SubscriberEffectAccessController.ApplyManualToggle(value);
+            SubscriberEffectAccessController.ApplyManualToggle(!SubEffectsEnabled);
             NotifyPropertyChanged(nameof(SubEffectsEnabled));
-            NotifyPropertyChanged(nameof(SubEffectsToggleInteractable));
+            UpdateSubButtonVisual();
             _ = TwitchEventSubClient.Instance.RefreshSubscriptionsAsync();
+            LogUtils.Debug(() => $"BeatSurgeon: Sub effects enabled = {SubEffectsEnabled}");
         }
 
         [UIValue("FollowEffectsEnabled")]
@@ -1303,16 +1436,22 @@ namespace BeatSurgeon.UI.Controllers
             set => PluginConfig.Instance.FollowEffectsEnabled = value;
         }
 
-        [UIValue("followEffectsToggleInteractable")]
-        public bool FollowEffectsToggleInteractable => FollowEffectAccessController.IsToggleInteractable;
+        [UIComponent("followbutton")]
+        private Button followButton;
 
-        [UIAction("OnFollowEffectsChanged")]
-        private void OnFollowEffectsChanged(bool value)
+        [UIComponent("followicon")]
+        private Image followIcon;
+
+        private Image followButtonImage;
+
+        [UIAction("OnFollowButtonClicked")]
+        private void OnFollowButtonClicked()
         {
-            FollowEffectAccessController.ApplyManualToggle(value);
+            FollowEffectAccessController.ApplyManualToggle(!FollowEffectsEnabled);
             NotifyPropertyChanged(nameof(FollowEffectsEnabled));
-            NotifyPropertyChanged(nameof(FollowEffectsToggleInteractable));
+            UpdateFollowButtonVisual();
             _ = TwitchEventSubClient.Instance.RefreshSubscriptionsAsync();
+            LogUtils.Debug(() => $"BeatSurgeon: Follow effects enabled = {FollowEffectsEnabled}");
         }
 
         [UIValue("RaidEffectsEnabled")]
@@ -1322,16 +1461,88 @@ namespace BeatSurgeon.UI.Controllers
             set => PluginConfig.Instance.RaidEffectsEnabled = value;
         }
 
-        [UIValue("raidEffectsToggleInteractable")]
-        public bool RaidEffectsToggleInteractable => RaidEffectAccessController.IsToggleInteractable;
+        [UIComponent("raidbutton")]
+        private Button raidButton;
 
-        [UIAction("OnRaidEffectsChanged")]
-        private void OnRaidEffectsChanged(bool value)
+        [UIComponent("raidicon")]
+        private Image raidIcon;
+
+        private Image raidButtonImage;
+
+        [UIAction("OnRaidButtonClicked")]
+        private void OnRaidButtonClicked()
         {
-            RaidEffectAccessController.ApplyManualToggle(value);
+            RaidEffectAccessController.ApplyManualToggle(!RaidEffectsEnabled);
             NotifyPropertyChanged(nameof(RaidEffectsEnabled));
-            NotifyPropertyChanged(nameof(RaidEffectsToggleInteractable));
+            UpdateRaidButtonVisual();
             _ = TwitchEventSubClient.Instance.RefreshSubscriptionsAsync();
+            LogUtils.Debug(() => $"BeatSurgeon: Raid effects enabled = {RaidEffectsEnabled}");
+        }
+
+        private void UpdateBitButtonVisual()
+        {
+            if (bitIcon != null)
+            {
+                var sprite = BitEffectEnabled ? BitOnSprite : BitOffSprite;
+                if (sprite != null)
+                    bitIcon.sprite = sprite;
+            }
+
+            if (bitButtonImage != null)
+                bitButtonImage.color = BitEffectEnabled ? onColor : offColor;
+        }
+
+        private void UpdateSubButtonVisual()
+        {
+            if (subIcon != null)
+            {
+                var sprite = SubEffectsEnabled ? SubOnSprite : SubOffSprite;
+                if (sprite != null)
+                    subIcon.sprite = sprite;
+            }
+
+            if (subButtonImage != null)
+                subButtonImage.color = SubEffectsEnabled ? onColor : offColor;
+        }
+
+        private void UpdateFollowButtonVisual()
+        {
+            if (followIcon != null)
+            {
+                var sprite = FollowEffectsEnabled ? FollowOnSprite : FollowOffSprite;
+                if (sprite != null)
+                    followIcon.sprite = sprite;
+            }
+
+            if (followButtonImage != null)
+                followButtonImage.color = FollowEffectsEnabled ? onColor : offColor;
+        }
+
+        private void UpdateRaidButtonVisual()
+        {
+            if (raidIcon != null)
+            {
+                var sprite = RaidEffectsEnabled ? RaidOnSprite : RaidOffSprite;
+                if (sprite != null)
+                    raidIcon.sprite = sprite;
+            }
+
+            if (raidButtonImage != null)
+                raidButtonImage.color = RaidEffectsEnabled ? onColor : offColor;
+        }
+
+        private static void ConfigureCommandIconLayout(Image icon)
+        {
+            if (icon == null)
+            {
+                return;
+            }
+
+            var rt = icon.rectTransform;
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = new Vector2(12f, 12f);
         }
 
 
@@ -1733,7 +1944,8 @@ namespace BeatSurgeon.UI.Controllers
         private Tab _supporterTab;
 
         [UIValue("supporterTabVisible")]
-        public bool SupporterTabVisible => SupporterState.CurrentTier != SupporterTier.None;
+        public bool SupporterTabVisible =>
+            PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
 
         [UIValue("supportButtonText")]
         public string SupportButtonText => "Support this project 💙";
@@ -1747,21 +1959,27 @@ namespace BeatSurgeon.UI.Controllers
         private void UpdateSupportUI()
         {
             bool isSupporter = SupporterTabVisible;
+            bool supporterTabVisibilityChanged = false;
 
-            // Effect toggles (Bit/Sub/Follow) live under the Supporter tab Commands subtab.
-            // Automatic EventSub/cheer effects are available to everyone, so keep the tab visible
-            // for non-supporters. Customization (Effects subtab: fonts/explosion) stays supporter-only.
-            if (_supporterTab != null)
-                _supporterTab.IsVisible = true;
-
-            if (_supporterEffectsTab != null)
-                _supporterEffectsTab.IsVisible = isSupporter;
+            // Fonts / explosion customization stay behind Tier 1+ (Twitch) or Patreon entitlement.
+            // Only assign when changed: Tab.IsVisible always calls TabSelector.Refresh(), and BSML's
+            // Refresh() with PageCount==-1 updates strip labels without activating tab content.
+            if (_supporterTab != null && _supporterTab.IsVisible != isSupporter)
+            {
+                _supporterTab.IsVisible = isSupporter;
+                supporterTabVisibilityChanged = true;
+            }
 
             if (_supportButton != null)
                 _supportButton.gameObject.SetActive(!isSupporter);
 
             if (_supporterText != null)
                 _supporterText.gameObject.SetActive(isSupporter);
+
+            if (supporterTabVisibilityChanged)
+            {
+                ForceSyncMainTabSelector(_mainTabIndex);
+            }
         }
 
         private void ConfigureSupportPlatformLogo(Image icon)

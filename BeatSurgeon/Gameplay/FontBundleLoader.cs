@@ -527,6 +527,9 @@ namespace BeatSurgeon.Gameplay
             BombUsernameFont = chosen;
             if (BombUsernameFont != null) BeatSurgeon.LogUtils.Debug(() => $"FontBundleLoader: Selected bomb font '{BombUsernameFont.name}' (option='{selection}')");
             else BeatSurgeon.Plugin.Log.Warn($"FontBundleLoader: No usable font could be selected (option='{selection}')");
+
+            // Keep live/pooled raid name text in sync with the Surgeon Font dropdown.
+            RaidFountainNoteManager.NotifySelectedFontChanged();
         }
 
         internal static async Task ReloadAsync()

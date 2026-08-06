@@ -121,6 +121,53 @@
 										   pref-height="13" />
 								</button>
 							</horizontal>
+
+							<!-- Command toggles row: Bits + Sub + Follow + Raid -->
+							<horizontal spacing="1" pad="0" horizontal-fit="PreferredSize">
+								<button id="bitbutton"
+										on-click="OnBitButtonClicked"
+										pref-width="15"
+										pref-height="15"
+										hover-hint="Enable/Disable Bits and Cheer effects (and !glitter command for supporters)">
+									<image id="biticon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+
+								<button id="subbutton"
+										on-click="OnSubButtonClicked"
+										pref-width="15"
+										pref-height="15"
+										hover-hint="Enable/Disable Subscriber effects (and !smsg command for supporters)">
+									<image id="subicon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+
+								<button id="followbutton"
+										on-click="OnFollowButtonClicked"
+										pref-width="15"
+										pref-height="15"
+										hover-hint="Enable/Disable Follow effects (and !fmsg command for supporters)">
+									<image id="followicon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+
+								<button id="raidbutton"
+										on-click="OnRaidButtonClicked"
+										pref-width="15"
+										pref-height="15"
+										hover-hint="Enable/Disable Raid effects (and !raid command for supporters)">
+									<image id="raidicon"
+										   preserve-aspect="true"
+										   pref-width="13"
+										   pref-height="13" />
+								</button>
+							</horizontal>
 						</vertical>
 					</horizontal>
 				</modifier-container>
@@ -164,8 +211,8 @@
                             hover-hint="Disconnect your linked Twitch account from Beat Surgeon"/>
 					</horizontal>
 
-					<!-- YouTube Actions -->
-					<horizontal spacing="2" horizontal-fit="PreferredSize" child-align="MiddleLeft">
+					<!-- YouTube Actions (Tier 1+ / Patreon only) -->
+					<horizontal spacing="2" horizontal-fit="PreferredSize" child-align="MiddleLeft" active="~supporterTabVisible">
 						<button text="Connect YouTube"
 						    on-click="OnConnectYoutubeClicked"
 						    pref-width="30"
@@ -248,83 +295,50 @@
 					</horizontal>
 				</modifier-container>
 			</tab>
-			<!-- Special TAB: Supporter -->
+			<!-- Special TAB: Supporter (Tier 1+ / Patreon only) -->
 			<tab id="supporter-tab" tab-name="Supporter" tags="saber-surgeon-tabs">
-				<vertical child-control-height="false" vertical-fit="PreferredSize">
-					<tab-selector tab-tag="supporter-subtabs" select-cell="OnSupporterSubtabSelected" />
-					<horizontal preferred-height="50" pad-top="2">
-						<tab tab-name="Commands" tags="supporter-subtabs">
-							<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
-								<toggle-setting text="Bit Effect"
-												value="BitEffectEnabled"
-												on-change="OnBitEffectChanged"
-												hover-hint="Enable supporter-only Bits and Cheer effects and commands"/>
-
-								<toggle-setting text="Sub Effects"
-												value="SubEffectsEnabled"
-												on-change="OnSubEffectsChanged"
-												interactable="~subEffectsToggleInteractable"
-												hover-hint="Enable supporter-only Subscriber effects and commands for when viewers subscribe"/>
-
-								<toggle-setting text="Follow Effects"
-												value="FollowEffectsEnabled"
-												interactable="~followEffectsToggleInteractable"
-												on-change="OnFollowEffectsChanged"
-												hover-hint="Enable follower message effects and commands when viewers follow"/>
-
-								<toggle-setting text="Raid Effects"
-												value="RaidEffectsEnabled"
-												interactable="~raidEffectsToggleInteractable"
-												on-change="OnRaidEffectsChanged"
-												hover-hint="Enable raid name fountain on notes for inbound EventSub raids and !raid"/>
-							</modifier-container>
-						</tab>
-						<tab id="supporter-effects-tab" tab-name="Effects" tags="supporter-subtabs">
-							<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
-								<horizontal horizontal-fit="PreferredSize" spacing="2">
-									<text text="Surgeon Fonts"
-										  font-size="4.5"
-										  color="#FFCC44"
-										  align="MidlineLeft"
-										  font-style="Bold"/>
-								</horizontal>
-
-								<dropdown-list-setting
-									id="bomb-font-dropdown"
-									text="Font Style"
-									value="bomb_font_selected"
-									choices="bomb_font_options"
-									apply-on-change="true"
-									hover-hint="Select the fonts that Beat surgeon will use for all the effects it does"/>
-
-								<horizontal child-force-expand-width="false">
-									<text id="bomb-font-preview"
-										  text="Preview Text"
-										  align="Center"
-										  font-size="5" />
-								</horizontal>
-
-								<dropdown-list-setting
-									id="bomb-explosion-effect-dropdown"
-									text="Bomb Explosion Effects"
-									value="bomb_explosion_effect_selected"
-									choices="bomb_explosion_effect_options"
-									apply-on-change="true"
-									on-change="OnBombExplosionEffectChanged"
-									hover-hint="Select the explosion effect used when bomb notes detonate"/>
-
-								<dropdown-list-setting
-									id="raid-cut-effect-dropdown"
-									text="Raid Cut Effects"
-									value="raid_cut_effect_selected"
-									choices="raid_cut_effect_options"
-									apply-on-change="true"
-									on-change="OnRaidCutEffectChanged"
-									hover-hint="Select the cut explosion effect used for raid notes"/>
-							</modifier-container>
-						</tab>
+				<modifier-container child-expand-width="true" horizontal-fit="PreferredSize">
+					<horizontal horizontal-fit="PreferredSize" spacing="2">
+						<text text="Surgeon Fonts"
+							  font-size="4.5"
+							  color="#FFCC44"
+							  align="MidlineLeft"
+							  font-style="Bold"/>
 					</horizontal>
-				</vertical>
+
+					<dropdown-list-setting
+						id="bomb-font-dropdown"
+						text="Font Style"
+						value="bomb_font_selected"
+						choices="bomb_font_options"
+						apply-on-change="true"
+						hover-hint="Select the fonts that Beat surgeon will use for all the effects it does"/>
+
+					<horizontal child-force-expand-width="false">
+						<text id="bomb-font-preview"
+							  text="Preview Text"
+							  align="Center"
+							  font-size="5" />
+					</horizontal>
+
+					<dropdown-list-setting
+						id="bomb-explosion-effect-dropdown"
+						text="Bomb Explosion Effects"
+						value="bomb_explosion_effect_selected"
+						choices="bomb_explosion_effect_options"
+						apply-on-change="true"
+						on-change="OnBombExplosionEffectChanged"
+						hover-hint="Select the explosion effect used when bomb notes detonate"/>
+
+					<dropdown-list-setting
+						id="raid-cut-effect-dropdown"
+						text="Raid Cut Effects"
+						value="raid_cut_effect_selected"
+						choices="raid_cut_effect_options"
+						apply-on-change="true"
+						on-change="OnRaidCutEffectChanged"
+						hover-hint="Select the cut explosion effect used for raid notes"/>
+				</modifier-container>
 			</tab>
 			<!-- TAB 3: Endless Mode (disabled for release — restore when ready)
 			<tab tab-name="Endless" tags="saber-surgeon-tabs">
