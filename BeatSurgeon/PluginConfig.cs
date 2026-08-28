@@ -229,7 +229,7 @@ namespace BeatSurgeon
         public virtual bool MultiplayerEffectsEnabled { get; set; } = true;
 
         /// <summary>Surgeon Settings preview slider; gameplay wiring pending.</summary>
-        public virtual float TextMovementSpeed { get; set; } = 1f;
+        public virtual float TextMovementSpeed { get; set; } = 4f;
 
         // --- Channel Points ---
         public virtual bool CpRainbowEnabled { get; set; } = false;

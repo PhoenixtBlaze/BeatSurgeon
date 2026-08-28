@@ -645,8 +645,8 @@ namespace BeatSurgeon.HarmonyPatches
 
             GameObject textGo = pooledText.gameObject;
             float duration = EntitlementsState.HasVisualsAccess
-                ? Mathf.Clamp(Plugin.Settings?.FlyingTextTravelSeconds ?? 4.0f, 0.5f, 20f)
-                : 4.0f;
+                ? FlyingTextMotionSettings.ResolveTravelSeconds()
+                : FlyingTextMotionSettings.DefaultTravelSeconds;
             float elapsed = 0f;
 
             Vector3 initialPosition = startPos + Vector3.up * 0.5f;

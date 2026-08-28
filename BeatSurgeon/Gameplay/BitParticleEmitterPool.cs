@@ -684,10 +684,7 @@ namespace BeatSurgeon.Gameplay
 
             if (targetingCanvasStart)
             {
-                return Mathf.Clamp(
-                    Plugin.Settings?.FlyingTextTravelSeconds ?? DefaultCanvasTravelSeconds,
-                    0.5f,
-                    20f);
+                return FlyingTextMotionSettings.ResolveTravelSeconds();
             }
 
             float unclampedDuration = distance / ReturnMotionUnitsPerSecond;

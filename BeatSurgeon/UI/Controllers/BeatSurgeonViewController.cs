@@ -4,6 +4,7 @@ using BeatSaberMarkupLanguage.Components;
 using BeatSaberMarkupLanguage.Components.Settings;
 using BeatSaberMarkupLanguage.ViewControllers;
 using BeatSurgeon.Chat;
+using BeatSurgeon.Gameplay;
 using BeatSurgeon.Twitch;
 using BeatSurgeon.YouTube;
 using BeatSurgeon.UI.Settings;
@@ -792,10 +793,10 @@ namespace BeatSurgeon.UI.Controllers
         [UIValue("textMovementSpeed")]
         public float TextMovementSpeed
         {
-            get => Plugin.Settings?.TextMovementSpeed ?? 1f;
+            get => Plugin.Settings?.TextMovementSpeed ?? FlyingTextMotionSettings.DefaultTravelSeconds;
             set
             {
-                float clamped = Mathf.Clamp(value, 0.1f, 5f);
+                float clamped = Mathf.Clamp(value, FlyingTextMotionSettings.MinTravelSeconds, FlyingTextMotionSettings.MaxTravelSeconds);
                 if (Plugin.Settings != null)
                 {
                     Plugin.Settings.TextMovementSpeed = clamped;

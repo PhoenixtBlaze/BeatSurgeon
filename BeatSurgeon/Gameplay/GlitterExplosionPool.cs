@@ -584,7 +584,7 @@ namespace BeatSurgeon.Gameplay
 
         private static float ResolveTravelSeconds()
         {
-            return Mathf.Clamp(Plugin.Settings?.FlyingTextTravelSeconds ?? 4.0f, 0.5f, 20f);
+            return FlyingTextMotionSettings.ResolveTravelSeconds();
         }
 
         private static Vector3 ResolveTravelTarget(Vector3 origin)

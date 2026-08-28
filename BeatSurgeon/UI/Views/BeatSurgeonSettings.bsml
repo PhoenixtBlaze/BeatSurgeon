@@ -267,13 +267,13 @@
 						hover-hint="When enabled, Beat Surgeon will apply the same commands/effects to your game that your multiplayer+ lobby leader gets" />
 
 					<slider-setting
-						text="Text movement speed"
+						text="Text Movement Speed(Seconds)"
 						value="textMovementSpeed"
-						min="0.1"
-						max="5"
-						increment="0.1"
+						min="0.5"
+						max="20"
+						increment="0.5"
 						apply-on-change="true"
-						hover-hint="Preview setting for on-screen effect text motion (not wired yet)" />
+						hover-hint="Travel time in seconds for text in bomb, glitter, raid and sub to reach end" />
 
 					<toggle-setting
 						text="Auto-Disable everything on Ranked maps"

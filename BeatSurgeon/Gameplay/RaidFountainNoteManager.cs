@@ -793,10 +793,7 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         private static float ResolveCutBurstTravelSeconds()
         {
-            return Mathf.Clamp(
-                Plugin.Settings?.FlyingTextTravelSeconds ?? CutBurstDefaultTravelSeconds,
-                0.5f,
-                20f);
+            return FlyingTextMotionSettings.ResolveTravelSeconds();
         }
 
         private void SpawnSelectedCutExplosion(Vector3 origin, string raiderName, int layer, bool isMenuPreview)

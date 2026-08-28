@@ -342,6 +342,7 @@
     <Compile Include="Gameplay\FireworksExplosionPool.cs" />
     <Compile Include="Gameplay\FlashbangManager.cs" />
     <Compile Include="Gameplay\FollowerMessageManager.cs" />
+    <Compile Include="Gameplay\FlyingTextMotionSettings.cs" />
     <Compile Include="Gameplay\FontBundleLoader.cs" />
     <Compile Include="Gameplay\GlitterExplosionPool.cs" />
     <Compile Include="Gameplay\GlitterLoopEmitterManager.cs" />
