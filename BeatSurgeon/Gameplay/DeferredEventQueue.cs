@@ -26,6 +26,7 @@ namespace BeatSurgeon.Gameplay
         internal int RetryCount;         // starts at 0; max one retry
         internal string TierLabel;       // e.g. "Tier 1", "Prime"  (Subscription only)
         internal int CumulativeMonths;   // total months subbed         (Subscription only)
+        internal int DurationMonths;     // months purchased this event (Subscription only)
         internal int GiftCount;          // gifted subscription count   (Subscription only)
         internal string EventSubKind;    // "sub" / "resub" / "giftsub" / "subend" (Subscription only)
 
@@ -38,11 +39,12 @@ namespace BeatSurgeon.Gameplay
             RetryCount = retryCount;
             TierLabel = string.Empty;
             CumulativeMonths = 0;
+            DurationMonths = 0;
             GiftCount = 0;
             EventSubKind = string.Empty;
         }
 
-        internal DeferredEventEntry(EventKind eventKind, string displayName, DateTime queuedAtUtc, string tierLabel, int cumulativeMonths, int giftCount, string eventSubKind, int retryCount = 0)
+        internal DeferredEventEntry(EventKind eventKind, string displayName, DateTime queuedAtUtc, string tierLabel, int cumulativeMonths, int giftCount, string eventSubKind, int durationMonths = 0, int retryCount = 0)
         {
             EventKind = eventKind;
             DisplayName = displayName;
@@ -51,6 +53,7 @@ namespace BeatSurgeon.Gameplay
             RetryCount = retryCount;
             TierLabel = tierLabel ?? string.Empty;
             CumulativeMonths = cumulativeMonths;
+            DurationMonths = durationMonths;
             GiftCount = giftCount;
             EventSubKind = eventSubKind ?? string.Empty;
         }

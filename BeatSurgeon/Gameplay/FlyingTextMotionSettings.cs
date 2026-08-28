@@ -8,7 +8,7 @@ namespace BeatSurgeon.Gameplay
     /// </summary>
     internal static class FlyingTextMotionSettings
     {
-        internal const float DefaultTravelSeconds = 4.0f;
+        internal const float DefaultTravelSeconds = 5.0f;
         internal const float MinTravelSeconds = 0.5f;
         internal const float MaxTravelSeconds = 20f;
 

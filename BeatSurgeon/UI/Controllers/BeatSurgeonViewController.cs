@@ -762,6 +762,16 @@ namespace BeatSurgeon.UI.Controllers
                 previewOrigin);
         }
 
+        private void RefreshEffectsPreviewIfActive()
+        {
+            if (!_bombExplosionPreviewActive || !SupporterTabVisible)
+            {
+                return;
+            }
+
+            PlayEffectsPreviewBurst();
+        }
+
         private void CleanupBombExplosionPreview()
         {
             StopBombExplosionPreviewMonitor();
@@ -803,6 +813,7 @@ namespace BeatSurgeon.UI.Controllers
                 }
 
                 NotifyPropertyChanged(nameof(TextMovementSpeed));
+                RefreshEffectsPreviewIfActive();
             }
         }
 

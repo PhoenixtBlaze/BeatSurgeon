@@ -121,7 +121,7 @@ namespace BeatSurgeon
         public virtual bool BombEnabled { get; set; } = true;
         public virtual float BombTextHeight { get; set; } = 1.0f;
         public virtual float BombTextWidth { get; set; } = 1.0f;
-        public virtual float FlyingTextTravelSeconds { get; set; } = 4.0f;
+        public virtual float FlyingTextTravelSeconds { get; set; } = 5.0f;
         public virtual float BombSpawnDistance { get; set; } = 20.0f;
         public virtual string BombFontType { get; set; } = "Default";
         public virtual string BombExplosionEffectType { get; set; } = "Sparks";
@@ -229,7 +229,7 @@ namespace BeatSurgeon
         public virtual bool MultiplayerEffectsEnabled { get; set; } = true;
 
         /// <summary>Surgeon Settings preview slider; gameplay wiring pending.</summary>
-        public virtual float TextMovementSpeed { get; set; } = 4f;
+        public virtual float TextMovementSpeed { get; set; } = 5f;
 
         // --- Channel Points ---
         public virtual bool CpRainbowEnabled { get; set; } = false;

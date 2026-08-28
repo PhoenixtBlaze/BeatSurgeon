@@ -19,7 +19,7 @@ namespace BeatSurgeon.Gameplay
         private const float ReturnMotionUnitsPerSecond = 5f;
         private const float MinReturnMotionDuration = 0.55f;
         private const float MaxReturnMotionDuration = 1.8f;
-        private const float DefaultCanvasTravelSeconds = 4.0f;
+        private const float DefaultCanvasTravelSeconds = 5.0f;
         private static bool _loggedBurstMotionSnapshot;
         private static bool _loggedFollowerLineTargetSnapshot;
         private readonly struct BitBurstProfile

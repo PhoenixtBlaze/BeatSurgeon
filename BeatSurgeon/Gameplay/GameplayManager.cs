@@ -830,7 +830,11 @@ namespace BeatSurgeon.Gameplay
                             ctx,
                             displayText,
                             CancellationToken.None,
-                            SubscriberEventCoordinator.GetTrailCubeCount(entry.CumulativeMonths, entry.EventSubKind))
+                            SubscriberEventCoordinator.GetTrailCubeCount(
+                                entry.TierLabel,
+                                entry.EventSubKind,
+                                entry.GiftCount,
+                                entry.DurationMonths))
                             .ConfigureAwait(false);
                         _log.Info("[BeatSurgeon] Deferred Subscription effect fired for " + entry.DisplayName + " kind=" + entry.EventSubKind);
                         break;
@@ -867,6 +871,7 @@ namespace BeatSurgeon.Gameplay
                             entry.CumulativeMonths,
                             entry.GiftCount,
                             entry.EventSubKind,
+                            entry.DurationMonths,
                             1));
                     }
                     else

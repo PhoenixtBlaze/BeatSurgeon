@@ -48,6 +48,7 @@ namespace BeatSurgeon.Twitch
             internal string UserName;
             internal string Tier;
             internal int CumulativeMonths;
+            internal int DurationMonths;
             internal int GiftCount;
             internal bool IsGift;
             internal bool IsAnonymous;
@@ -815,6 +816,7 @@ namespace BeatSurgeon.Twitch
                 UserName = payload["user_name"]?.ToString() ?? string.Empty,
                 Tier = payload["tier"]?.ToString() ?? "1000",
                 CumulativeMonths = 0,
+                DurationMonths = ReadDurationMonths(payload),
                 GiftCount = 0,
                 IsGift = false,
                 IsAnonymous = false,
@@ -848,6 +850,7 @@ namespace BeatSurgeon.Twitch
                 UserName = payload["user_name"]?.ToString() ?? string.Empty,
                 Tier = payload["tier"]?.ToString() ?? "1000",
                 CumulativeMonths = payload["cumulative_months"]?.Value<int>() ?? 0,
+                DurationMonths = ReadDurationMonths(payload),
                 GiftCount = 0,
                 IsGift = false,
                 IsAnonymous = false,
@@ -889,6 +892,7 @@ namespace BeatSurgeon.Twitch
                 UserName = userName,
                 Tier = payload["tier"]?.ToString() ?? "1000",
                 CumulativeMonths = 0,
+                DurationMonths = 0,
                 GiftCount = payload["total"]?.Value<int>() ?? 1,
                 IsGift = true,
                 IsAnonymous = isAnonymous,
@@ -1005,6 +1009,7 @@ namespace BeatSurgeon.Twitch
                 ?? "1000";
 
             int cumulativeMonths = detail["cumulative_months"]?.Value<int>() ?? 0;
+            int durationMonths = ReadDurationMonths(detail);
             int giftCount = eventKind == "giftsub"
                 ? (detail["total"]?.Value<int>() ?? 1)
                 : 0;
@@ -1016,6 +1021,7 @@ namespace BeatSurgeon.Twitch
                 UserName = userName,
                 Tier = tier,
                 CumulativeMonths = cumulativeMonths,
+                DurationMonths = durationMonths,
                 GiftCount = giftCount,
                 IsGift = eventKind == "giftsub",
                 IsAnonymous = isAnonymous,
@@ -1057,6 +1063,17 @@ namespace BeatSurgeon.Twitch
             {
                 return string.Equals(token.ToString(), "true", StringComparison.OrdinalIgnoreCase);
             }
+        }
+
+        private static int ReadDurationMonths(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+            {
+                return 0;
+            }
+
+            int durationMonths = token["duration_months"]?.Value<int>() ?? 0;
+            return Math.Max(0, durationMonths);
         }
 
         private async Task ResubscribeAllAsync(CancellationToken ct)

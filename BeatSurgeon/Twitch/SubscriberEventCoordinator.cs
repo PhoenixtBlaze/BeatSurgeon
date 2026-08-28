@@ -86,7 +86,8 @@ namespace BeatSurgeon.Twitch
                     tierLabel,
                     notification.CumulativeMonths,
                     notification.GiftCount,
-                    notification.EventSubKind));
+                    notification.EventSubKind,
+                    notification.DurationMonths));
                 _log.Info("[BeatSurgeon] Subscription event deferred for " + displayName + " — " + deferredReason + ".");
                 return;
             }
@@ -117,7 +118,11 @@ namespace BeatSurgeon.Twitch
                     ctx,
                     displayText,
                     CancellationToken.None,
-                    GetTrailCubeCount(notification.CumulativeMonths, notification.EventSubKind))
+                    GetTrailCubeCount(
+                        notification.Tier,
+                        notification.EventSubKind,
+                        notification.GiftCount,
+                        notification.DurationMonths))
                     .ConfigureAwait(false);
                 _log.Info("Applied subscription-triggered subscriber message for user=" + displayName + " kind=" + eventKind);
             }
@@ -185,17 +190,44 @@ namespace BeatSurgeon.Twitch
             return " for " + cumulativeMonths + " " + (cumulativeMonths == 1 ? "Month" : "Months");
         }
 
-        internal static int GetTrailCubeCount(int cumulativeMonths, string eventSubKind)
+        internal static int GetTrailCubeCount(string tier, string eventSubKind, int giftCount, int durationMonths)
         {
-            switch (eventSubKind)
+            string kind = (eventSubKind ?? string.Empty).Trim().ToLowerInvariant();
+            switch (kind)
             {
+                case "giftsub":
+                    return RegularSubNotes * Math.Max(1, giftCount);
                 case "resub":
-                    return 5 * Math.Max(1, cumulativeMonths);
+                    return IsPrimeTier(tier) ? PrimeSubNotes : RegularSubNotes;
                 case "sub":
-                    return 5;
+                {
+                    int baseNotes = IsPrimeTier(tier) ? PrimeSubNotes : RegularSubNotes;
+                    int normalizedDurationMonths = Math.Max(0, durationMonths);
+                    if (normalizedDurationMonths <= 1)
+                    {
+                        return baseNotes;
+                    }
+
+                    return baseNotes + (ExtraNotesPerMonthBeyondFirst * (normalizedDurationMonths - 1));
+                }
                 default:
                     return 0;
             }
+        }
+
+        private const int RegularSubNotes = 5;
+        private const int PrimeSubNotes = 10;
+        private const int ExtraNotesPerMonthBeyondFirst = 5;
+
+        internal static bool IsPrimeTier(string tierOrLabel)
+        {
+            if (string.IsNullOrWhiteSpace(tierOrLabel))
+            {
+                return false;
+            }
+
+            string normalized = tierOrLabel.Trim().ToLowerInvariant();
+            return normalized == "prime" || normalized.Contains("prime");
         }
 
         internal static string TierToLabel(string tier)

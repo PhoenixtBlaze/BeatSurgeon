@@ -82,9 +82,9 @@ namespace BeatSurgeon.Gameplay
         private const int CutBurstShards = 6;
         private const int MaxPoolSize = 384;
         // Concurrent with canvas travel: fast radial expand (opaque), then hold while fading on the path.
-        // Travel duration matches bomb flying text (PluginConfig.FlyingTextTravelSeconds).
+        // Travel duration matches bomb flying text (FlyingTextMotionSettings / TextMovementSpeed).
         private const float CutBurstExpandSeconds = 0.35f;
-        private const float CutBurstDefaultTravelSeconds = 4.0f;
+        private const float CutBurstDefaultTravelSeconds = 5.0f;
         private const float CutBurstSphereRadiusMin = 0.2f;
         private const float CutBurstSphereRadiusMax = 6.0f;
         private const float CutBurstSphereRadiusDriftMax = 8.25f;
@@ -789,11 +789,43 @@ namespace BeatSurgeon.Gameplay
         }
 
         /// <summary>
-        /// Same travel duration as bomb flying text (<see cref="PluginConfig.FlyingTextTravelSeconds"/>).
+        /// Same travel duration as bomb flying text (<see cref="FlyingTextMotionSettings"/>).
         /// </summary>
         private static float ResolveCutBurstTravelSeconds()
         {
             return FlyingTextMotionSettings.ResolveTravelSeconds();
+        }
+
+        private static Vector3 ResolveCutBurstDriftTarget(
+            Vector3 flyStart,
+            Vector3 sphereOrigin,
+            Vector3 radialDirection,
+            bool isMenuPreview)
+        {
+            if (!isMenuPreview
+                && SurgeonEffectsBundleService.TryResolveFollowerCanvasStartWorldPosition(out Vector3 canvasStart)
+                && IsFiniteVector(canvasStart)
+                && (canvasStart - flyStart).sqrMagnitude > 0.04f)
+            {
+                return canvasStart;
+            }
+
+            float spawnDistance = Mathf.Clamp(Plugin.Settings?.BombSpawnDistance ?? 10.0f, 2f, 20f);
+            Vector3 forward = PlayerViewCamera.TryGet(out Camera viewCam)
+                ? viewCam.transform.forward
+                : (Camera.main != null ? Camera.main.transform.forward : Vector3.forward);
+            if (!IsFiniteVector(forward) || forward.sqrMagnitude <= 0.0001f)
+            {
+                forward = Vector3.forward;
+            }
+
+            Vector3 previewTarget = sphereOrigin + (forward.normalized * spawnDistance) + (Vector3.up * 2f);
+            if ((previewTarget - flyStart).sqrMagnitude > 0.04f)
+            {
+                return previewTarget;
+            }
+
+            return sphereOrigin + (radialDirection * CutBurstSphereRadiusDriftMax);
         }
 
         private void SpawnSelectedCutExplosion(Vector3 origin, string raiderName, int layer, bool isMenuPreview)
@@ -828,14 +860,7 @@ namespace BeatSurgeon.Gameplay
                 Vector3 direction = BiasAwayFromNoteApproach(FibonacciDirection(index, CutBurstShards));
                 Vector3 flyStart = sphereOrigin + (direction * CutBurstSphereRadiusMin);
                 Vector3 flyTarget = sphereOrigin + (direction * CutBurstSphereRadiusMax);
-                // Travel toward follower canvas Start from spawn (bomb-font speed). Radial fallback if missing.
-                Vector3 flyDriftTarget = sphereOrigin + (direction * CutBurstSphereRadiusDriftMax);
-                if (SurgeonEffectsBundleService.TryResolveFollowerCanvasStartWorldPosition(out Vector3 canvasStart)
-                    && IsFiniteVector(canvasStart)
-                    && (canvasStart - flyStart).sqrMagnitude > 0.04f)
-                {
-                    flyDriftTarget = canvasStart;
-                }
+                Vector3 flyDriftTarget = ResolveCutBurstDriftTarget(flyStart, sphereOrigin, direction, isMenuPreview);
 
                 float travelSeconds = ResolveCutBurstTravelSeconds();
                 shard.Velocity = Vector3.zero;
@@ -897,13 +922,7 @@ namespace BeatSurgeon.Gameplay
                 Vector3 direction = BiasAwayFromNoteApproach(FibonacciDirection(index, CutBurstShards));
                 Vector3 flyStart = sphereOrigin + (direction * CutBurstSphereRadiusMin);
                 Vector3 flyTarget = sphereOrigin + (direction * CutBurstSphereRadiusMax);
-                Vector3 flyDriftTarget = sphereOrigin + (direction * CutBurstSphereRadiusDriftMax);
-                if (SurgeonEffectsBundleService.TryResolveFollowerCanvasStartWorldPosition(out Vector3 canvasStart)
-                    && IsFiniteVector(canvasStart)
-                    && (canvasStart - flyStart).sqrMagnitude > 0.04f)
-                {
-                    flyDriftTarget = canvasStart;
-                }
+                Vector3 flyDriftTarget = ResolveCutBurstDriftTarget(flyStart, sphereOrigin, direction, isMenuPreview);
 
                 shard.Velocity = Vector3.zero;
                 shard.FlyStart = flyStart;

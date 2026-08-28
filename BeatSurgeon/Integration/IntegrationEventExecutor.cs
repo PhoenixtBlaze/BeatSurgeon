@@ -149,6 +149,7 @@ namespace BeatSurgeon.Integration
 
             string tier = data.Value<string>("tier") ?? data.Value<string>("subscriptionTier") ?? "1000";
             int cumulativeMonths = data.Value<int?>("consecutiveMonths") ?? data.Value<int?>("cumulativeMonths") ?? 0;
+            int durationMonths = data.Value<int?>("durationMonths") ?? data.Value<int?>("duration_months") ?? 0;
             int giftCount = data.Value<int?>("giftCount") ?? 1;
             string tierLabel = SubscriberEventCoordinator.TierToLabel(tier);
 
@@ -183,7 +184,8 @@ namespace BeatSurgeon.Integration
                     tierLabel,
                     cumulativeMonths,
                     giftCount,
-                    eventKind));
+                    eventKind,
+                    durationMonths));
                 _log.Info(
                     "[BeatSurgeon] Subscription event deferred for "
                     + displayName
@@ -217,7 +219,7 @@ namespace BeatSurgeon.Integration
                     ctx,
                     displayText,
                     ct,
-                    SubscriberEventCoordinator.GetTrailCubeCount(cumulativeMonths, eventKind))
+                    SubscriberEventCoordinator.GetTrailCubeCount(tier, eventKind, giftCount, durationMonths))
                     .ConfigureAwait(false);
                 LogEventAccepted(messageId, "smsg", "applied");
                 return IntegrationCommandResult.FromAccepted("smsg");
