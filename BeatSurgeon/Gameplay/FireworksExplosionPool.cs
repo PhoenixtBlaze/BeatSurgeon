@@ -13,7 +13,6 @@ namespace BeatSurgeon.Gameplay
         private static FireworksExplosionPool _instance;
         private static GameObject _go;
 
-        private GameObject _explosionPrefab;
         private readonly Queue<GameObject> _pool = new Queue<GameObject>();
         private readonly Dictionary<string, Queue<GameObject>> _emitterPools = new Dictionary<string, Queue<GameObject>>(StringComparer.OrdinalIgnoreCase);
         private Transform _gameplayVfxAnchor;
@@ -33,11 +32,6 @@ namespace BeatSurgeon.Gameplay
 
         private void Awake()
         {
-        }
-
-        private void LoadAssetBundle()
-        {
-            // Full SurgeonExplosion prefab load is no longer required for per-emitter bomb VFX.
         }
 
         public void Spawn(Vector3 position, Color baseColor, int burstCount = 220, float life = 1.6f)
@@ -83,21 +77,6 @@ namespace BeatSurgeon.Gameplay
 
             PlayExplosionInstance(explosion, emitterName, position, baseColor, life, attachToGameplayAnchor);
             return true;
-        }
-
-        private void SpawnFullExplosionPrefab(Vector3 position, Color baseColor, float life, bool attachToGameplayAnchor)
-        {
-            if (_explosionPrefab == null)
-            {
-                LoadAssetBundle();
-                if (_explosionPrefab == null)
-                {
-                    return;
-                }
-            }
-
-            GameObject explosion = GetOrCreateInstance();
-            PlayExplosionInstance(explosion, null, position, baseColor, life, attachToGameplayAnchor);
         }
 
         private void PlayExplosionInstance(
@@ -377,30 +356,61 @@ namespace BeatSurgeon.Gameplay
             return null;
         }
 
+        /// <summary>
+        /// Pre-creates the currently selected bomb explosion emitter (and the Sparks
+        /// fallback) via the same live instantiate/prepare path <see cref="SpawnForSelection"/>
+        /// uses at runtime, so the first real explosion of a map doesn't pay that cost.
+        /// </summary>
         internal bool Prewarm()
         {
-            if (_explosionPrefab == null)
+            string selectedEmitterName = BombExplosionEffectSettings.GetEmitterNameForOption(
+                BombExplosionEffectSettings.GetSelectedOption());
+
+            if (TryWarmEmitter(selectedEmitterName))
             {
-                LoadAssetBundle();
-                if (_explosionPrefab == null)
-                {
-                    return false;
-                }
+                return true;
             }
 
-            GameObject explosion = GetOrCreateInstance();
+            if (string.Equals(selectedEmitterName, BundleRegistry.SurgeonExplosionRefs.SparkEmitterName, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // Mirror SpawnForSelection's own fallback so warmup still succeeds even if
+            // the selected style's emitter is temporarily unavailable in the bundle.
+            return TryWarmEmitter(BundleRegistry.SurgeonExplosionRefs.SparkEmitterName);
+        }
+
+        private bool TryWarmEmitter(string emitterName)
+        {
+            GameObject explosion = GetOrCreateEmitterInstance(emitterName);
             if (explosion == null)
             {
                 return false;
             }
 
-            PrepareExplosionInstance(explosion, null);
             explosion.transform.SetParent(null, false);
             explosion.SetActive(false);
 
-            if (!_pool.Contains(explosion))
+            if (SurgeonEffectsBundleService.UsesBundleAuthoredBombExplosionEmitter(emitterName))
             {
-                _pool.Enqueue(explosion);
+                // Bundle-authored emitters are freshly instantiated per spawn and destroyed
+                // after use (see DespawnAfter) — nothing persists here. The warmup value is
+                // paying the bundle-load + instantiate + VR material prep cost once, ahead
+                // of the first live cast, instead of on it.
+                Destroy(explosion);
+                return true;
+            }
+
+            if (!_emitterPools.TryGetValue(emitterName, out Queue<GameObject> pool))
+            {
+                pool = new Queue<GameObject>();
+                _emitterPools[emitterName] = pool;
+            }
+
+            if (!pool.Contains(explosion))
+            {
+                pool.Enqueue(explosion);
             }
 
             return true;
@@ -506,20 +516,6 @@ namespace BeatSurgeon.Gameplay
             }
         }
 
-        private GameObject GetOrCreateInstance()
-        {
-            while (_pool.Count > 0)
-            {
-                var pooled = _pool.Dequeue();
-                if (pooled != null) return pooled;
-            }
-
-            var newObj = Instantiate(_explosionPrefab);
-            newObj.SetActive(false);
-            PrepareExplosionInstance(newObj, null);
-            return newObj;
-        }
-
         internal static void ClearCachedInstances()
         {
             if (_instance == null)
@@ -557,28 +553,6 @@ namespace BeatSurgeon.Gameplay
 
             _referenceBombParticleRenderer = null;
             _gameplayVfxAnchor = null;
-        }
-
-        private void PrepareExplosionInstance(GameObject explosion, string emitterName)
-        {
-            if (explosion == null)
-            {
-                return;
-            }
-
-            if (SurgeonEffectsBundleService.UsesBundleAuthoredBombExplosionEmitter(emitterName)
-                || UsesAuthoredBombExplosionAppearance(emitterName, explosion))
-            {
-                VrVfxMaterialHelper.PrepareBundleBombExplosionForVr(
-                    explosion,
-                    "FireworksExplosionPool authored instance");
-                return;
-            }
-
-            VrVfxMaterialHelper.PrepareBombExplosionRenderers(
-                explosion,
-                "FireworksExplosionPool instance",
-                GetReferenceBombParticleRenderer());
         }
 
         private void AttachToGameplayVfxAnchor(GameObject explosion)
@@ -637,11 +611,6 @@ namespace BeatSurgeon.Gameplay
             }
 
             return _gameplayVfxAnchor;
-        }
-
-        private ParticleSystemRenderer GetReferenceBombParticleRenderer()
-        {
-            return GetReferenceBombParticleRenderer(out _);
         }
 
         private ParticleSystemRenderer GetReferenceBombParticleRenderer(out bool isAnchoredReference)

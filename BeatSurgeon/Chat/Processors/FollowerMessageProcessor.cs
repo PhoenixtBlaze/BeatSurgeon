@@ -34,13 +34,27 @@ namespace BeatSurgeon.Chat.Processors
         public async Task ExecuteAsync(ChatContext ctx, CancellationToken ct)
         {
             string displayText = ExtractMessageSuffix(ctx?.MessageText);
-            if (ctx?.TriggerSource != TriggerSource.MultiplayerSync)
-            {
-                await FollowEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
-            }
+            await EnsureAccessAsync(ctx, ct).ConfigureAwait(false);
 
             _log.Command(ctx.Username, ctx.Command, true, "displayText=" + displayText);
             await _gameplayManager.ApplyFollowerMessageAsync(ctx, displayText, ct).ConfigureAwait(false);
+        }
+
+        private static async Task EnsureAccessAsync(ChatContext ctx, CancellationToken ct)
+        {
+            if (ctx?.TriggerSource == TriggerSource.MultiplayerSync)
+            {
+                return;
+            }
+
+            if (ctx?.TriggerSource == TriggerSource.AutomaticEvent
+                || ctx?.TriggerSource == TriggerSource.BitEvent)
+            {
+                await FollowEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(ct).ConfigureAwait(false);
+                return;
+            }
+
+            await FollowEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
         }
 
         private static string ExtractMessageSuffix(string messageText)

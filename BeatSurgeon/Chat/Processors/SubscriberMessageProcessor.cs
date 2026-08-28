@@ -39,10 +39,7 @@ namespace BeatSurgeon.Chat.Processors
             if (isSubCubes)
             {
                 int trailCubeCount = ParseSubCubesCount(ctx?.MessageText);
-                if (!isMultiplayerSync)
-                {
-                    await SubscriberEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
-                }
+                await EnsureAccessAsync(ctx, ct).ConfigureAwait(false);
 
                 _log.Command(ctx.Username, ctx.Command, true, "trailCubeCount=" + trailCubeCount + " multiplayerSync=" + isMultiplayerSync);
                 // Cubes only — empty display text; ApplySubscriberMessageAsync skips canvas on MultiplayerSync.
@@ -55,10 +52,7 @@ namespace BeatSurgeon.Chat.Processors
             }
 
             string displayText = ExtractMessageSuffix(ctx?.MessageText, out int smsgTrailCount);
-            if (!isMultiplayerSync)
-            {
-                await SubscriberEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
-            }
+            await EnsureAccessAsync(ctx, ct).ConfigureAwait(false);
 
             _log.Command(
                 ctx.Username,
@@ -68,6 +62,23 @@ namespace BeatSurgeon.Chat.Processors
 
             // Legacy multiplayer !smsg payloads: still cubes-only on clients (no canvas text).
             await _gameplayManager.ApplySubscriberMessageAsync(ctx, displayText, ct, smsgTrailCount).ConfigureAwait(false);
+        }
+
+        private static async Task EnsureAccessAsync(ChatContext ctx, CancellationToken ct)
+        {
+            if (ctx?.TriggerSource == TriggerSource.MultiplayerSync)
+            {
+                return;
+            }
+
+            if (ctx?.TriggerSource == TriggerSource.AutomaticEvent
+                || ctx?.TriggerSource == TriggerSource.BitEvent)
+            {
+                await SubscriberEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(ct).ConfigureAwait(false);
+                return;
+            }
+
+            await SubscriberEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
         }
 
         private static int ParseSubCubesCount(string messageText)

@@ -87,6 +87,22 @@ namespace BeatSurgeon.HarmonyPatches
                     + requeuedDenomination);
             }
 
+            if (SubscriberTrailCubeManager.Instance.TryRequeueMarkedNote(gameNote, "BombOverride"))
+            {
+                LogUtils.Debug(() =>
+                    "BombNotePatch: Requeued subscriber TrailCube because note became a bomb at "
+                    + noteData.time.ToString("F3"));
+            }
+
+            if (RaidFountainNoteManager.Instance.TryRequeueMarkedNote(gameNote, "BombOverride"))
+            {
+                LogUtils.Debug(() =>
+                    "BombNotePatch: Requeued raid fountain because note became a bomb at "
+                    + noteData.time.ToString("F3"));
+            }
+
+            ExclusiveNoteEffectArbiter.Release(gameNote);
+
             bool isBomb = BombManager.Instance.MarkNoteAsBomb(noteData);
             if (!isBomb)
             {

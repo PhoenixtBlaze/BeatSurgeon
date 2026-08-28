@@ -32,24 +32,20 @@ namespace BeatSurgeon.HarmonyPatches
                 return false;
             }
 
+            if (RaidFountainNoteManager.Instance.IsNoteMarked(gameNote))
+            {
+                return true;
+            }
+
+            if (!ExclusiveNoteEffectArbiter.TryReserve(gameNote, ExclusiveNoteEffectKind.Raid))
+            {
+                return false;
+            }
+
             NoteData noteData = gameNote.noteData;
-
-            // Do not steal glitter-claimable or already-marked glitter notes.
-            if (GlitterManager.Instance.IsNoteMarked(gameNote) ||
-                GlitterManager.Instance.CanMarkNextEffect(gameNote, noteData))
-            {
-                return false;
-            }
-
-            // Prefer trail cubes when they have pending work or already own this note.
-            if (SubscriberTrailCubeManager.Instance.IsNoteMarked(gameNote) ||
-                SubscriberTrailCubeManager.Instance.HasPendingNotes)
-            {
-                return false;
-            }
-
             if (!RaidFountainNoteManager.Instance.TryMarkAndAttach(gameNote))
             {
+                ExclusiveNoteEffectArbiter.Release(gameNote);
                 return false;
             }
 

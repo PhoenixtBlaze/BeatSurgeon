@@ -192,6 +192,13 @@ namespace BeatSurgeon.Chat
             set { if (PluginConfig.Instance != null) PluginConfig.Instance.SpeedExclusiveEnabled = value; }
         }
 
+        internal static bool IsBombFamilyCommand(string commandOrNormalized)
+        {
+            string normalized = NormalizeCommand(commandOrNormalized);
+            return string.Equals(normalized, "!bomb", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "!bmsg", StringComparison.OrdinalIgnoreCase);
+        }
+
         internal static string NormalizeCommand(string command)
         {
             string normalized = (command ?? string.Empty).Trim().ToLowerInvariant();

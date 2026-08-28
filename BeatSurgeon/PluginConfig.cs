@@ -228,6 +228,9 @@ namespace BeatSurgeon
         public virtual string MpClientId { get; set; } = string.Empty;
         public virtual bool MultiplayerEffectsEnabled { get; set; } = true;
 
+        /// <summary>Surgeon Settings preview slider; gameplay wiring pending.</summary>
+        public virtual float TextMovementSpeed { get; set; } = 1f;
+
         // --- Channel Points ---
         public virtual bool CpRainbowEnabled { get; set; } = false;
         public virtual int CpRainbowCost { get; set; } = 500;

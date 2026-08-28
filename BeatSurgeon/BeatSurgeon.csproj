@@ -351,6 +351,7 @@
     <Compile Include="Gameplay\BombExplosionEffectSettings.cs" />
     <Compile Include="Gameplay\RaidCutEffectSettings.cs" />
     <Compile Include="Gameplay\RaidFountainNoteManager.cs" />
+    <Compile Include="Gameplay\ExclusiveNoteEffectArbiter.cs" />
     <Compile Include="Gameplay\BombFontPreloadService.cs" />
     <Compile Include="Gameplay\SurgeonEffectsPreloadService.cs" />
     <Compile Include="Gameplay\SurgeonEffectsWarmupHelper.cs" />
@@ -360,6 +361,7 @@
     <Compile Include="Gameplay\GhostVisualController.cs" />
     <Compile Include="Gameplay\InLevelQueueProcessor.cs" />
     <Compile Include="Gameplay\LookAtCamera.cs" />
+    <Compile Include="Gameplay\PlayerViewCamera.cs" />
     <Compile Include="Gameplay\NoteUtils.cs" />
     <Compile Include="Gameplay\RainbowManager.cs" />
     <Compile Include="Gameplay\BombNoteVisualGuard.cs" />

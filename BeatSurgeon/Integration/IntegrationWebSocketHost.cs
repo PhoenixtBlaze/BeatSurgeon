@@ -75,8 +75,19 @@ namespace BeatSurgeon.Integration
             }
 
             IsRunning = false;
-            _cts?.Cancel();
 
+            CancellationTokenSource cts = _cts;
+            Task acceptTask = _acceptTask;
+
+            try
+            {
+                cts?.Cancel();
+            }
+            catch
+            {
+            }
+
+            // Unblocks AcceptTcpClient with SocketException (WSACancelBlockingCall).
             lock (_listenerLock)
             {
                 try
@@ -90,8 +101,30 @@ namespace BeatSurgeon.Integration
                 _listener = null;
             }
 
-            _cts?.Dispose();
-            _cts = null;
+            if (acceptTask != null && !acceptTask.IsCompleted)
+            {
+                try
+                {
+                    acceptTask.Wait(TimeSpan.FromSeconds(2));
+                }
+                catch (AggregateException)
+                {
+                }
+            }
+
+            try
+            {
+                cts?.Dispose();
+            }
+            catch
+            {
+            }
+
+            if (ReferenceEquals(_cts, cts))
+            {
+                _cts = null;
+                _acceptTask = null;
+            }
         }
 
         public void Dispose()
@@ -112,8 +145,14 @@ namespace BeatSurgeon.Integration
                 TcpClient client = null;
                 try
                 {
-                    client = await Task.Run(() => _listener.AcceptTcpClient(), ct).ConfigureAwait(false);
-                    if (ct.IsCancellationRequested)
+                    TcpListener listener = _listener;
+                    if (listener == null)
+                    {
+                        break;
+                    }
+
+                    client = await Task.Run(() => listener.AcceptTcpClient(), ct).ConfigureAwait(false);
+                    if (ct.IsCancellationRequested || !IsRunning)
                     {
                         client.Close();
                         break;
@@ -138,8 +177,18 @@ namespace BeatSurgeon.Integration
                 {
                     break;
                 }
+                catch (SocketException) when (ct.IsCancellationRequested || !IsRunning || _listener == null)
+                {
+                    // Expected when Stop() cancels the token and/or stops the listener.
+                    break;
+                }
                 catch (Exception ex)
                 {
+                    if (ct.IsCancellationRequested || !IsRunning || _listener == null)
+                    {
+                        break;
+                    }
+
                     _log.Exception(ex, "AcceptLoopAsync");
                     client?.Close();
                 }

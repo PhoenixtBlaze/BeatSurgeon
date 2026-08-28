@@ -62,12 +62,13 @@
 				<increment-setting
 					text=""
 					value="bomb_cd_seconds"
-					min="1"
+					min="0"
 					max="300"
 					increment="5"
 					pref-width="45"
 					integer-only="true"
-					apply-on-change="true" />
+					apply-on-change="true"
+					hover-hint="0 = no cooldown for !bomb and !bmsg chat commands" />
 
 				<!-- Button after slider -->
 				<button id="bomb-edit-button"

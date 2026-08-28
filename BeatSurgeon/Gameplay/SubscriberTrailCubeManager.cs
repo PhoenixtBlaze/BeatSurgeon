@@ -68,6 +68,40 @@ namespace BeatSurgeon.Gameplay
             return controller != null && _activeEntries.ContainsKey(controller);
         }
 
+        /// <summary>
+        /// Eligibility probe for exclusive claiming; does not consume the queue.
+        /// </summary>
+        internal bool CanMarkNextNote(GameNoteController controller)
+        {
+            if (controller == null)
+            {
+                return false;
+            }
+
+            NoteData noteData = controller.noteData;
+            if (!BombManager.IsEligibleBombNote(noteData))
+            {
+                return false;
+            }
+
+            if (_activeEntries.ContainsKey(controller))
+            {
+                return false;
+            }
+
+            if (_pendingEntries.First == null)
+            {
+                return false;
+            }
+
+            if (BombManager.IsBombWindowActive && BombManager.Instance.IsNoteMarkedAsBomb(noteData))
+            {
+                return false;
+            }
+
+            return EnsureTemplate();
+        }
+
         internal bool EnsureWarmPoolSize(int desiredPoolSize)
         {
             desiredPoolSize = Mathf.Clamp(desiredPoolSize, 0, MaxPoolSize);
@@ -134,29 +168,14 @@ namespace BeatSurgeon.Gameplay
 
         internal bool TryMarkAndAttach(GameNoteController controller)
         {
-            if (controller == null)
+            if (!CanMarkNextNote(controller))
             {
-                return false;
-            }
+                // Already attached to this note: treat as success for late-jump retries.
+                if (controller != null && _activeEntries.ContainsKey(controller))
+                {
+                    return true;
+                }
 
-            NoteData noteData = controller.noteData;
-            if (!BombManager.IsEligibleBombNote(noteData))
-            {
-                return false;
-            }
-
-            if (_activeEntries.ContainsKey(controller))
-            {
-                return true;
-            }
-
-            if (_pendingEntries.First == null)
-            {
-                return false;
-            }
-
-            if (BombManager.IsBombWindowActive && BombManager.Instance.IsNoteMarkedAsBomb(noteData))
-            {
                 return false;
             }
 
@@ -210,6 +229,7 @@ namespace BeatSurgeon.Gameplay
             _activeEntries.Remove(controller);
             requesterName = activeEntry.RequesterName;
             CleanupVisual(activeEntry.VisualRoot);
+            ExclusiveNoteEffectArbiter.Release(controller);
             if (_pendingEntries.Count == 0 && _activeEntries.Count == 0)
             {
                 MultiplayerEffectPublisher.NotifyEffectEnded("subcubes");
@@ -232,6 +252,7 @@ namespace BeatSurgeon.Gameplay
             _activeEntries.Remove(controller);
             _pendingEntries.AddFirst(new QueuedEntry(activeEntry.RequesterName));
             CleanupVisual(activeEntry.VisualRoot);
+            ExclusiveNoteEffectArbiter.Release(controller);
             _log.Debug(
                 "Requeued subscriber TrailCube requester="
                 + activeEntry.RequesterName
@@ -256,6 +277,11 @@ namespace BeatSurgeon.Gameplay
         {
             foreach (ActiveEntry activeEntry in _activeEntries.Values)
             {
+                if (activeEntry?.Controller != null)
+                {
+                    ExclusiveNoteEffectArbiter.Release(activeEntry.Controller);
+                }
+
                 CleanupVisual(activeEntry.VisualRoot);
             }
 

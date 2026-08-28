@@ -789,6 +789,22 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
+        [UIValue("textMovementSpeed")]
+        public float TextMovementSpeed
+        {
+            get => Plugin.Settings?.TextMovementSpeed ?? 1f;
+            set
+            {
+                float clamped = Mathf.Clamp(value, 0.1f, 5f);
+                if (Plugin.Settings != null)
+                {
+                    Plugin.Settings.TextMovementSpeed = clamped;
+                }
+
+                NotifyPropertyChanged(nameof(TextMovementSpeed));
+            }
+        }
+
         [UIValue("flashbang_enabled")]
         public bool FlashbangEnabled
         {

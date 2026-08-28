@@ -12,7 +12,8 @@ namespace BeatSurgeon.Gameplay
     /// pure-C# fallback if the bundle children are missing:
     /// tiny RGB name text outlining each cube, then on cut a sparse RGB
     /// name sphere that expands away from the note-approach path.
-    /// Yields to glitter and trail-cube claims.
+    /// Shares notes exclusively with glitter and trail cubes via
+    /// <see cref="ExclusiveNoteEffectArbiter"/>.
     /// </summary>
     internal sealed class RaidFountainNoteManager : MonoBehaviour
     {
@@ -143,6 +144,45 @@ namespace BeatSurgeon.Gameplay
             return controller != null && _activeEntries.ContainsKey(controller);
         }
 
+        /// <summary>
+        /// Eligibility probe for exclusive claiming; does not consume the queue.
+        /// </summary>
+        internal bool CanMarkNextNote(GameNoteController controller)
+        {
+            if (controller == null)
+            {
+                return false;
+            }
+
+            NoteData noteData = controller.noteData;
+            if (!BombManager.IsEligibleBombNote(noteData))
+            {
+                return false;
+            }
+
+            if (_activeEntries.ContainsKey(controller))
+            {
+                return false;
+            }
+
+            if (_pendingEntries.First == null)
+            {
+                return false;
+            }
+
+            if (_activeEntries.Count >= MaxActiveNotes)
+            {
+                return false;
+            }
+
+            if (BombManager.IsBombWindowActive && BombManager.Instance.IsNoteMarkedAsBomb(noteData))
+            {
+                return false;
+            }
+
+            return FontBundleLoader.IsBombFontReady;
+        }
+
         internal bool EnsureWarmPoolSize(int desiredShardCount)
         {
             desiredShardCount = Mathf.Clamp(desiredShardCount, 0, MaxPoolSize);
@@ -221,34 +261,13 @@ namespace BeatSurgeon.Gameplay
 
         internal bool TryMarkAndAttach(GameNoteController controller)
         {
-            if (controller == null)
+            if (!CanMarkNextNote(controller))
             {
-                return false;
-            }
+                if (controller != null && _activeEntries.ContainsKey(controller))
+                {
+                    return true;
+                }
 
-            NoteData noteData = controller.noteData;
-            if (!BombManager.IsEligibleBombNote(noteData))
-            {
-                return false;
-            }
-
-            if (_activeEntries.ContainsKey(controller))
-            {
-                return true;
-            }
-
-            if (_pendingEntries.First == null)
-            {
-                return false;
-            }
-
-            if (_activeEntries.Count >= MaxActiveNotes)
-            {
-                return false;
-            }
-
-            if (BombManager.IsBombWindowActive && BombManager.Instance.IsNoteMarkedAsBomb(noteData))
-            {
                 return false;
             }
 
@@ -305,6 +324,7 @@ namespace BeatSurgeon.Gameplay
             _activeEntries.Remove(controller);
             RecycleOwnedShards(activeEntry);
             raiderName = activeEntry.RaiderName;
+            ExclusiveNoteEffectArbiter.Release(controller);
 
             if (explode)
             {
@@ -343,6 +363,7 @@ namespace BeatSurgeon.Gameplay
             _activeEntries.Remove(controller);
             RecycleOwnedShards(activeEntry);
             _pendingEntries.AddFirst(new QueuedEntry(activeEntry.RaiderName));
+            ExclusiveNoteEffectArbiter.Release(controller);
             _log.Debug(
                 "Requeued raid fountain raider="
                 + activeEntry.RaiderName
@@ -363,6 +384,7 @@ namespace BeatSurgeon.Gameplay
             }
 
             _instance.ClearTransientGameplayState("SceneExit");
+            ExclusiveNoteEffectArbiter.Clear();
         }
 
         private void Update()
@@ -933,7 +955,9 @@ namespace BeatSurgeon.Gameplay
         /// </summary>
         private static Vector3 BiasAwayFromNoteApproach(Vector3 direction)
         {
-            Vector3 approach = Camera.main != null ? Camera.main.transform.forward : Vector3.forward;
+            Vector3 approach = PlayerViewCamera.TryGet(out Camera viewCam)
+                ? viewCam.transform.forward
+                : Vector3.forward;
             if (approach.sqrMagnitude < 0.0001f)
             {
                 approach = Vector3.forward;
@@ -1387,6 +1411,14 @@ namespace BeatSurgeon.Gameplay
 
         private void ClearGameplayStatePreserveMenuPreview(string reason)
         {
+            foreach (ActiveEntry activeEntry in _activeEntries.Values)
+            {
+                if (activeEntry?.Controller != null)
+                {
+                    ExclusiveNoteEffectArbiter.Release(activeEntry.Controller);
+                }
+            }
+
             _activeEntries.Clear();
             _pendingEntries.Clear();
 
@@ -1420,6 +1452,14 @@ namespace BeatSurgeon.Gameplay
 
         private void ClearTransientGameplayState(string reason)
         {
+            foreach (ActiveEntry activeEntry in _activeEntries.Values)
+            {
+                if (activeEntry?.Controller != null)
+                {
+                    ExclusiveNoteEffectArbiter.Release(activeEntry.Controller);
+                }
+            }
+
             _activeEntries.Clear();
             _pendingEntries.Clear();
 

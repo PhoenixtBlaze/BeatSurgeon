@@ -33,18 +33,7 @@ namespace BeatSurgeon.Chat.Processors
         public async Task ExecuteAsync(ChatContext ctx, CancellationToken ct)
         {
             int requestedBits = NumericBitCommandParser.ParseRequestedBits(ctx?.MessageText, "!glitter");
-            if (ctx?.TriggerSource == TriggerSource.BitEvent
-                || ctx?.TriggerSource == TriggerSource.MultiplayerSync)
-            {
-                if (ctx.TriggerSource != TriggerSource.MultiplayerSync)
-                {
-                    await BitEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(ct).ConfigureAwait(false);
-                }
-            }
-            else
-            {
-                await BitEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
-            }
+            await EnsureAccessAsync(ctx, ct).ConfigureAwait(false);
 
             if (ctx?.TriggerSource != TriggerSource.BitEvent
                 && ctx?.TriggerSource != TriggerSource.MultiplayerSync)
@@ -59,6 +48,23 @@ namespace BeatSurgeon.Chat.Processors
                 true,
                 "bits=" + requestedBits + " source=" + (ctx != null ? ctx.TriggerSource.ToString() : TriggerSource.Chat.ToString()));
             await _gameplayManager.ApplyGlitterAsync(ctx, requestedBits, ct).ConfigureAwait(false);
+        }
+
+        private static async Task EnsureAccessAsync(ChatContext ctx, CancellationToken ct)
+        {
+            if (ctx?.TriggerSource == TriggerSource.MultiplayerSync)
+            {
+                return;
+            }
+
+            if (ctx?.TriggerSource == TriggerSource.AutomaticEvent
+                || ctx?.TriggerSource == TriggerSource.BitEvent)
+            {
+                await BitEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(ct).ConfigureAwait(false);
+                return;
+            }
+
+            await BitEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
         }
     }
 }

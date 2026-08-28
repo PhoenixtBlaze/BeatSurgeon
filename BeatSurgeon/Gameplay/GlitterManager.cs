@@ -217,6 +217,7 @@ namespace BeatSurgeon.Gameplay
             _activeEffects.Remove(controller);
             denomination = activeEffect.Denomination;
             requesterName = activeEffect.RequesterName;
+            ExclusiveNoteEffectArbiter.Release(controller);
             _log.Debug(
                 "Consumed glitter effect denomination="
                 + denomination
@@ -249,6 +250,7 @@ namespace BeatSurgeon.Gameplay
             _activeEffects.Remove(controller);
             denomination = activeEffect.Denomination;
             _pendingEffects.AddFirst(new QueuedEffectEntry(denomination, activeEffect.RequesterName));
+            ExclusiveNoteEffectArbiter.Release(controller);
             _log.Debug(
                 "Requeued glitter effect denomination="
                 + denomination
@@ -284,6 +286,7 @@ namespace BeatSurgeon.Gameplay
                 {
                     if (activeEffect?.Controller != null)
                     {
+                        ExclusiveNoteEffectArbiter.Release(activeEffect.Controller);
                         OutlineEmitterManager.Instance.DetachFromNote(activeEffect.Controller);
                         GlitterLoopEmitterManager.Instance.DetachFromNote(activeEffect.Controller);
                     }

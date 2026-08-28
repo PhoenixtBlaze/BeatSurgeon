@@ -32,14 +32,20 @@ namespace BeatSurgeon.HarmonyPatches
                 return false;
             }
 
-            NoteData noteData = gameNote.noteData;
-            if (GlitterManager.Instance.CanMarkNextEffect(gameNote, noteData))
+            if (SubscriberTrailCubeManager.Instance.IsNoteMarked(gameNote))
+            {
+                return true;
+            }
+
+            if (!ExclusiveNoteEffectArbiter.TryReserve(gameNote, ExclusiveNoteEffectKind.SubTrail))
             {
                 return false;
             }
 
+            NoteData noteData = gameNote.noteData;
             if (!SubscriberTrailCubeManager.Instance.TryMarkAndAttach(gameNote))
             {
+                ExclusiveNoteEffectArbiter.Release(gameNote);
                 return false;
             }
 

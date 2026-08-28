@@ -31,9 +31,20 @@ namespace BeatSurgeon.HarmonyPatches
                 return false;
             }
 
+            if (GlitterManager.Instance.IsNoteMarked(gameNote))
+            {
+                return true;
+            }
+
+            if (!ExclusiveNoteEffectArbiter.TryReserve(gameNote, ExclusiveNoteEffectKind.Glitter))
+            {
+                return false;
+            }
+
             NoteData noteData = gameNote.noteData;
             if (!GlitterManager.Instance.TryMarkNextEffect(gameNote, noteData, out int denomination))
             {
+                ExclusiveNoteEffectArbiter.Release(gameNote);
                 return false;
             }
 

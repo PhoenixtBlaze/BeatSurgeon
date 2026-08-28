@@ -32,9 +32,11 @@ namespace BeatSurgeon.Chat
         private readonly DeferredEventQueue _deferredEventQueue;
         private readonly AutomaticEffectDedupService _dedupService;
         private readonly ConcurrentQueue<ChatContext> _commandQueue = new ConcurrentQueue<ChatContext>();
+        private readonly ConcurrentQueue<ChatContext> _bombCommandQueue = new ConcurrentQueue<ChatContext>();
         private readonly SemaphoreSlim _commandQueueSignal;
         private readonly TimeSpan _commandDispatchInterval;
         private readonly int _maxQueuedCommands;
+        private const int MaxQueuedBombCommands = 2048;
         private readonly object _ircStateLock = new object();
 
         private CancellationTokenSource _cts;
@@ -47,6 +49,7 @@ namespace BeatSurgeon.Chat
         private StreamWriter _writer;
         private string _channelName;
         private int _queuedCommands;
+        private int _queuedBombCommands;
         private bool _chatPlexAcquired;
         private IChatPlexBridge _chatPlexBridge;
 
@@ -184,9 +187,19 @@ namespace BeatSurgeon.Chat
                 _chatPlexAcquired = false;
             }
 
+            CancellationTokenSource ircCts;
+            Task receiveTask;
+            Task dispatchTask;
+            lock (_ircStateLock)
+            {
+                ircCts = _cts;
+                receiveTask = _receiveTask;
+                dispatchTask = _commandDispatchTask;
+            }
+
             try
             {
-                _cts?.Cancel();
+                ircCts?.Cancel();
                 _dispatchCts?.Cancel();
                 _commandQueueSignal.Release();
             }
@@ -195,22 +208,119 @@ namespace BeatSurgeon.Chat
                 _log.Exception(ex, "Dispose.Cancel");
             }
 
+            // Unblock ReadLineAsync / SSL reads so the receive loop can observe cancellation.
             try
             {
                 _tcpClient?.Close();
+            }
+            catch (Exception ex)
+            {
+                if (!IsExpectedShutdownException(ex))
+                {
+                    _log.Exception(ex, "Dispose.CloseTcp");
+                }
+            }
+
+            WaitForBackgroundTask(receiveTask, "Dispose.awaitReceiveTask");
+            WaitForBackgroundTask(dispatchTask, "Dispose.awaitDispatchTask");
+
+            try
+            {
                 _sslStream?.Dispose();
                 _reader?.Dispose();
                 _writer?.Dispose();
             }
             catch (Exception ex)
             {
-                _log.Exception(ex, "Dispose.Cleanup");
+                if (!IsExpectedShutdownException(ex))
+                {
+                    _log.Exception(ex, "Dispose.Cleanup");
+                }
+                else
+                {
+                    _log.Debug("Dispose.Cleanup skipped expected shutdown exception: " + ex.GetType().Name);
+                }
+            }
+            finally
+            {
+                lock (_ircStateLock)
+                {
+                    _cts = null;
+                    _receiveTask = null;
+                    _tcpClient = null;
+                    _sslStream = null;
+                    _reader = null;
+                    _writer = null;
+                }
             }
 
             _log.Info("IRC client stopped");
         }
 
         internal void Shutdown() => Dispose();
+
+        private void WaitForBackgroundTask(Task task, string context)
+        {
+            if (task == null || task.IsCompleted)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!task.Wait(TimeSpan.FromSeconds(2)))
+                {
+                    _log.Debug(context + " timed out after 2s");
+                }
+            }
+            catch (AggregateException ae)
+            {
+                foreach (Exception ex in ae.Flatten().InnerExceptions)
+                {
+                    if (!IsExpectedShutdownException(ex))
+                    {
+                        _log.Debug(context + ": " + ex.GetType().Name + " - " + ex.Message);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!IsExpectedShutdownException(ex))
+                {
+                    _log.Debug(context + ": " + ex.GetType().Name + " - " + ex.Message);
+                }
+            }
+        }
+
+        private static bool IsExpectedShutdownException(Exception ex)
+        {
+            if (ex == null)
+            {
+                return false;
+            }
+
+            if (ex is ObjectDisposedException
+                || ex is OperationCanceledException
+                || ex is SocketException
+                || ex is IOException)
+            {
+                return true;
+            }
+
+            if (ex is InvalidOperationException)
+            {
+                string message = ex.Message ?? string.Empty;
+                return message.IndexOf("stream is currently in use", StringComparison.OrdinalIgnoreCase) >= 0
+                    || message.IndexOf("Cannot access a disposed object", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+
+            return false;
+        }
+
+        private static bool IsExpectedShutdownException(Exception ex, CancellationToken ct)
+        {
+            return ct.IsCancellationRequested || IsExpectedShutdownException(ex);
+        }
 
         private void StartIrcAsync()
         {
@@ -377,6 +487,18 @@ namespace BeatSurgeon.Chat
 
             if (string.IsNullOrWhiteSpace(_channelName))
             {
+                // Broadcaster login is populated by a separate identity lookup
+                // (EnsureIdentityAsync) that can still be in flight right after a fresh
+                // login/token refresh fires OnTokensUpdated. Resolve it inline instead of
+                // failing this connect attempt and waiting for the outer retry loop.
+                await _authManager.GetChannelUserIdAsync(ct).ConfigureAwait(false);
+                _channelName = string.IsNullOrWhiteSpace(_authManager.BroadcasterLogin)
+                    ? PluginConfig.Instance.CachedBroadcasterLogin
+                    : _authManager.BroadcasterLogin;
+            }
+
+            if (string.IsNullOrWhiteSpace(_channelName))
+            {
                 throw new InvalidOperationException("Cannot connect IRC: broadcaster login is unknown.");
             }
 
@@ -438,11 +560,20 @@ namespace BeatSurgeon.Chat
                         // No data for 60s - send a proactive PING to check if the server is alive.
                         try
                         {
+                            if (ct.IsCancellationRequested)
+                            {
+                                break;
+                            }
+
                             if (_writer != null)
                             {
                                 await _writer.WriteLineAsync("PING :tmi.twitch.tv").ConfigureAwait(false);
                                 _log.Debug("Sent proactive PING - waiting 30s for server response");
                             }
+                        }
+                        catch (Exception pingEx) when (IsExpectedShutdownException(pingEx, ct))
+                        {
+                            break;
                         }
                         catch (Exception pingEx)
                         {
@@ -489,6 +620,10 @@ namespace BeatSurgeon.Chat
                                 _log.Debug("Sent PONG response");
                             }
                         }
+                        catch (Exception ex) when (IsExpectedShutdownException(ex, ct))
+                        {
+                            break;
+                        }
                         catch (Exception ex)
                         {
                             _log.Exception(ex, "Failed to send PONG response");
@@ -517,6 +652,11 @@ namespace BeatSurgeon.Chat
                 catch (OperationCanceledException)
                 {
                     _log.Debug("IRC receive loop cancelled");
+                    break;
+                }
+                catch (Exception ex) when (IsExpectedShutdownException(ex, ct))
+                {
+                    _log.Debug("IRC receive loop ended during shutdown: " + ex.GetType().Name);
                     break;
                 }
                 catch (Exception ex)
@@ -599,6 +739,12 @@ namespace BeatSurgeon.Chat
                 return;
             }
 
+            if (IsBombFamilyChatCommand(ctx))
+            {
+                TryEnqueueBombCommandContext(ctx);
+                return;
+            }
+
             int queued = Interlocked.Increment(ref _queuedCommands);
             if (queued > _maxQueuedCommands)
             {
@@ -622,6 +768,49 @@ namespace BeatSurgeon.Chat
             {
                 Interlocked.Decrement(ref _queuedCommands);
             }
+        }
+
+        private void TryEnqueueBombCommandContext(ChatContext ctx)
+        {
+            int queued = Interlocked.Increment(ref _queuedBombCommands);
+            if (queued > MaxQueuedBombCommands)
+            {
+                Interlocked.Decrement(ref _queuedBombCommands);
+                _log.Warn(
+                    "BombCommandQueueFull - rejecting bomb command from user="
+                    + ctx.Username
+                    + " queueSize="
+                    + queued
+                    + " source="
+                    + ctx.TriggerSource);
+                return;
+            }
+
+            _bombCommandQueue.Enqueue(ctx);
+            try
+            {
+                _commandQueueSignal.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+                Interlocked.Decrement(ref _queuedBombCommands);
+            }
+        }
+
+        private static bool IsBombFamilyChatCommand(ChatContext ctx)
+        {
+            if (ctx == null || string.IsNullOrWhiteSpace(ctx.MessageText))
+            {
+                return false;
+            }
+
+            if (!ChatContext.TryExtractFirstCommandToken(ctx.MessageText, out string rawCommand, out _, out _))
+            {
+                return false;
+            }
+
+            string normalized = CommandRuntimeSettings.NormalizeCommand(rawCommand);
+            return CommandRuntimeSettings.IsBombFamilyCommand(normalized);
         }
 
         private static ChatContext CreateBitEventContext(ChatContext source)
@@ -661,25 +850,27 @@ namespace BeatSurgeon.Chat
                     break;
                 }
 
-                while (_commandQueue.TryDequeue(out ChatContext queuedCtx))
+                while (TryDequeueNextCommand(out ChatContext queuedCtx))
                 {
-                    Interlocked.Decrement(ref _queuedCommands);
-
                     if (!ChatEnabled || queuedCtx == null)
                     {
                         continue;
                     }
 
-                    TimeSpan wait = nextAllowedAt - DateTime.UtcNow;
-                    if (wait > TimeSpan.Zero)
+                    bool isBombCommand = IsBombFamilyChatCommand(queuedCtx);
+                    if (!isBombCommand)
                     {
-                        try
+                        TimeSpan wait = nextAllowedAt - DateTime.UtcNow;
+                        if (wait > TimeSpan.Zero)
                         {
-                            await Task.Delay(wait, ct).ConfigureAwait(false);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            return;
+                            try
+                            {
+                                await Task.Delay(wait, ct).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                return;
+                            }
                         }
                     }
 
@@ -696,9 +887,30 @@ namespace BeatSurgeon.Chat
                         _log.Exception(ex, "CommandDispatchLoopAsync");
                     }
 
-                    nextAllowedAt = DateTime.UtcNow + _commandDispatchInterval;
+                    if (!isBombCommand)
+                    {
+                        nextAllowedAt = DateTime.UtcNow + _commandDispatchInterval;
+                    }
                 }
             }
+        }
+
+        private bool TryDequeueNextCommand(out ChatContext queuedCtx)
+        {
+            if (_bombCommandQueue.TryDequeue(out queuedCtx))
+            {
+                Interlocked.Decrement(ref _queuedBombCommands);
+                return true;
+            }
+
+            if (_commandQueue.TryDequeue(out queuedCtx))
+            {
+                Interlocked.Decrement(ref _queuedCommands);
+                return true;
+            }
+
+            queuedCtx = null;
+            return false;
         }
 
         private static bool TryParsePrivMsg(string raw, out ChatContext ctx)

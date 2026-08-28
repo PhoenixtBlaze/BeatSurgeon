@@ -266,6 +266,15 @@
 						apply-on-change="true"
 						hover-hint="When enabled, Beat Surgeon will apply the same commands/effects to your game that your multiplayer+ lobby leader gets" />
 
+					<slider-setting
+						text="Text movement speed"
+						value="textMovementSpeed"
+						min="0.1"
+						max="5"
+						increment="0.1"
+						apply-on-change="true"
+						hover-hint="Preview setting for on-screen effect text motion (not wired yet)" />
+
 					<toggle-setting
 						text="Auto-Disable everything on Ranked maps"
 						value="rankedAutoDisable"

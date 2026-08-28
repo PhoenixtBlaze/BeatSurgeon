@@ -34,14 +34,28 @@ namespace BeatSurgeon.Chat.Processors
         {
             int requestedNotes = NumericBitCommandParser.ParseRequestedBits(ctx?.MessageText, "!raid");
             int clampedNotes = RaidFountainNoteManager.ClampNoteCount(requestedNotes);
-            if (ctx?.TriggerSource != TriggerSource.MultiplayerSync)
-            {
-                await RaidEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
-            }
+            await EnsureAccessAsync(ctx, ct).ConfigureAwait(false);
 
             string displayName = string.IsNullOrWhiteSpace(ctx?.Username) ? "Someone" : ctx.Username.Trim();
             _log.Command(ctx.Username, ctx.Command, true, "notes=" + clampedNotes + " displayName=" + displayName);
             await _gameplayManager.ApplyRaidEffectAsync(ctx, displayName, clampedNotes, ct).ConfigureAwait(false);
+        }
+
+        private static async Task EnsureAccessAsync(ChatContext ctx, CancellationToken ct)
+        {
+            if (ctx?.TriggerSource == TriggerSource.MultiplayerSync)
+            {
+                return;
+            }
+
+            if (ctx?.TriggerSource == TriggerSource.AutomaticEvent
+                || ctx?.TriggerSource == TriggerSource.BitEvent)
+            {
+                await RaidEffectAccessController.EnsureAutomaticEffectAuthorizedAsync(ct).ConfigureAwait(false);
+                return;
+            }
+
+            await RaidEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
         }
     }
 }
