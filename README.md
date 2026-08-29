@@ -14,7 +14,7 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 *   **Speed Modifiers:** Temporarily speed up (`!faster`, `!superfast`) or slow down (`!slower`) the song.
 *   **Raid & Supporter Effects:** When the streamer is a verified Beat Surgeon supporter, chat can trigger raid name fountains, glitter bursts, and follow/sub message effects.
 
-> **⚠️ A Note from the Developer**
+> **ΓÜá∩╕Å A Note from the Developer**
 >
 > I develop and support **Beat Surgeon** full-time to bring more fun, interactive features to the Beat Saber community.
 >
@@ -55,20 +55,19 @@ Once that is true:
 - Individual viewers do **not** need to be Beat Surgeon supporters themselves.
 - Visual customization (fonts, bomb explosion style, raid cut style, Edit Visuals, Text Movement Speed previews) remains supporter-only for the streamer.
 
-**Automatic EventSub / Bits** (when the matching toggle is on) fire from real Twitch events without anyone typing a command. Typed chat / Channel Point versions of these effects still require the streamer to be a verified supporter.
+**Automatic EventSub / Bits** (when the matching toggle is on) fire from real Twitch events without anyone typing a command. Typed chat versions of these effects still require the streamer to be a verified supporter.
 
-*   **Glitter (`!glitter <bits>`)**: Triggered by Twitch Bits/cheers or chat (when Bit Effect is enabled). Spawns a glitter particle burst on notes. Bit amount is accepted as a parameter; chat usage is hard-capped at 10,000 bits equivalent. Has its own cooldown (default: 10s).
-*   **Subscriber Message (`!smsg <text>`)**: Available to Twitch **subscribers, moderators, and the broadcaster** when Sub Effects are enabled. Displays a custom in-game message (up to 100 characters) and can spawn trail cubes on notes. Also triggers on subscription / resub / gift events. Trail cube counts: new sub 5 (10 for Prime), resub 5 (10 for Prime), gift sub 5 × gift count; multi-month new subs add +5 cubes per month after the first.
-*   **Follower Message (`!fmsg <text>`)**: Available when Follow Effects are enabled. Displays a custom in-game message effect (up to 100 characters). Also triggers on follow events.
-*   **Raid (`!raid`)**: When Raid Effects are enabled, places raider-name fountain notes in the map. Also triggers automatically on inbound Twitch raids via EventSub. Optional note-count parameter is supported (clamped per raid).
+*   **Glitter (`!glitter <bits>`)**: Triggered by Twitch Bits/cheers or chat (when Bit Effect is enabled). Spawns a glitter particle burst on notes. Bit amount is accepted as a parameter; chat usage is hard-capped at 10,000 bits equivalent. Chat/command glitter uses its own cooldown (default: 10s; automatic cheers are not held to that same lock).
+*   **Subscriber Message (`!smsg <text>`)**: When Sub Effects are enabled, typed `!smsg` is available to whoever passes your Live Services permission toggles (Allow Everyone / VIPs / Subscribers; mods and broadcaster always allowed). Displays a custom in-game message (up to 100 characters) and can spawn trail cubes on notes. Also triggers on subscription / resub / gift events. Trail cube counts: new sub 5 (10 for Prime), resub 5 (10 for Prime), gift sub 5 ├ù gift count; multi-month new subs add +5 cubes per month after the first.
+*   **Follower Message (`!fmsg <text>`)**: Available when Follow Effects are enabled, subject to the same Live Services permission toggles. Displays a custom in-game message effect (up to 100 characters). Also triggers on follow events.
+*   **Raid (`!raid`)**: When Raid Effects are enabled, places raider-name fountain notes in the map (typed use follows Live Services permissions). Also triggers automatically on inbound Twitch raids via EventSub. Optional note-count parameter is supported (clamped per raid).
 
 ### Robust Moderation & Control
-*   **Global Disable/Enable**: Moderators can instantly shut down all mod interactivity with `!surgeon disable` (and restore it with `!surgeon enable`) if things get too chaotic.
-*   **Granular Command Control**: Moderators can disable specific problematic commands (e.g., `!surgeon bomb disable`) without stopping the entire mod.
+*   **Global Disable/Enable**: Moderators can block **all typed chat commands** with `!surgeon disable` (and restore them with `!surgeon enable`). This does **not** turn off automatic EventSub effects or Channel Point rewards.
+*   **Granular Command Control**: Moderators can disable specific core commands (e.g., `!surgeon bomb disable`) without stopping the entire mod.
 *   **Cooldown Management**:
-    *   **Global Cooldowns**: Enforce a universal wait time between *any* command usage.
-    *   **Per-Command Cooldowns**: Set specific timers for individual effects (e.g., allow `!rainbow` often, but restrict `!superfast`).
-*   **Permission Gating**: Restrict all gameplay commands to specific audience groups - Everyone (default), VIPs only, or Subscribers only. Configured in the surgeon settings tab.
+    *   **Per-Command Cooldowns**: Set specific timers for individual core effects (e.g., allow `!rainbow` often, but restrict `!superfast`). A Global Cooldown control exists in the UI but is not enforced by the current runtime.
+*   **Permission Gating**: Restrict typed `!` commands with independent toggles - Allow Everyone (default), Allow VIPs, and/or Allow Subscribers. Configured on the **Live Services** tab.
 *   **Custom Aliases**: Rename commands like `!bomb` to fit your channel's theme (e.g., `!boop` or `!prank`).
 *   **Ranked Map Auto-Protection**: When Beat Surgeon detects a ranked map (ScoreSaber, BeatLeader, or AccSaber), all commands are automatically blocked to protect your score. A chat notification is sent when this triggers. Individually configurable per leaderboard in the mod settings.
 
@@ -111,10 +110,10 @@ Enable or disable individual commands using visual icon toggle buttons. Enabled 
 #### 2. Live Services Tab
 Manage your Twitch connection, optional YouTube link, and control who is allowed to use chat commands.
 
-*   **Twitch Status:** Live read-only display of your current connection state (e.g. `Connected`, `Connected • Supporter Verified (Tier 1)`, or `Not connected`).
+*   **Twitch Status:** Live read-only display of your current connection state (e.g. `Connected`, `Connected ΓÇó Supporter Verified (Tier 1)`, or `Not connected`).
 *   **Connect Twitch / Log Out Twitch:** Opens a browser window to link or disconnect your Twitch account from the Beat Surgeon backend. Required for Channel Points and Supporter feature verification.
-*   **YouTube Status:** Live read-only display of your YouTube link state. (Only avialable after twitch is connected for now. )
-*   **Connect YouTube / Log Out YouTube:** Optionally link or disconnect a YouTube account for Beat Surgeon YouTube integration. (Only accepted supporters can login after a request 99 spots available currently)
+*   **YouTube Status:** Live read-only display of your YouTube link state. (Only available after Twitch is connected for now.)
+*   **Connect YouTube / Log Out YouTube:** Optionally link or disconnect a YouTube account for Beat Surgeon YouTube integration. (Verified supporters; limited spots ΓÇö contact Discord to request access.)
 *   **Who can use `!` commands?** - Three independent toggles to gate command access:
     *   **Allow Everyone** - Any viewer can use commands.
     *   **Allow VIPs** - Only VIP users can use commands.
@@ -128,7 +127,7 @@ Manage your Twitch connection, optional YouTube link, and control who is allowed
 General mod behaviour, text travel, and ranked map protection settings.
 
 *   **Enable Surgeon Multiplayer Effects** - When enabled, Beat Surgeon applies the same commands and effects to your game that your Multiplayer+ lobby leader receives.
-*   **Text Movement Speed** - How long bomb cut text, glitter travel text, and raid cut text take to reach their end target (default **5** seconds; range about 0.5–20). Adjust this if text feels too fast or too slow.
+*   **Text Movement Speed** - How long bomb cut text, glitter travel text, and raid cut text take to reach their end target (default **5** seconds; range about 0.5ΓÇô20). Adjust this if text feels too fast or too slow.
 *   **Auto-Disable everything on Ranked maps** - When enabled, all commands and Channel Point rewards are automatically stopped and blocked whenever a ranked map is detected. Individually configurable per leaderboard:
     *   **BeatLeader** - Detect BeatLeader ranked maps for auto-disable.
     *   **ScoreSaber** - Detect ScoreSaber ranked maps for auto-disable.
@@ -155,12 +154,12 @@ General mod behaviour, text travel, and ranked map protection settings.
 Control how often chat can trigger effects to balance chaos with playability.
 
 *   **Global Cooldown:**
-    *   **Toggle:** When enabled, triggering *any* command puts *all* other commands on cooldown.
-    *   **Duration:** Set the universal wait time (default: 60s). Steps in **1 second** increments.
+    *   **Toggle / Duration:** Shown in the Cooldowns panel (1 second steps), but **not enforced** by the current runtime. Use **per-command** cooldowns for real rate control.
 *   **Per-Command Cooldowns:**
-    *   **Toggle:** Switch to granular control where each command runs on its own timer.
+    *   **Toggle:** Switch to granular control where each listed command runs on its own timer.
     *   **Sliders:** Adjust individual cooldowns for `Rainbow`, `Ghost`, `Disappear`, `Bomb`, `Faster`, `SuperFast`, `Slower`, and `Flashbang` (1 second steps).
-    *   **Bomb** can be set as low as **0** (no cooldown) so `!bomb` / `!bmsg` can be used more freely; other commands use the same 1-second stepping so values like **30** remain reachable after setting a low cooldown.
+    *   **Bomb** can be set as low as **0** (no cooldown) so `!bomb` / `!bmsg` can be used more freely; other listed commands use the same 1-second stepping so values like **30** remain reachable after setting a low cooldown.
+    *   Typed `!smsg` / `!raid` do not currently use a dedicated per-command cooldown slider; `!fmsg` is cooldown-exempt.
 *   **Speed Exclusivity:**
     *   **Toggle:** When enabled, prevents speed modifiers from stacking. Activating `!faster` will automatically cancel an active `!slower` or `!superfast` effect, ensuring the song remains playable.
 
@@ -191,7 +190,7 @@ Configure Twitch Channel Point rewards for each effect without leaving the lobby
    
 <img width="1023" height="716" alt="image" src="https://github.com/user-attachments/assets/8cd0606c-0aae-4fde-98c3-2f0f37e83250" />   
 
-*   **Connection Status:** Real-time display showing your Twitch connection state. When you are a verified supporter, this will also show your supporter tier (e.g., `Connected • Supporter Verified (Tier 1)`).
+*   **Connection Status:** Real-time display showing your Twitch connection state. When you are a verified supporter, this will also show your supporter tier (e.g., `Connected ΓÇó Supporter Verified (Tier 1)`).
 
 <img width="980" height="712" alt="image" src="https://github.com/user-attachments/assets/1a1c3647-39bb-4340-9df5-366e90cc3986" />
 
@@ -208,7 +207,7 @@ Configure Twitch Channel Point rewards for each effect without leaving the lobby
 
 To say thank you to those who support the development of Beat Surgeon, exclusive commands and customization options are available when **the streamer** is a verified **Supporter**.
 
-**Note:** To activate these benefits, you must connect to the **Beat Surgeon Backend** via the Twitch tab in the mod settings (see *Twitch Chat Setup* below). The mod verifies your supporter status securely. Supporter status is detected for both **Twitch Subscribers** and **Patreon supporters**.
+**Note:** To activate these benefits, you must connect to the **Beat Surgeon Backend** via the **Live Services** tab in the mod settings (see *Twitch Chat Setup* below). The mod verifies your supporter status securely. Supporter status is detected for both **Twitch Subscribers** and **Patreon supporters**.
 
 Once verified:
 - Bit / Sub / Follow / Raid **toggles** on the Surgeon Commands tab become usable for your channel.
@@ -216,7 +215,7 @@ Once verified:
 - **Edit Visuals** buttons appear throughout the Cooldowns screen for supported effects.
 - Typed supporter commands (`!glitter`, `!smsg`, `!fmsg`, `!raid`) become available to **your viewers** (according to each command's own audience rules and toggles).
 - Automatic Twitch events (cheers, follows, subs, inbound raids) still respect their toggles when EventSub is connected.
-- The "Support Beat Surgeon" button at the bottom of the settings screen is replaced with a **"Supporter features unlocked 💙"** confirmation - no restart needed.
+- The "Support Beat Surgeon" button at the bottom of the settings screen is replaced with a **"Supporter features unlocked ≡ƒÆÖ"** confirmation - no restart needed.
 
 > If you don't see the Edit Visuals buttons or the Supporter tab after connecting, exit and re-select Beat Surgeon in the mods tab to refresh the UI.
 
@@ -228,10 +227,10 @@ These commands unlock for your channel once **you** are a verified supporter. Yo
 
 | Command | Toggle in Settings | Who Can Use | Description |
 | :--- | :--- | :--- | :--- |
-| **`!glitter <bits>`** | **Bit Effect** | All chat (when Bit Effect enabled) / Bit Events | Spawns a glitter particle burst on notes. Accepts a bit amount as a parameter; chat usage is capped at 10,000. Has its own cooldown (default: 10s). Automatic cheers also fire when Bit Effect is on. |
-| **`!smsg <text>`** | **Sub Effects** | All chat (when Sub Effect enabled) / Sub-Resub-Gift Sub Events | Displays a custom in-game message (up to 100 characters) and may spawn trail cubes. Triggered also when viewers subscribe / resub / gift. |
-| **`!fmsg <text>`** | **Follow Effects** | All chat (when Follow Effects enabled) / follow events | Displays a custom in-game message (up to 100 characters). Triggered also when viewers follow. |
-| **`!raid`** | **Raid Effects** | All Chat (when Raid Effects enabled) / inbound Twitch raids | Spawns raid-name fountain notes. Also triggers automatically on EventSub raid events. |
+| **`!glitter <bits>`** | **Bit Effect** | All chat allowed by Live Services permissions (when Bit Effect enabled) / Bit Events | Spawns a glitter particle burst on notes. Accepts a bit amount as a parameter; chat usage is capped at 10,000. Typed `!glitter` uses glitter cooldown (default: 10s). Automatic cheers also fire when Bit Effect is on. |
+| **`!smsg <text>`** | **Sub Effects** | All chat allowed by Live Services permissions (when Sub Effects enabled) / sub-resub-gift events | Displays a custom in-game message (up to 100 characters) and may spawn trail cubes. Also fires on subscribe / resub / gift. |
+| **`!fmsg <text>`** | **Follow Effects** | All chat allowed by Live Services permissions (when Follow Effects enabled) / follow events | Displays a custom in-game message (up to 100 characters). Also fires on follow. |
+| **`!raid`** | **Raid Effects** | All chat allowed by Live Services permissions (when Raid Effects enabled) / inbound Twitch raids | Spawns raid-name fountain notes. Also triggers automatically on EventSub raid events. |
 
 ---
 
@@ -240,21 +239,21 @@ These commands unlock for your channel once **you** are a verified supporter. Yo
 Each effect below gains an **Edit Visuals** button in the Cooldowns settings screen once you are authenticated with the backend. Effects without a visuals modal (Faster, SuperFast, Slower) have no Edit Visuals button.
 
 #### **Bomb Visuals**
-- **Spawn Distance:** How far in front of the player the bomb cut text appears (2–20 units, increment 0.5).
-- **Start Colour:** The beginning color of the gradient on the bomb cut text (animates from Start → End over time).
+- **Spawn Distance:** How far in front of the player the bomb cut text appears (2ΓÇô20 units, increment 0.5).
+- **Start Colour:** The beginning color of the gradient on the bomb cut text (animates from Start ΓåÆ End over time).
 - **End Colour:** The ending color of the gradient on the bomb cut text (default is blue fading to white).
 
 <img width="991" height="515" alt="image" src="https://github.com/user-attachments/assets/297e8ddb-9fb5-4be0-90fd-ac9741112123" />
 
 
 #### **Rainbow Visuals**
-- **Cycle Speed:** Controls how fast the rainbow color gradient cycles across notes (0.01–5; lower = slower). Includes a live note preview panel in the modal.
+- **Cycle Speed:** Controls how fast the rainbow color gradient cycles across notes (0.01ΓÇô5; lower = slower). Includes a live note preview panel in the modal.
 
 <img width="997" height="549" alt="image" src="https://github.com/user-attachments/assets/ffe205ae-adbe-40ef-8670-1e1de00d5cec" />
 
 
 #### **Disappearing Arrows Visuals**
-- **Fade Duration (ms):** How long before arrows fade from notes (0.1–5, increment 0.1). Default is 0.30.
+- **Fade Duration (seconds):** How long before arrows fade from notes (0.1ΓÇô5, increment 0.1). Default is 0.30.
 
 <img width="859" height="508" alt="image" src="https://github.com/user-attachments/assets/555270bb-012d-45ab-a71d-7dd02d55e875" />
 
@@ -263,7 +262,7 @@ Each effect below gains an **Edit Visuals** button in the Cooldowns settings scr
 - No active settings yet - placeholder for future customisation.
 
 #### **Flashbang Visuals**
-- **Brightness Multiplier:** Controls the intensity of the flashbang effect (1–200, increment 5; higher = brighter). Default is 91.
+- **Brightness Multiplier:** Controls the intensity of the flashbang effect (1ΓÇô200, increment 5; higher = brighter). Default is 90.
 
 <img width="929" height="548" alt="image" src="https://github.com/user-attachments/assets/1b1f132c-5e9b-41e3-8a75-ecb4007930f4" />
 
@@ -322,18 +321,18 @@ Choose how raid fountain notes explode when cut:
 
 | Command | Description | Duration | Default Cooldown |
 | :--- | :--- | :--- | :--- |
-| **`!glitter <bits>`** | Spawns a glitter particle burst on notes. Also fires automatically on Bits/cheers when Bit Effect is enabled. | Burst | 10s |
-| **`!smsg <text>`** | Subscriber/mod/broadcaster in-game message (up to 100 characters). Also fires on sub / resub / gift events with trail cubes. | Effect | 60s |
-| **`!fmsg <text>`** | Follower in-game message (up to 100 characters). Also fires on follow events. | Effect | Follow cooldown |
-| **`!raid`** | Spawns raid-name fountain notes. Also fires on inbound Twitch raids. | Until cut / effect | Raid cooldown |
+| **`!glitter <bits>`** | Spawns a glitter particle burst on notes. Also fires automatically on Bits/cheers when Bit Effect is enabled. | Burst | 10s (typed `!glitter`) |
+| **`!smsg <text>`** | In-game message + optional trail cubes (up to 100 characters). Viewers need Live Services permission; streamer must be a verified supporter with Sub Effects on. Also fires on sub / resub / gift events. | Effect | None (no dedicated slider today) |
+| **`!fmsg <text>`** | In-game message (up to 100 characters). Same Live Services permission model; Follow Effects on. Also fires on follow events. | Effect | None (cooldown-exempt) |
+| **`!raid`** | Spawns raid-name fountain notes. Also fires on inbound Twitch raids. | Until cut / effect | None (no dedicated slider today) |
 
 ### Moderator Commands
 *Restricted to Broadcasters and Moderators only.*
 
 | Command | Action | Description |
 | :--- | :--- | :--- |
-| **`!surgeon disable`** | **Global Disable** | Instantly disables ALL commands. Useful for serious attempts or if chat spams too much. |
-| **`!surgeon enable`** | **Global Enable** | Re-enables all commands that were previously active. |
+| **`!surgeon disable`** | **Global Disable** | Blocks all **typed chat** commands (including supporter chat commands). Does not disable automatic EventSub effects or Channel Point rewards. |
+| **`!surgeon enable`** | **Global Enable** | Re-enables typed chat commands that were previously active. |
 | **`!surgeon <cmd> disable`** | **Disable Specific** | Disables a single command type (e.g., `!surgeon bomb disable`). |
 | **`!surgeon <cmd> enable`** | **Enable Specific** | Re-enables a single command type (e.g., `!surgeon bomb enable`). |
 
@@ -350,6 +349,7 @@ To use Beat Surgeon, you need a PC version of Beat Saber (Steam or Oculus) and t
 *   **[AssetBundleLoadingTools](https://github.com/nicoco007/AssetBundleLoadingTools)**
 *   **[BSIPA](https://github.com/bsmg/BeatSaber-IPA-Reloaded)** (v4.3.6 or later)
 *   **[BeatSaberMarkupLanguage (BSML)](https://github.com/monkeymanboy/BeatSaberMarkupLanguage)** (v1.12.5 or later)
+*   **[BS Utils](https://github.com/Kylemc1413/BS-Utils)** (v1.14.2 or later)
 
 ---
 
@@ -403,13 +403,13 @@ To enable **Supporter Benefits**, Channel Points management, and to unlock Edit 
 
 ### Optional: YouTube Connection
 
-From the same Twitch tab you can also **Connect YouTube** or **Log Out YouTube**. This links a YouTube account to Beat Surgeon for YouTube integration. Twitch remains the primary chat/command path for most users.
+From the same **Live Services** tab you can also **Connect YouTube** or **Log Out YouTube**. Connect buttons are shown for verified supporters. Twitch remains the primary chat/command path for most users.
 
-Youtube while available to everyone to use has limited number of spots because of how it's setup.
+YouTube integration has a limited number of spots because of how it is set up.
 
-Currently 99 spots are available and supporters get first claim to it.
+Currently 99 spots are available and supporters get first claim.
 
-If you want to use youtube with Beat surgeon Please contact me on Discord so I can set you up.
+If you want to use YouTube with Beat Surgeon, please contact me on Discord so I can set you up.
 
 ---
 
@@ -422,7 +422,7 @@ Once verified on either platform:
 - The **Supporter** tab appears for fonts / bomb explosion / raid cut customization.
 - **Edit Visuals** buttons appear throughout the Cooldowns screen.
 - Supporter commands (`!glitter`, `!smsg`, `!fmsg`, `!raid`) become available to your chat.
-- The **"Support this project 💙"** button at the bottom of the settings screen is replaced by a **"Supporter features unlocked 💙"** confirmation text automatically.
+- The **"Support this project ≡ƒÆÖ"** button at the bottom of the settings screen is replaced by a **"Supporter features unlocked ≡ƒÆÖ"** confirmation text automatically.
 
 ---
 
@@ -440,7 +440,7 @@ Once verified on either platform:
 **Requirement:** An active pledge on the [Beat Surgeon Patreon](https://www.patreon.com/PhoenixBlaze0).
 
 1. Open Beat Saber and navigate to **Beat Surgeon** in the Mod Settings menu.
-2. At the bottom of the settings screen, click the **"Support this project 💙"** button.
+2. At the bottom of the settings screen, click the **"Support this project ≡ƒÆÖ"** button.
 3. A **Support Beat Surgeon** screen will appear, showing two platform options (Patreon and Twitch logos).
 
 <img width="693" height="529" alt="image" src="https://github.com/user-attachments/assets/4da723a3-34b2-4894-9192-277762a417e3" />
@@ -469,7 +469,7 @@ Once verified on either platform:
 
 ## Support Development
 
-I am working on **Beat Surgeon** full-time to create the best possible interactive experience for Beat Saber streamers. As a solo developer still mastering the Beat Saber codebase, this project is a labor of love-and a significant amount of time investment.
+I am working on **Beat Surgeon** full-time to create the best possible interactive experience for Beat Saber streamers. As a solo developer, this project is a labor of love and a significant time investment.
 
 If you enjoy the chaos this mod brings to your streams and want to support its continued development, optimization, and new features, please consider supporting me:
 
@@ -491,12 +491,12 @@ Thank you for helping me keep the lights on and the sabers swinging!
 *   **v2.0.0** (Current)
 
     *   **Release:** First full **2.0.0** release line for Beat Saber **v1.40.8**
-    *   **New Feature:** **Text Movement Speed (Seconds)** in Surgeon Settings — controls travel time for bomb cut text, glitter travel, and raid cut text (default 5s).
+    *   **New Feature:** **Text Movement Speed (Seconds)** in Surgeon Settings ΓÇö controls travel time for bomb cut text, glitter travel, and raid cut text (default 5s).
     *   **Improvement:** Cooldown sliders step by **1 second** so values like 30s stay reachable after setting a low cooldown.
     *   **Improvement:** Bomb / `!bmsg` cooldown can be set to **0** for freer chat bomb spam while other commands keep normal stepping.
     *   **Improvement:** Bit / Sub / Follow / Raid toggles live on the **Surgeon Commands** tab; **Supporter** tab is only shown to verified supporters and focuses on fonts / explosion / raid-cut customization.
     *   **Improvement:** Clearer split between **automatic** Twitch events (cheer / follow / sub / inbound raid when toggles are on) and **typed** supporter chat / Channel Point commands (require streamer supporter unlock).
-    *   **Improvement:** Subscriber trail cube counts for EventSub: new sub 5 (10 Prime), resub 5 (10 Prime), gift 5 × count, multi-month new subs +5 per extra month.
+    *   **Improvement:** Subscriber trail cube counts for EventSub: new sub 5 (10 Prime), resub 5 (10 Prime), gift 5 ├ù count, multi-month new subs +5 per extra month.
     *   **Improvement:** Exclusive note claiming between glitter, sub trail cubes, and raid fountains so note effects share the map more fairly.
     *   **Improvement:** Multiplayer sync coverage for supporter effects (raid, glitter, messages) when Multiplayer+ + Surgeon Multiplayer Effects are enabled.
     *   **Improvement:** Glitter / bit bursts travel with flying cut name text; outline / lightning VR hardening.
@@ -517,10 +517,10 @@ Thank you for helping me keep the lights on and the sabers swinging!
     *   **New Feature** Multiplayer+ effect sync - lobby members with Beat Surgeon installed receive the same effects as the lobby host's chat triggers.
     *   **New Feature:** Added Supporter Tab in the Surgeon gameplay setup view - unlocks automatically when Twitch Subscription or Patreon supporter tier is verified via the backend.
     *   **New Feature:** Added `!glitter <bits>` command - spawns a glitter particle burst on notes, triggered by Bit Events or chat (when Bit Effect is enabled, capped at 10,000 bits for command).
-    *   **New Feature:** Added `!smsg <text>` command - subscriber-exclusive in-game message effect (up to 100 characters; available to subscribers, moderators, and broadcaster).
+    *   **New Feature:** Added `!smsg <text>` command - in-game subscriber-message effect (up to 100 characters) for viewers allowed by chat permission toggles when the streamer is a verified supporter with Sub Effects enabled.
     *   **New Feature:** Added `!fmsg <text>` command - follower in-game message effect (up to 100 characters; requires Follow Effects backend authorization).
     *   **New Feature:** Added Patreon backend support tier verification alongside Twitch subscription checking.
-    *   **New Feature:** Connection status in the Twitch sub-tab now displays verified supporter tier (e.g., `Connected • Supporter Verified (Tier 1)`).
+    *   **New Feature:** Connection status in the Twitch sub-tab now displays verified supporter tier (e.g., `Connected ΓÇó Supporter Verified (Tier 1)`).
     *   **New Feature:** Subscribe button in the Twitch sub-tab is automatically replaced with supporter status text once verification is confirmed.
     *   **New Feature:** Added ranked map auto-protection - all commands/effects are blocked on ScoreSaber, BeatLeader, and AccSaber ranked maps, individually configurable.
     *   **New Feature:** Added permission gating - commands can be restricted to Everyone (default), VIPs only, or Subscribers only.
@@ -563,7 +563,7 @@ Thank you for helping me keep the lights on and the sabers swinging!
 
 ## License
 
-**Copyright © PhoenixBlaze0 2025-26**
+**Copyright ┬⌐ PhoenixBlaze0 2025-26**
 
 This project is proprietary. All rights reserved.
 
@@ -580,8 +580,8 @@ This project is proprietary. All rights reserved.
 *   **Development & Design:** [PhoenixBlaze0](https://github.com/PhoenixBlaze0)
 *   **UI Framework:** Built using **[BeatSaberMarkupLanguage (BSML)](https://github.com/monkeymanboy/BeatSaberMarkupLanguage)**.
 *   **Inspirations:**
-    *   **[GameplayModifiersPlus](https://github.com/Kylemc1413/GameplayModifiersPlus)** by Kylemc1413 – The original inspiration for chat-controlled modifiers.
-    *   **[StreamPartyCommands](https://github.com/denpadokei/StreamPartyCommand)** – For ideas on interactive viewer commands like bombs.
+    *   **[GameplayModifiersPlus](https://github.com/Kylemc1413/GameplayModifiersPlus)** by Kylemc1413 ΓÇô The original inspiration for chat-controlled modifiers.
+    *   **[StreamPartyCommands](https://github.com/denpadokei/StreamPartyCommand)** ΓÇô For ideas on interactive viewer commands like bombs.
 
 ---
 
