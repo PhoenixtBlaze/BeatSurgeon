@@ -267,18 +267,19 @@
 						hover-hint="When enabled, Beat Surgeon will apply the same commands/effects to your game that your multiplayer+ lobby leader gets" />
 
 					<slider-setting
-						text="Text Movement Speed(Seconds)"
+						text="Text Movement Speed"
 						value="textMovementSpeed"
 						min="0.5"
 						max="20"
 						increment="0.5"
 						apply-on-change="true"
-						hover-hint="Travel time in seconds for text in bomb, glitter, raid and sub to reach end" />
+						hover-hint="Travel time in seconds for bomb, glitter, and raid cut text to reach the end (default 5)" />
 
 					<toggle-setting
 						text="Auto-Disable everything on Ranked maps"
 						value="rankedAutoDisable"
 						apply-on-change="true"
+						pad-top="2"
 						hover-hint="When enabled, all commands and channel points are Stopped and blocked on ranked maps being played" />
 
 					<horizontal active="~rankedAutoDisable">

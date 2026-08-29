@@ -16,7 +16,7 @@
 			<increment-setting
                 text="Global cooldown (seconds)"
                 value="global_cd_seconds"
-                increment="5"
+                increment="1"
                 min="0"
                 max="300"
                 integer-only="true"
@@ -64,7 +64,7 @@
 					value="bomb_cd_seconds"
 					min="0"
 					max="300"
-					increment="5"
+					increment="1"
 					pref-width="45"
 					integer-only="true"
 					apply-on-change="true"
@@ -100,9 +100,9 @@
 				<increment-setting
 					text=""
 					value="rainbow_cd_seconds"
-					min="1"
+					min="0"
 					max="300"
-					increment="5"
+					increment="1"
 					pref-width="45"
 					integer-only="true"
 					apply-on-change="true" />
@@ -123,7 +123,7 @@
                     value="ghost_cd_seconds"
                     min="0"
                     max="300"
-                    increment="5"
+                    increment="1"
 					pref-width="45"
                     integer-only="true"
                     apply-on-change="true" />
@@ -144,7 +144,7 @@
                     value="disappear_cd_seconds"
                     min="0"
                     max="300"
-                    increment="5"
+                    increment="1"
 					pref-width="45"
                     integer-only="true"
                     apply-on-change="true" />
@@ -165,7 +165,7 @@
 					value="faster_cd_seconds"
 					min="0"
 					max="300"
-					increment="5"
+					increment="1"
 					integer-only="true"
 					apply-on-change="true" />
 			</horizontal>
@@ -177,7 +177,7 @@
 					value="superfast_cd_seconds"
 					min="0"
 					max="300"
-					increment="5"
+					increment="1"
 					integer-only="true"
 					apply-on-change="true" />
 			</horizontal>
@@ -189,7 +189,7 @@
 						value="slower_cd_seconds"
 						min="0"
 						max="300"
-						increment="5"
+						increment="1"
 						integer-only="true"
 						apply-on-change="true" />
 			</horizontal>
@@ -201,7 +201,7 @@
 					value="flashbang_cd_seconds"
 					min="0"
 					max="300"
-					increment="5"
+					increment="1"
 					integer-only="true"
 					apply-on-change="true" />
 				
