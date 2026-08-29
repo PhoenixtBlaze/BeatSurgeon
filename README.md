@@ -14,7 +14,7 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 *   **Speed Modifiers:** Temporarily speed up (`!faster`, `!superfast`) or slow down (`!slower`) the song.
 *   **Raid & Supporter Effects:** When the streamer is a verified Beat Surgeon supporter, chat can trigger raid name fountains, glitter bursts, and follow/sub message effects.
 
-> ** A Note from the Developer**
+>  A Note from the Developer
 >
 > I develop and support **Beat Surgeon** full-time to bring more fun, interactive features to the Beat Saber community.
 >
