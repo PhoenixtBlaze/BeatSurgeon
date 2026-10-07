@@ -22,7 +22,6 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 >
 > This is one of my full-time focuses, so **any support to help me keep going is highly appreciated!** Your feedback and support let me keep polishing the mod and adding new features.
 
-# Update for 1.44+ is planned and will be updated as soon it's tested and ready.
 ---
 
 # A huge thank you to These supporters for supporting me in development and funding the mod
