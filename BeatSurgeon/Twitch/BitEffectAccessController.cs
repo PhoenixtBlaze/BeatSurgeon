@@ -1,7 +1,6 @@
-using System;
 using System.Threading;
 using System.Threading.Tasks;
-using BeatSurgeon.Utils;
+using BeatSurgeon.Chat;
 
 namespace BeatSurgeon.Twitch
 {
@@ -17,12 +16,13 @@ namespace BeatSurgeon.Twitch
             PremiumVisualFeatureAccessController.SyncConfigEnabledState(PremiumVisualFeature.BitEffect);
         }
 
-        internal static async Task EnsureAuthorizedAsync(CancellationToken ct)
+        internal static async Task EnsureAuthorizedAsync(ChatContext ctx, CancellationToken ct)
         {
             await PremiumVisualFeatureAccessController.EnsureAuthorizedAsync(
                 PremiumVisualFeature.BitEffect,
                 "Bit effects",
                 requiresToggle: true,
+                ctx: ctx,
                 ct: ct).ConfigureAwait(false);
         }
 

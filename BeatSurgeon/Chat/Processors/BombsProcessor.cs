@@ -53,7 +53,57 @@ namespace BeatSurgeon.Chat.Processors
                 return null;
             }
 
-            return ExtractMessageSuffix(ctx?.MessageText);
+            string message = ExtractMessageSuffix(ctx?.MessageText);
+            if (!MultiplayerHostCooldownBridge.ShouldShowUsernameInBmsg(ctx.TriggerSource))
+            {
+                return message;
+            }
+
+            return AppendUsernameLine(message, ctx.Username);
+        }
+
+        private static string AppendUsernameLine(string message, string username)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return message;
+            }
+
+            string name = SanitizeUsername(username);
+            if (string.IsNullOrEmpty(name))
+            {
+                return message;
+            }
+
+            string line = "\n~" + name;
+            if (message.EndsWith(line, StringComparison.Ordinal))
+            {
+                return message;
+            }
+
+            return message + line;
+        }
+
+        private static string SanitizeUsername(string username)
+        {
+            if (string.IsNullOrWhiteSpace(username))
+            {
+                return null;
+            }
+
+            string trimmed = username.Replace('\r', ' ').Replace('\n', ' ').Trim();
+            if (trimmed.Length == 0 || string.Equals(trimmed, "RoomHost", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            const int maxNameLength = 32;
+            if (trimmed.Length > maxNameLength)
+            {
+                trimmed = trimmed.Substring(0, maxNameLength).TrimEnd();
+            }
+
+            return trimmed.Length == 0 ? null : trimmed;
         }
 
         private static string ExtractMessageSuffix(string messageText)

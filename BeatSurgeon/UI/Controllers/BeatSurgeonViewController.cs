@@ -800,6 +800,21 @@ namespace BeatSurgeon.UI.Controllers
             }
         }
 
+        [UIValue("showUsernameInBmsg")]
+        public bool ShowUsernameInBmsg
+        {
+            get => Plugin.Settings?.ShowUsernameInBmsg ?? true;
+            set
+            {
+                if (Plugin.Settings != null)
+                {
+                    Plugin.Settings.ShowUsernameInBmsg = value;
+                }
+
+                NotifyPropertyChanged(nameof(ShowUsernameInBmsg));
+            }
+        }
+
         [UIValue("textMovementSpeed")]
         public float TextMovementSpeed
         {

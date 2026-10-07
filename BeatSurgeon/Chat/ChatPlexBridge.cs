@@ -56,8 +56,19 @@ namespace BeatSurgeon.Chat
             if (sender == null)
                 return;
 
+            string senderId = string.Empty;
+            try
+            {
+                senderId = sender.Id ?? string.Empty;
+            }
+            catch
+            {
+                senderId = string.Empty;
+            }
+
             _owner.HandleChatPlexMessage(
                 sender.UserName,
+                senderId,
                 message.Message,
                 sender.IsModerator,
                 sender.IsVip,

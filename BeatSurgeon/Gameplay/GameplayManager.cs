@@ -975,7 +975,12 @@ namespace BeatSurgeon.Gameplay
 
             _pendingDownloads.Clear();
             _playedLevelIds.Clear();
+#if BS_1_44
+            // ConcurrentQueue.Clear is not on the 1.44.1 framework profile.
+            while (_requestQueue.TryDequeue(out _)) { }
+#else
             _requestQueue.Clear();
+#endif
             _inLevelQueueProcessor?.StopProcessing();
             _inLevelQueueProcessor.SwitchRequested -= OnSwitchRequestedDuringPlay; // cleanup
             _inLevelQueueProcessor.PreloadRequested -= OnPreloadRequested;
@@ -2182,6 +2187,34 @@ namespace BeatSurgeon.Gameplay
                     randomDiff
                 );
 
+                Action<StandardLevelScenesTransitionSetupDataSO, LevelCompletionResults> onLevelFinished = (data, results) =>
+                {
+                    LogUtils.Debug(() =>
+                        $"GameplayManager: Level finished. State={results.levelEndStateType}, Action={results.levelEndAction}");
+
+                    _lastLevelEndAction = results.levelEndAction;
+                    _isLoadingSong = false;
+                };
+
+#if BS_1_44
+                _menuTransitionsHelper.StartStandardLevel(
+                    "Solo",
+                    in beatmapKey,
+                    level,
+                    overrideEnvironmentSettings,
+                    _capturedColorScheme,
+                    false,
+                    gameplayModifiers,
+                    playerSettings,
+                    null,
+                    _environmentsListModel,
+                    new GameplayAdditionalInformation("Menu"),
+                    null,
+                    null,
+                    onLevelFinished,
+                    null
+                );
+#else
                 _menuTransitionsHelper.StartStandardLevel(
                     "Solo",
                     in beatmapKey,
@@ -2199,17 +2232,11 @@ namespace BeatSurgeon.Gameplay
                     false,
                     null,
                     null,
-                    (data, results) =>
-                    {
-                        LogUtils.Debug(() =>
-                            $"GameplayManager: Level finished. State={results.levelEndStateType}, Action={results.levelEndAction}");
-
-                        _lastLevelEndAction = results.levelEndAction;
-                        _isLoadingSong = false;
-                    },
+                    onLevelFinished,
                     null,
                     null
                 );
+#endif
             }
             catch (Exception ex)
             {

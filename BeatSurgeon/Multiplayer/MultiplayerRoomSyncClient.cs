@@ -31,6 +31,8 @@ namespace BeatSurgeon
         {
             [JsonProperty("per_command_enabled")] internal bool PerCommandEnabled { get; set; } = true;
             [JsonProperty("values")] internal Dictionary<string, double> Values { get; set; }
+            [JsonProperty("enabled_commands")] internal List<string> EnabledCommands { get; set; }
+            [JsonProperty("show_username_in_bmsg")] internal bool? ShowUsernameInBmsg { get; set; }
         }
 
         /// <summary>
@@ -63,8 +65,22 @@ namespace BeatSurgeon
 
         // Fallback dedupe for hosts that never attach a one-shot token (no nonce at all) - keeps
         // legacy sticky-style heartbeats from being reapplied every message.
+        private readonly HashSet<string> _recentRequestIds = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Queue<string> _recentRequestIdOrder = new Queue<string>();
+        private readonly List<InboundEffectRequest> _inboundRequests = new List<InboundEffectRequest>();
+        private readonly Dictionary<string, DateTime> _forwardHoldUntil = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+
         private string _lastAppliedLegacyCommandKey;
         private string _lastAppliedLegacyUserKey;
+
+        private const int MaxRecentRequestIds = 64;
+
+        private sealed class InboundEffectRequest
+        {
+            internal string Command;
+            internal string User;
+            internal string RequestId;
+        }
 
         private readonly object _connectionLock = new object();
 
@@ -107,6 +123,9 @@ namespace BeatSurgeon
 
         public void Tick()
         {
+            MultiplayerEffectPublisher.ReleaseStaleRoomReservations();
+            DrainInboundEffectRequests();
+
             List<PendingSyncEntry> snapshot;
             lock (_pendingLock)
             {
@@ -139,6 +158,11 @@ namespace BeatSurgeon
                         _log.MultiplayerSync(
                             "Applied",
                             "command=" + entry.Command + " token=" + entry.Token + " attempts=" + entry.AttemptCount);
+                        if (SceneHelper.MpPlusIsHost)
+                        {
+                            MultiplayerEffectPublisher.MarkRoomReservationApplied(entry.Token);
+                        }
+
                         RemovePending(entry);
                         continue;
                     }
@@ -153,6 +177,11 @@ namespace BeatSurgeon
                         _log.MultiplayerSync(
                             "Dropped",
                             "command=" + entry.Command + " reason=" + result.Reason + " attempts=" + entry.AttemptCount);
+                        if (SceneHelper.MpPlusIsHost)
+                        {
+                            MultiplayerEffectPublisher.ReleaseRoomReservation(entry.Token);
+                        }
+
                         RemovePending(entry);
                         continue;
                     }
@@ -164,19 +193,29 @@ namespace BeatSurgeon
 
                 if (now < entry.NextAttemptRealtime) continue;
 
+                bool awaitingOwnEcho = SceneHelper.MpPlusIsHost
+                    && MultiplayerEffectPublisher.IsAwaitingHostApply(entry.Token);
                 if (!MultiplayerEffectsEnabled
                     || !SceneHelper.MpPlusInRoom
-                    || SceneHelper.MpPlusIsHost
-                    || MultiplayerStateClient.GetLocalControl())
+                    || (SceneHelper.MpPlusIsHost && !awaitingOwnEcho)
+                    || (MultiplayerStateClient.GetLocalControl() && !awaitingOwnEcho))
                 {
-                    // No longer applicable to this client (left room, became host, or has local
-                    // control) - retrying would never succeed; drop rather than retry forever.
+                    // Left the room, or this host echo is a bits/follow/sub effect that already
+                    // played locally. Chat and channel-point one-shots are awaited and applied
+                    // here so the host starts with everyone else.
+                    if (awaitingOwnEcho)
+                    {
+                        MultiplayerEffectPublisher.ReleaseRoomReservation(entry.Token);
+                    }
+
                     _log.MultiplayerSync("Dropped", "command=" + entry.Command + " reason=NoLongerApplicable");
                     RemovePending(entry);
                     continue;
                 }
 
-                entry.InFlightTask = ApplySyncEntryAsync(entry);
+                entry.InFlightTask = awaitingOwnEcho
+                    ? ApplyHostEchoAsync(entry)
+                    : ApplySyncEntryAsync(entry);
             }
         }
 
@@ -201,6 +240,19 @@ namespace BeatSurgeon
             return CommandHandler.Instance.HandleMessageAsync(ctx, TriggerSource.MultiplayerSync, CancellationToken.None);
         }
 
+        private static async Task<CommandExecutionResult> ApplyHostEchoAsync(PendingSyncEntry entry)
+        {
+            MultiplayerEffectPublisher.BeginSuppressHostPublish();
+            try
+            {
+                return await ApplySyncEntryAsync(entry).ConfigureAwait(false);
+            }
+            finally
+            {
+                MultiplayerEffectPublisher.EndSuppressHostPublish();
+            }
+        }
+
         private void RemovePending(PendingSyncEntry entry)
         {
             lock (_pendingLock)
@@ -216,6 +268,10 @@ namespace BeatSurgeon
 
         private void OnRoomMaybeChanged()
         {
+            if (!SceneHelper.MpPlusIsHost)
+            {
+                MultiplayerEffectPublisher.ClearActiveTracking();
+            }
             if (!MultiplayerEffectsEnabled)
             {
                 Disconnect();
@@ -254,6 +310,7 @@ namespace BeatSurgeon
                 _connectedRoomCode = roomCode;
                 _cts = new CancellationTokenSource();
                 _ws = new ClientWebSocket();
+                _ws.Options.SetRequestHeader("X-Client-App", "SaberSurgeon-BS");
                 _receiveTask = Task.Run(() => ReceiveLoopAsync(roomCode, _cts.Token), _cts.Token);
             }
         }
@@ -325,10 +382,28 @@ namespace BeatSurgeon
                     } while (!result.EndOfMessage);
 
                     string json = Encoding.UTF8.GetString(buffer, 0, count);
+                    Newtonsoft.Json.Linq.JObject jo = null;
+                    try
+                    {
+                        jo = Newtonsoft.Json.Linq.JObject.Parse(json);
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Exception(ex, "Receive parse");
+                        continue;
+                    }
+
+                    string messageType = jo.Value<string>("type");
+                    if (string.Equals(messageType, "effect_request", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AcceptEffectRequest(jo);
+                        continue;
+                    }
+
                     HostStateMessage msg = null;
                     try
                     {
-                        msg = JsonConvert.DeserializeObject<HostStateMessage>(json);
+                        msg = jo.ToObject<HostStateMessage>();
                     }
                     catch (Exception ex)
                     {
@@ -340,7 +415,11 @@ namespace BeatSurgeon
 
                     if (msg.Cooldowns != null)
                     {
-                        MultiplayerHostCooldownBridge.ApplyFromHost(msg.Cooldowns.PerCommandEnabled, msg.Cooldowns.Values);
+                        MultiplayerHostCooldownBridge.ApplyFromHost(
+                            msg.Cooldowns.PerCommandEnabled,
+                            msg.Cooldowns.Values,
+                            msg.Cooldowns.EnabledCommands,
+                            msg.Cooldowns.ShowUsernameInBmsg);
                     }
 
                     // Heartbeats / control-only updates carry no active_command - cooldowns above
@@ -370,7 +449,13 @@ namespace BeatSurgeon
                         : msg.ActiveCommandUser.Trim();
 
                     if (!TryAcceptForApply(commandKey, tokenKey, userKey))
+                    {
+                        string reason = tokenKey.Length > 0 ? "DuplicateToken" : "DuplicateLegacyCommand";
+                        _log.MultiplayerSync(
+                            "Skipped",
+                            "command=" + commandKey + " token=" + tokenKey + " reason=" + reason);
                         continue;
+                    }
 
                     EnqueuePendingSync(commandKey, msg.ActiveCommandUser, tokenKey);
                 }
@@ -445,6 +530,159 @@ namespace BeatSurgeon
             }
 
             _log.MultiplayerSync("Queued", "command=" + command + " token=" + token + " pendingCount=" + pendingCount);
+            if (SceneHelper.MpPlusIsHost)
+            {
+                MultiplayerEffectPublisher.NoteRoomEchoReceived(token);
+            }
+
+            ClearForwardHold(command);
+        }
+
+        internal static bool TrySendEffectRequest(string command, string user, string commandKey)
+        {
+            MultiplayerRoomSyncClient client = _instance;
+            if (client == null || string.IsNullOrWhiteSpace(command))
+            {
+                return false;
+            }
+
+            string holdKey = string.IsNullOrWhiteSpace(commandKey) ? command : commandKey;
+            DateTime now = DateTime.UtcNow;
+            lock (client._pendingLock)
+            {
+                if (client._forwardHoldUntil.TryGetValue(holdKey, out DateTime until) && now < until)
+                {
+                    return false;
+                }
+
+                client._forwardHoldUntil[holdKey] = now.AddSeconds(8);
+            }
+
+            ClientWebSocket ws;
+            string roomCode;
+            lock (client._connectionLock)
+            {
+                ws = client._ws;
+                roomCode = client._connectedRoomCode;
+            }
+
+            if (ws == null || ws.State != WebSocketState.Open || string.IsNullOrWhiteSpace(roomCode))
+            {
+                ClearForwardHold(holdKey);
+                return false;
+            }
+
+            string requestId = Guid.NewGuid().ToString("N");
+            string json = JsonConvert.SerializeObject(new
+            {
+                type = "effect_request",
+                room_code = roomCode,
+                command,
+                user = user ?? string.Empty,
+                request_id = requestId
+            });
+            byte[] bytes = Encoding.UTF8.GetBytes(json);
+            try
+            {
+                ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None)
+                    .ConfigureAwait(false)
+                    .GetAwaiter()
+                    .GetResult();
+                _log.MultiplayerSync("Forwarded", "command=" + command + " request=" + requestId);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ClearForwardHold(holdKey);
+                _log.Exception(ex, "effect_request send");
+                return false;
+            }
+        }
+
+        private static void ClearForwardHold(string commandOrKey)
+        {
+            MultiplayerRoomSyncClient client = _instance;
+            if (client == null || string.IsNullOrWhiteSpace(commandOrKey))
+            {
+                return;
+            }
+
+            string key = MultiplayerEffectPublisher.CanonicalizeEffectKey(commandOrKey);
+            lock (client._pendingLock)
+            {
+                client._forwardHoldUntil.Remove(key);
+                client._forwardHoldUntil.Remove(commandOrKey);
+            }
+        }
+
+        private void AcceptEffectRequest(Newtonsoft.Json.Linq.JObject jo)
+        {
+            if (!SceneHelper.MpPlusIsHost)
+            {
+                return;
+            }
+
+            string requestId = jo.Value<string>("request_id") ?? string.Empty;
+            string command = jo.Value<string>("command");
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                return;
+            }
+
+            lock (_pendingLock)
+            {
+                if (requestId.Length > 0)
+                {
+                    if (_recentRequestIds.Contains(requestId))
+                    {
+                        return;
+                    }
+
+                    _recentRequestIds.Add(requestId);
+                    _recentRequestIdOrder.Enqueue(requestId);
+                    while (_recentRequestIdOrder.Count > MaxRecentRequestIds)
+                    {
+                        _recentRequestIds.Remove(_recentRequestIdOrder.Dequeue());
+                    }
+                }
+
+                _inboundRequests.Add(new InboundEffectRequest
+                {
+                    Command = command.Trim(),
+                    User = jo.Value<string>("user"),
+                    RequestId = requestId
+                });
+            }
+        }
+
+        private void DrainInboundEffectRequests()
+        {
+            List<InboundEffectRequest> batch = null;
+            lock (_pendingLock)
+            {
+                if (_inboundRequests.Count == 0)
+                {
+                    return;
+                }
+
+                batch = new List<InboundEffectRequest>(_inboundRequests);
+                _inboundRequests.Clear();
+            }
+
+            if (!SceneHelper.MpPlusIsHost)
+            {
+                return;
+            }
+
+            for (int i = 0; i < batch.Count; i++)
+            {
+                InboundEffectRequest request = batch[i];
+                MultiplayerEffectPublisher.RoomCommandAdmitResult admit =
+                    MultiplayerEffectPublisher.AdmitRoomCommand(request.Command, request.User);
+                _log.MultiplayerSync(
+                    "EffectRequest",
+                    "command=" + request.Command + " user=" + request.User + " result=" + admit);
+            }
         }
     }
 }

@@ -65,6 +65,16 @@ namespace BeatSurgeon
 
             [JsonProperty("values")]
             public Dictionary<string, double> Values { get; set; }
+
+            [JsonProperty("enabled_commands")]
+            public List<string> EnabledCommands { get; set; }
+
+            /// <summary>
+            /// Host Surgeon Settings toggle for the !bmsg username line.
+            /// Null when an older host did not send it.
+            /// </summary>
+            [JsonProperty("show_username_in_bmsg", NullValueHandling = NullValueHandling.Ignore)]
+            public bool? ShowUsernameInBmsg { get; set; }
         }
 
         private static string _activeCommand;
@@ -259,7 +269,9 @@ namespace BeatSurgeon
             return new CooldownSnapshotPayload
             {
                 PerCommandEnabled = CommandRuntimeSettings.PerCommandCooldownsEnabled,
-                Values = CommandRuntimeSettings.BuildHostCooldownSnapshot()
+                Values = CommandRuntimeSettings.BuildHostCooldownSnapshot(),
+                EnabledCommands = CommandRuntimeSettings.BuildHostEnabledCommandSnapshot(),
+                ShowUsernameInBmsg = PluginConfig.Instance?.ShowUsernameInBmsg ?? true
             };
         }
 
@@ -276,6 +288,32 @@ namespace BeatSurgeon
             foreach (KeyValuePair<string, double> kvp in av)
             {
                 if (!bv.TryGetValue(kvp.Key, out double bVal) || Math.Abs(bVal - kvp.Value) > 0.0001)
+                {
+                    return false;
+                }
+            }
+
+            return a.ShowUsernameInBmsg == b.ShowUsernameInBmsg
+                && EnabledCommandsEqual(a.EnabledCommands, b.EnabledCommands);
+        }
+
+        private static bool EnabledCommandsEqual(List<string> a, List<string> b)
+        {
+            int aCount = a?.Count ?? 0;
+            int bCount = b?.Count ?? 0;
+            if (aCount != bCount)
+            {
+                return false;
+            }
+
+            if (aCount == 0)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < aCount; i++)
+            {
+                if (!string.Equals(a[i], b[i], StringComparison.OrdinalIgnoreCase))
                 {
                     return false;
                 }

@@ -601,11 +601,11 @@ namespace BeatSurgeon.UI.Controllers
                 yield break;
             }
 
-            // Resolve scene names: try 1.40.8 private SceneInfo fields first,
-            // fall back to the 1.43+ public `scenes` string collection via reflection.
+            // Resolve scene names: 1.40.8 private SceneInfo fields, otherwise the names 1.44 hardcodes.
             string gameplaySceneName;
             string gameCoreSceneName;
 
+#if !BS_1_44
             var gameplaySceneInfoField = typeof(StandardLevelScenesTransitionSetupDataSO).GetField(
                 "_standardGameplaySceneInfo",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -625,18 +625,24 @@ namespace BeatSurgeon.UI.Controllers
                 gameCoreSceneName = gameCoreSceneInfo.sceneName;
             }
             else
+#endif
             {
                 var scenesProperty = typeof(StandardLevelScenesTransitionSetupDataSO).GetProperty(
                     "scenes",
                     System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
 
-                if (scenesProperty == null) { Plugin.Log.Error("Could not find scenes field or property on StandardLevelScenesTransitionSetupDataSO!"); yield break; }
-
-                var sceneNames = scenesProperty.GetValue(standardLevelScenesTransitionSetupData) as System.Collections.Generic.IEnumerable<string>;
-                if (sceneNames == null) { Plugin.Log.Error("scenes property was null or wrong type!"); yield break; }
-
-                gameplaySceneName = sceneNames.FirstOrDefault(s => s.Contains("StandardGameplay")) ?? "StandardGameplay";
-                gameCoreSceneName = sceneNames.FirstOrDefault(s => s.Contains("GameCore")) ?? "GameCore";
+                var sceneNames = scenesProperty?.GetValue(standardLevelScenesTransitionSetupData) as System.Collections.Generic.IEnumerable<string>;
+                if (sceneNames != null)
+                {
+                    gameplaySceneName = sceneNames.FirstOrDefault(s => s.Contains("StandardGameplay")) ?? "StandardGameplay";
+                    gameCoreSceneName = sceneNames.FirstOrDefault(s => s.Contains("GameCore")) ?? "GameCore";
+                }
+                else
+                {
+                    // 1.44 assigns scenes inside Init, so the menu asset has neither the old fields nor a scenes list yet.
+                    gameplaySceneName = "StandardGameplay";
+                    gameCoreSceneName = "GameCore";
+                }
             }
 
             // Load GameCore scene first

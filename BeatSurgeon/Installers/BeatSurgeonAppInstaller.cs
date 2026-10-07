@@ -70,6 +70,10 @@ namespace BeatSurgeon.Installers
                 .AsSingle()
                 .NonLazy();
 
+            Container.BindInterfacesAndSelfTo<ViewerSupporterLookupService>()
+                .AsSingle()
+                .NonLazy();
+
             Container.BindInterfacesAndSelfTo<TwitchChannelPointsManager>()
                 .AsSingle()
                 .NonLazy();

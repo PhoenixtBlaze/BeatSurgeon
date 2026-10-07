@@ -1,11 +1,11 @@
-﻿{
+{
   "$schema": "https://raw.githubusercontent.com/bsmg/BSIPA-MetadataFileSchema/master/Schema.json",
   "id": "BeatSurgeon",
   "name": "BeatSurgeon",
   "author": "PhoenixBlaze0",
   "version": "2.1.0",
   "description": "Twitch Chat Interaction System for Beat Saber: lets chat do rainbow/RGB note colors, custom note colors, ghost notes, disappearing arrow type modifier, bomb pranks, song and map speed changes (faster/superfast/slower), flashbang lights, moderator controls, command management",
-  "gameVersion": "1.40.8",
+  "gameVersion": "1.44.1",
   "dependsOn": {
     "BSIPA": "^4.3.6",
     "BeatSaberMarkupLanguage": "^1.12.5",

@@ -193,6 +193,13 @@ namespace BeatSurgeon.Twitch
                     .HandleMessageAsync(ctx, TriggerSource.ChannelPoints, ct)
                     .ConfigureAwait(false);
 
+                if (result != null && result.DeferredToRoom)
+                {
+                    _log.ChannelPoint(rewardId, "DeferredToRoom", "command=" + messageText + " user=" + userLogin);
+                    await TryFulfillAsync(rewardId, redemptionId, ct).ConfigureAwait(false);
+                    return;
+                }
+
                 if (result != null && result.Executed)
                 {
                     _log.ChannelPoint(rewardId, "DispatchedOK", "command=" + messageText + " user=" + userLogin);

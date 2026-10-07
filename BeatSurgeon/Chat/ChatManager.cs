@@ -402,7 +402,9 @@ namespace BeatSurgeon.Chat
         // Called by ChatPlexBridge — receives message fields as plain types so
         // ChatManager never needs to reference any CP_SDK type directly.
         internal void HandleChatPlexMessage(
-            string senderName, string messageText,
+            string senderName,
+            string senderTwitchUserId,
+            string messageText,
             bool isMod, bool isVip, bool isSub, bool isBroadcaster,
             object rawService, object rawMessage)
         {
@@ -415,6 +417,7 @@ namespace BeatSurgeon.Chat
             var ctx = new ChatContext
             {
                 SenderName = senderName,
+                SenderTwitchUserId = senderTwitchUserId ?? string.Empty,
                 MessageText = messageText,
                 IsModerator = isMod,
                 IsVip = isVip,
@@ -957,6 +960,7 @@ namespace BeatSurgeon.Chat
             ctx = new ChatContext
             {
                 SenderName = username,
+                SenderTwitchUserId = TryGetTagValue(tags, "user-id", out string userId) ? userId : string.Empty,
                 MessageText = message,
                 IsModerator = isMod,
                 IsSubscriber = isSub,

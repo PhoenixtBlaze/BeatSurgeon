@@ -2,7 +2,7 @@
 
 **Beat Surgeon** is a Beat Saber mod that empowers your Twitch chat to directly interact with your gameplay in real time. It turns your stream into a collaborative (and chaotic) experience, allowing viewers to trigger visual effects like Rainbow notes, Flashbang, Bombs, Disappearing Arrows, Ghost Notes, Speed modifiers, Raids, and more using simple chat commands or Channel Point Redeems. All while letting you maintain full control over cooldowns and whether each command is enabled.
 
-## Current release: **v2.0.0** (for Beat Saber v1.40.8)
+## Current release: **v2.1.0** (for Beat Saber v1.40.8)
 
 ## What this mod does
 
@@ -12,7 +12,7 @@ This mod bridges Twitch chat with Beat Saber's gameplay engine. Viewers can type
 *   **Visual Challenges:** Trigger Ghost Notes, Disappearing Arrows, or a blinding Flashbang effect.
 *   **Bombs:** Arms the next note as a "bomb" and makes it look like one that displays either the viewer's name or a custom `!bmsg` message when cut.
 *   **Speed Modifiers:** Temporarily speed up (`!faster`, `!superfast`) or slow down (`!slower`) the song.
-*   **Raid & Supporter Effects:** When the streamer is a verified Beat Surgeon supporter, chat can trigger raid name fountains, glitter bursts, and follow/sub message effects.
+*   **Raid & Supporter Effects:** Typed raid, glitter, and follow/sub message commands work when the **streamer** is a verified Beat Surgeon supporter, **or** when the chatting viewer currently supports Phoenix (Twitch sub and/or linked Patreon). Automatic EventSub still follows toggles only.
 
 > **ΓÜá∩╕Å A Note from the Developer**
 >
@@ -46,16 +46,18 @@ Beat Surgeon integrates with **[Multiplayer+](https://github.com/hardcpp/BeatSab
 - The **Surgeon Tab** in the Gameplay Setup screen is accessible from the multiplayer lobby for on-the-fly control.
 - All ranked map auto-protections still apply individually per player.
 
-### Supporter Commands & Automatic Events (streamer entitlement)
+### Supporter Commands & Automatic Events
 
-These unlock for **your channel** when **you** (the streamer) are verified as a Beat Surgeon supporter via **Twitch Subscription** or **Patreon**, and you are connected to the Beat Surgeon backend.
+These unlock in two ways, after the streamer is connected to the Beat Surgeon backend (Twitch OAuth, as used for EventSub):
 
-Once that is true:
-- **All viewers** in your chat can use the typed supporter commands below (subject to your toggles, permissions, and cooldowns).
-- Individual viewers do **not** need to be Beat Surgeon supporters themselves.
-- Visual customization (fonts, bomb explosion style, raid cut style, Edit Visuals, Text Movement Speed previews) remains supporter-only for the streamer.
+- If **you** (the streamer) are a verified Beat Surgeon supporter (Twitch sub to phoenixblaze0 or Patreon), **all viewers** in your chat can use the typed supporter commands below (subject to toggles, permissions, and cooldowns). Visual customization stays streamer-only.
+- If you are **not** a supporter, a chatting viewer can still use those typed commands when they **currently** support Phoenix: a Twitch subscription to phoenixblaze0, and/or an active Patreon membership **linked to that viewer's Twitch id**. Twitch subs do not need Beat Surgeon installed. Patreon members need to Connect Twitch and Patreon in Beat Surgeon **once** so the backend can store their Twitch id; after that they can use the commands on any stream without the mod running.
+- If a viewer's Twitch sub **or** Patreon pledge expires, that source is cleared. They keep access only if the other source is still active. When both are gone, viewer-supporter commands stop. Logging out of the mod does not cancel supporter status.
+- If **your** streamer entitlement expires, Edit Visuals / fonts / the Supporter tab lock again. Typed commands then work only for viewers who still currently support Phoenix.
 
-**Automatic EventSub / Bits** (when the matching toggle is on) fire from real Twitch events without anyone typing a command. Typed chat versions of these effects still require the streamer to be a verified supporter.
+Individual viewers do **not** unlock your visual customization. Viewer status never writes into the streamer's entitlement snapshot.
+
+**Automatic EventSub / Bits** (when the matching toggle is on) fire from real Twitch events without anyone typing a command and without a supporter requirement.
 
 *   **Glitter (`!glitter <bits>`)**: Triggered by Twitch Bits/cheers or chat (when Bit Effect is enabled). Spawns a glitter particle burst on notes. Bit amount is accepted as a parameter; chat usage is hard-capped at 10,000 bits equivalent. Chat/command glitter uses its own cooldown (default: 10s; automatic cheers are not held to that same lock).
 *   **Subscriber Message (`!smsg <text>`)**: When Sub Effects are enabled, typed `!smsg` is available to whoever passes your Live Services permission toggles (Allow Everyone / VIPs / Subscribers; mods and broadcaster always allowed). Displays a custom in-game message (up to 100 characters) and can spawn trail cubes on notes. Also triggers on subscription / resub / gift events. Trail cube counts: new sub 5 (10 for Prime), resub 5 (10 for Prime), gift sub 5 ├ù gift count; multi-month new subs add +5 cubes per month after the first.
@@ -72,7 +74,7 @@ Once that is true:
 *   **Ranked Map Auto-Protection**: When Beat Surgeon detects a ranked map (ScoreSaber, BeatLeader, or AccSaber), all commands are automatically blocked to protect your score. A chat notification is sent when this triggers. Individually configurable per leaderboard in the mod settings.
 
 ### Integration API (advanced)
-Beat Surgeon can host a local WebSocket Integration API for tools like Streamer.bot. External clients can raise follow/sub/cheer/raid-style events and invoke commands through a token-authenticated local connection. Config lives in `UserData/BeatSurgeon.json` (`IntegrationApiEnabled`, port, auth token). Most streamers can ignore this if they only use Twitch chat and Channel Points.
+Beat Surgeon can host a local WebSocket Integration API for tools like Streamer.bot. External clients can raise follow/sub/cheer/raid-style events and invoke commands through a token-authenticated local connection. Config lives in `UserData/BeatSurgeon.json` (`IntegrationApiEnabled`, port, auth token). For viewer-supporter typed commands, `command.invoke` should include the redeemer's Twitch user id in `viewer.id`. Most streamers can ignore this if they only use Twitch chat and Channel Points.
 
 ---
 
@@ -209,13 +211,14 @@ To say thank you to those who support the development of Beat Surgeon, exclusive
 
 **Note:** To activate these benefits, you must connect to the **Beat Surgeon Backend** via the **Live Services** tab in the mod settings (see *Twitch Chat Setup* below). The mod verifies your supporter status securely. Supporter status is detected for both **Twitch Subscribers** and **Patreon supporters**.
 
-Once verified:
+Once verified as a streamer supporter:
 - Bit / Sub / Follow / Raid **toggles** on the Surgeon Commands tab become usable for your channel.
 - The **Supporter** tab appears for fonts, bomb explosion styles, and raid cut styles.
 - **Edit Visuals** buttons appear throughout the Cooldowns screen for supported effects.
-- Typed supporter commands (`!glitter`, `!smsg`, `!fmsg`, `!raid`) become available to **your viewers** (according to each command's own audience rules and toggles).
+- Typed supporter commands (`!glitter`, `!smsg`, `!fmsg`, `!raid`) become available to **your viewers**.
 - Automatic Twitch events (cheers, follows, subs, inbound raids) still respect their toggles when EventSub is connected.
-- The "Support Beat Surgeon" button at the bottom of the settings screen is replaced with a **"Supporter features unlocked ≡ƒÆÖ"** confirmation - no restart needed.
+
+If you are connected to the backend but **not** a supporter, those typed commands still work when the chatting viewer currently supports Phoenix (Twitch sub and/or linked Patreon). They do not unlock Edit Visuals or the Supporter tab on your install.
 
 > If you don't see the Edit Visuals buttons or the Supporter tab after connecting, exit and re-select Beat Surgeon in the mods tab to refresh the UI.
 
@@ -223,7 +226,7 @@ Once verified:
 
 ### Supporter Commands
 
-These commands unlock for your channel once **you** are a verified supporter. Your viewers use them; they do not need their own Beat Surgeon supporter status.
+These commands unlock when **you** are a verified supporter, **or** when the chatting viewer currently supports Phoenix. Your viewers use them according to each command's own audience rules and toggles. Visual customization remains streamer-only.
 
 | Command | Toggle in Settings | Who Can Use | Description |
 | :--- | :--- | :--- | :--- |
@@ -317,12 +320,12 @@ Choose how raid fountain notes explode when cut:
 | **`!surgeon`** | Displays current mod status and list of enabled commands. | N/A | None |
 
 ### Supporter Commands
-*Require the streamer to be a verified Beat Surgeon supporter (Twitch or Patreon). Once unlocked, viewers use these according to each command's rules.*
+*Typed `!glitter` / `!smsg` / `!fmsg` / `!raid` require the streamer to be a verified Beat Surgeon supporter **or** the chatting viewer to currently support Phoenix (Twitch sub to phoenixblaze0 and/or linked Patreon). Automatic EventSub versions of these effects need only the matching toggle.*
 
 | Command | Description | Duration | Default Cooldown |
 | :--- | :--- | :--- | :--- |
 | **`!glitter <bits>`** | Spawns a glitter particle burst on notes. Also fires automatically on Bits/cheers when Bit Effect is enabled. | Burst | 10s (typed `!glitter`) |
-| **`!smsg <text>`** | In-game message + optional trail cubes (up to 100 characters). Viewers need Live Services permission; streamer must be a verified supporter with Sub Effects on. Also fires on sub / resub / gift events. | Effect | None (no dedicated slider today) |
+| **`!smsg <text>`** | In-game message + optional trail cubes (up to 100 characters). Viewers need Live Services permission; Sub Effects on. Also fires on sub / resub / gift events. | Effect | None (no dedicated slider today) |
 | **`!fmsg <text>`** | In-game message (up to 100 characters). Same Live Services permission model; Follow Effects on. Also fires on follow events. | Effect | None (cooldown-exempt) |
 | **`!raid`** | Spawns raid-name fountain notes. Also fires on inbound Twitch raids. | Until cut / effect | None (no dedicated slider today) |
 
@@ -488,7 +491,14 @@ Thank you for helping me keep the lights on and the sabers swinging!
 
 ## Version History
 
-*   **v2.0.0** (Current)
+*   **v2.1.0** (Current)
+
+    *   **New Feature:** Typed `!glitter` / `!smsg` / `!fmsg` / `!raid` work on any Beat Surgeon stream when the chatting viewer currently supports Phoenix (Twitch sub and/or linked Patreon), even if the streamer is not a supporter.
+    *   **Improvement:** Backend supporter database with scheduled Twitch/Patreon refresh and per-source expiry. Patreon members become chat-matchable after one Twitch+Patreon connect in Beat Surgeon.
+    *   **Improvement:** `!surgeon` lists typed supporter commands whenever the matching Surgeon Commands toggle is on.
+    *   Visual customization (fonts, explosions, Edit Visuals) remains streamer-only. Automatic EventSub is unchanged.
+
+*   **v2.0.0**
 
     *   **Release:** First full **2.0.0** release line for Beat Saber **v1.40.8**
     *   **New Feature:** **Text Movement Speed (Seconds)** in Surgeon Settings ΓÇö controls travel time for bomb cut text, glitter travel, and raid cut text (default 5s).

@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using BeatSurgeon.Chat;
 
 namespace BeatSurgeon.Twitch
 {
@@ -21,12 +22,13 @@ namespace BeatSurgeon.Twitch
             PremiumVisualFeatureAccessController.SyncConfigEnabledState(PremiumVisualFeature.FollowEffect);
         }
 
-        internal static Task EnsureAuthorizedAsync(CancellationToken ct)
+        internal static Task EnsureAuthorizedAsync(ChatContext ctx, CancellationToken ct)
         {
             return PremiumVisualFeatureAccessController.EnsureAuthorizedAsync(
                 PremiumVisualFeature.FollowEffect,
                 "Follow effects",
                 requiresToggle: true,
+                ctx: ctx,
                 ct: ct);
         }
 

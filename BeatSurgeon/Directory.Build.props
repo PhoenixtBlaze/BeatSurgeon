@@ -4,6 +4,8 @@
 	<PropertyGroup>
 		<ImportBSMTTargets>True</ImportBSMTTargets>
 		<BSMTProjectType>BSIPA</BSMTProjectType>
+		<!-- Game144 deploys only to the 1.44.1 install. The default build stays on 1.40.8_Test. -->
+		<GameDirectory Condition="'$(Configuration)' == 'Game144'">F:\Games\BSManager\BSInstances\1.44.1</GameDirectory>
 		<!-- Default Beat Saber install; override per-machine in BeatSurgeon.csproj.user -->
 		<GameDirectory Condition="'$(GameDirectory)' == ''">F:\Games\BSManager\BSInstances\1.40.8_Test</GameDirectory>
 		<LocalRefsDir Condition="Exists('$(MSBuildThisFileDirectory)..\Refs')">$(MSBuildThisFileDirectory)..\Refs</LocalRefsDir>

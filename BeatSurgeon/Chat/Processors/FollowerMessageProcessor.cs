@@ -54,7 +54,7 @@ namespace BeatSurgeon.Chat.Processors
                 return;
             }
 
-            await FollowEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+            await FollowEffectAccessController.EnsureAuthorizedAsync(ctx, ct).ConfigureAwait(false);
         }
 
         private static string ExtractMessageSuffix(string messageText)

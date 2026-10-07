@@ -641,6 +641,36 @@ namespace BeatSurgeon.Twitch
             }
         }
 
+        internal async Task<string> ResolveUserIdByLoginAsync(string login, CancellationToken ct = default(CancellationToken))
+        {
+            if (string.IsNullOrWhiteSpace(login))
+            {
+                return string.Empty;
+            }
+
+            string normalized = login.Trim().TrimStart('@');
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                return string.Empty;
+            }
+
+            using (var request = new HttpRequestMessage(HttpMethod.Get, "users?login=" + Uri.EscapeDataString(normalized)))
+            {
+                using (HttpResponseMessage response = await SendHelixAsync(request, ct).ConfigureAwait(false))
+                {
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return string.Empty;
+                    }
+
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    JToken data = JObject.Parse(body)["data"]?[0];
+                    string id = data?["id"]?.ToString();
+                    return string.IsNullOrWhiteSpace(id) ? string.Empty : id;
+                }
+            }
+        }
+
         private static bool TryVerifyAndParseEntitlement(string signedToken, out EntitlementsSnapshot snapshot)
         {
             return EntitlementTokenValidator.TryVerifyAndParse(

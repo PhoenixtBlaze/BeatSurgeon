@@ -78,7 +78,7 @@ namespace BeatSurgeon.Chat.Processors
                 return;
             }
 
-            await SubscriberEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+            await SubscriberEffectAccessController.EnsureAuthorizedAsync(ctx, ct).ConfigureAwait(false);
         }
 
         private static int ParseSubCubesCount(string messageText)

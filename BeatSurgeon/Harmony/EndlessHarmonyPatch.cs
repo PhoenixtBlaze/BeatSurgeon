@@ -288,6 +288,17 @@ namespace BeatSurgeon.HarmonyPatches
             var existingSetup = GetFieldValue<StandardLevelScenesTransitionSetupDataSO>(helper, "_standardLevelScenesTransitionSetupData", "standardLevelScenesTransitionSetupData");
             if (existingSetup == null) return;
 
+            var newSetup = ScriptableObject.CreateInstance<StandardLevelScenesTransitionSetupDataSO>();
+
+#if BS_1_44
+            // 1.44 Init writes StandardGameplay and GameCore itself. The 1.40 SceneInfo fields are gone.
+            newSetup.Init(
+                "Solo", nextKey, nextLevel, null, color, false,
+                modifiers, playerSettings, null, envs,
+                audioLoader, settingsMgr, new GameplayAdditionalInformation("Menu"),
+                dataLoader, entitlement, levelsModel
+            );
+#else
             var stdGameplayInfoField = FindField(typeof(StandardLevelScenesTransitionSetupDataSO), "_standardGameplaySceneInfo", "standardGameplaySceneInfo");
             var gameCoreInfoField = FindField(typeof(StandardLevelScenesTransitionSetupDataSO), "_gameCoreSceneInfo", "gameCoreSceneInfo");
 
@@ -296,8 +307,6 @@ namespace BeatSurgeon.HarmonyPatches
             var existingStdGameplayInfo = stdGameplayInfoField.GetValue(existingSetup) as SceneInfo;
             var existingGameCoreInfo = gameCoreInfoField.GetValue(existingSetup) as SceneInfo;
 
-            var newSetup = ScriptableObject.CreateInstance<StandardLevelScenesTransitionSetupDataSO>();
-
             stdGameplayInfoField.SetValue(newSetup, existingStdGameplayInfo);
             gameCoreInfoField.SetValue(newSetup, existingGameCoreInfo);
 
@@ -305,6 +314,7 @@ namespace BeatSurgeon.HarmonyPatches
                 "Solo", nextKey, nextLevel, null, color, false, null, modifiers, playerSettings, null, envs,
                 audioLoader, dataLoader, settingsMgr, "Menu", levelsModel, entitlement, false, false, null
             );
+#endif
 
             LogUtils.Debug(() => $"EndlessHarmonyPatch: Replacing scenes -> {nextLevel.songName}");
             scenesMgr.ReplaceScenes(newSetup, null, fade);

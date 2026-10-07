@@ -64,7 +64,7 @@ namespace BeatSurgeon.Chat.Processors
                 return;
             }
 
-            await BitEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+            await BitEffectAccessController.EnsureAuthorizedAsync(ctx, ct).ConfigureAwait(false);
         }
     }
 }

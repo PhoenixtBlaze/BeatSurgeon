@@ -28,6 +28,7 @@ namespace BeatSurgeon.Chat
     internal sealed class ChatContext
     {
         internal string SenderName { get; set; } = "Unknown";
+        internal string SenderTwitchUserId { get; set; } = string.Empty;
         internal string MessageText { get; set; } = string.Empty;
 
         internal bool IsModerator { get; set; }

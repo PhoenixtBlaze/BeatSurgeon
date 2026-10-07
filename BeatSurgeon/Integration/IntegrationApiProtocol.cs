@@ -217,6 +217,7 @@ namespace BeatSurgeon.Integration
             return new ChatContext
             {
                 SenderName = senderName,
+                SenderTwitchUserId = safeViewer.Id ?? string.Empty,
                 MessageText = messageText ?? string.Empty,
                 Source = ChatSource.ExternalApi,
                 TriggerSource = triggerSource,
@@ -254,7 +255,9 @@ namespace BeatSurgeon.Integration
             return processorMessage.IndexOf("entitlement", StringComparison.OrdinalIgnoreCase) >= 0
                 || processorMessage.IndexOf("Tier 1", StringComparison.OrdinalIgnoreCase) >= 0
                 || processorMessage.IndexOf("logged-in Twitch or Patreon", StringComparison.OrdinalIgnoreCase) >= 0
-                || processorMessage.IndexOf("Supporter tab", StringComparison.OrdinalIgnoreCase) >= 0;
+                || processorMessage.IndexOf("Supporter tab", StringComparison.OrdinalIgnoreCase) >= 0
+                || processorMessage.IndexOf("chatting viewer", StringComparison.OrdinalIgnoreCase) >= 0
+                || processorMessage.IndexOf("Beat Surgeon supporter", StringComparison.OrdinalIgnoreCase) >= 0;
         }
     }
 }

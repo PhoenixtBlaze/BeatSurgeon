@@ -266,6 +266,12 @@
 						apply-on-change="true"
 						hover-hint="When enabled, Beat Surgeon will apply the same commands/effects to your game that your multiplayer+ lobby leader gets" />
 
+					<toggle-setting
+						text="show &quot;username in Bmsg&quot;"
+						value="showUsernameInBmsg"
+						apply-on-change="true"
+						hover-hint="When on, !bmsg cut text adds the chatter name on the next line, such as ~Phoenixblaze0. In multiplayer the host's setting is what everyone sees." />
+
 					<slider-setting
 						text="Text Movement Speed"
 						value="textMovementSpeed"

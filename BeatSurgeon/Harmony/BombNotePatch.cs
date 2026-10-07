@@ -1,4 +1,4 @@
-﻿using HarmonyLib;
+using HarmonyLib;
 using HMUI;
 using BeatSurgeon;
 using BeatSurgeon.Gameplay;
@@ -282,6 +282,11 @@ namespace BeatSurgeon.HarmonyPatches
             internal TMP_Text TextComponent;
             internal TMP_FontAsset AppliedFont;
             internal bool UsesCurvedText;
+            internal bool HasSingleLineSize;
+            internal Vector2 SingleLineSize;
+            internal bool HasTextMode;
+            internal bool SingleLineWrapping;
+            internal TextOverflowModes SingleLineOverflow;
         }
 
         private static readonly LogUtil _log = LogUtil.GetLogger("BombCutPatch");
@@ -605,6 +610,7 @@ namespace BeatSurgeon.HarmonyPatches
             textComponent.text = displayText;
             textComponent.fontSize = 4f;
             textComponent.alignment = TextAlignmentOptions.Center;
+            ApplyFlyingTextBounds(pooledText, textComponent, displayText);
             textComponent.color = Color.yellow;
             var _mat = textComponent.fontSharedMaterial ?? textComponent.fontMaterial ?? textComponent.material;
             if (_mat != null)
@@ -614,6 +620,44 @@ namespace BeatSurgeon.HarmonyPatches
             }
             textComponent.SetAllDirty();
             textComponent.ForceMeshUpdate();
+        }
+
+        // A !bmsg username line needs a taller text box. Single-line bomb text keeps the prefab size.
+        private static void ApplyFlyingTextBounds(PooledFlyingText pooledText, TMP_Text textComponent, string displayText)
+        {
+            if (pooledText == null || textComponent == null || textComponent.rectTransform == null)
+            {
+                return;
+            }
+
+            if (!pooledText.HasSingleLineSize)
+            {
+                pooledText.SingleLineSize = textComponent.rectTransform.sizeDelta;
+                pooledText.HasSingleLineSize = true;
+            }
+
+            if (!pooledText.HasTextMode)
+            {
+                pooledText.SingleLineWrapping = textComponent.enableWordWrapping;
+                pooledText.SingleLineOverflow = textComponent.overflowMode;
+                pooledText.HasTextMode = true;
+            }
+
+            bool multiline = displayText != null && displayText.IndexOf('\n') >= 0;
+            if (!multiline)
+            {
+                textComponent.enableWordWrapping = pooledText.SingleLineWrapping;
+                textComponent.overflowMode = pooledText.SingleLineOverflow;
+                textComponent.rectTransform.sizeDelta = pooledText.SingleLineSize;
+                return;
+            }
+
+            textComponent.enableWordWrapping = false;
+            textComponent.overflowMode = TextOverflowModes.Overflow;
+            Vector2 single = pooledText.SingleLineSize;
+            float width = Mathf.Max(single.x, 6f);
+            float height = Mathf.Max(single.y * 2f, single.y + 1f);
+            textComponent.rectTransform.sizeDelta = new Vector2(width, height);
         }
 
         // Keep a dedicated material instance per curved pooled text object so per-text glow/color changes

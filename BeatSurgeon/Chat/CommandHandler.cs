@@ -31,13 +31,24 @@ namespace BeatSurgeon.Chat
         /// A Multiplayer+ client's local chat/CP/bits trigger tried to (re)start an effect that is
         /// already running locally (product rule: clients must not re-run an active local effect).
         /// </summary>
-        EffectAlreadyActiveLocally
+        EffectAlreadyActiveLocally,
+        /// <summary>In a room, but the host cooldown snapshot has not arrived yet.</summary>
+        RoomSyncNotReady,
+        /// <summary>Could not send this chat/channel-point command to the room host.</summary>
+        RoomForwardFailed,
+        /// <summary>The shared room queue is full.</summary>
+        RoomQueueFull
     }
 
     internal sealed class CommandExecutionResult
     {
         internal bool Matched { get; private set; }
         internal bool Executed { get; private set; }
+        /// <summary>
+        /// Accepted into the shared room queue or published as a one-shot. The effect has not
+        /// started on this machine; every player starts it when the one-shot arrives.
+        /// </summary>
+        internal bool DeferredToRoom { get; private set; }
         internal string CommandKey { get; private set; }
         internal CommandRejectReason Reason { get; private set; }
         internal TimeSpan? CooldownRemaining { get; private set; }
@@ -79,6 +90,20 @@ namespace BeatSurgeon.Chat
             {
                 Matched = true,
                 Executed = true,
+                CommandKey = commandKey ?? string.Empty,
+                Reason = CommandRejectReason.None,
+                CooldownRemaining = null,
+                Source = source
+            };
+        }
+
+        internal static CommandExecutionResult AcceptedByRoom(string commandKey, TriggerSource source)
+        {
+            return new CommandExecutionResult
+            {
+                Matched = true,
+                Executed = false,
+                DeferredToRoom = true,
                 CommandKey = commandKey ?? string.Empty,
                 Reason = CommandRejectReason.None,
                 CooldownRemaining = null,
@@ -280,7 +305,11 @@ namespace BeatSurgeon.Chat
             // host one-shots are never blocked here — clients must still play full local follow/
             // sub/bits visuals from their own Twitch chat while in someone else's MP room.
             bool isClientInRoom = SceneHelper.MpPlusInRoom && !SceneHelper.MpPlusIsHost;
+            bool roomShared = SceneHelper.MpPlusInRoom
+                && (source == TriggerSource.Chat || source == TriggerSource.ChannelPoints)
+                && MultiplayerEffectPublisher.IsRoomSyncedEffectKey(commandKey);
             if (isClientInRoom
+                && !roomShared
                 && (source == TriggerSource.Chat || source == TriggerSource.ChannelPoints)
                 && MultiplayerLocalEffectGate.IsEffectAlreadyActive(commandKey))
             {
@@ -324,6 +353,11 @@ namespace BeatSurgeon.Chat
                 }
             }
 
+            if (roomShared && !SceneHelper.MpPlusIsHost)
+            {
+                return DeferClientRoomCommand(ctx, source, commandKey, normalized);
+            }
+
             if (!isMultiplayerSync
                 && source != TriggerSource.BitEvent
                 && !CommandRuntimeSettings.IsCooldownExempt(normalized)
@@ -331,6 +365,15 @@ namespace BeatSurgeon.Chat
             {
                 _log.Command(ctx.Username, normalized, false, "OnCooldown");
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.OnCooldown, remaining);
+            }
+
+            if (roomShared && SceneHelper.MpPlusIsHost)
+            {
+                CommandExecutionResult admitted = AdmitHostRoomCommand(ctx, source, commandKey);
+                if (admitted != null)
+                {
+                    return admitted;
+                }
             }
 
             ctx.CooldownChecker = key => _cooldownService.TryGetCooldownRemaining(key, out _);
@@ -372,6 +415,74 @@ namespace BeatSurgeon.Chat
             {
                 _log.Exception(ex, "HandleMessageAsync cmd=" + normalized + " user=" + ctx.Username);
                 return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.ExecutionFailed);
+            }
+        }
+
+        private CommandExecutionResult DeferClientRoomCommand(ChatContext ctx, TriggerSource source, string commandKey, string normalized)
+        {
+            if (!MultiplayerHostCooldownBridge.HasHostData)
+            {
+                _log.Command(ctx.Username, normalized, false, "RoomCooldownSnapshotMissing");
+                return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.RoomSyncNotReady);
+            }
+
+            if (MultiplayerHostCooldownBridge.IsBlockedByHostToggle(commandKey))
+            {
+                _log.Command(ctx.Username, normalized, false, "HostCommandDisabled");
+                return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.CommandDisabled);
+            }
+
+            if (!CommandRuntimeSettings.IsCooldownExempt(normalized)
+                && _cooldownService.TryGetCooldownRemaining(commandKey, out TimeSpan remaining))
+            {
+                _log.Command(ctx.Username, normalized, false, "OnCooldown");
+                return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.OnCooldown, remaining);
+            }
+
+            string publish = MultiplayerEffectPublisher.NormalizeCommandForPublish(ctx.MessageText);
+            if (string.IsNullOrWhiteSpace(publish))
+            {
+                publish = normalized.StartsWith("!", StringComparison.Ordinal) ? normalized.Substring(1) : normalized;
+            }
+
+            if (!MultiplayerRoomSyncClient.TrySendEffectRequest(publish, ctx.Username, commandKey))
+            {
+                _log.Command(ctx.Username, normalized, false, "RoomForwardFailed");
+                return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.RoomForwardFailed);
+            }
+
+            _log.Info("Room forward command=" + publish + " user=" + ctx.Username);
+            return CommandExecutionResult.AcceptedByRoom(commandKey, source);
+        }
+
+        private CommandExecutionResult AdmitHostRoomCommand(ChatContext ctx, TriggerSource source, string commandKey)
+        {
+            string publish = MultiplayerEffectPublisher.NormalizeCommandForPublish(ctx.MessageText);
+            if (string.IsNullOrWhiteSpace(publish))
+            {
+                _log.Command(ctx.Username, commandKey, false, "EmptyRoomCommand");
+                return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.EmptyCommand);
+            }
+
+            if (source == TriggerSource.ChannelPoints && !CommandRuntimeSettings.IsCommandEnabled("!" + commandKey))
+            {
+                _log.Command(ctx.Username, publish, false, "CommandDisabled");
+                return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.CommandDisabled);
+            }
+
+            MultiplayerEffectPublisher.RoomCommandAdmitResult admit =
+                MultiplayerEffectPublisher.AdmitRoomCommand(publish, ctx.Username);
+            switch (admit)
+            {
+                case MultiplayerEffectPublisher.RoomCommandAdmitResult.Published:
+                case MultiplayerEffectPublisher.RoomCommandAdmitResult.Queued:
+                    _log.Info("Room admit " + admit + " command=" + publish + " user=" + ctx.Username);
+                    return CommandExecutionResult.AcceptedByRoom(commandKey, source);
+                case MultiplayerEffectPublisher.RoomCommandAdmitResult.QueueFull:
+                    _log.Command(ctx.Username, publish, false, "RoomQueueFull");
+                    return CommandExecutionResult.Rejected(commandKey, source, CommandRejectReason.RoomQueueFull);
+                default:
+                    return null;
             }
         }
 
@@ -493,32 +604,28 @@ namespace BeatSurgeon.Chat
         {
             PluginConfig config = PluginConfig.Instance;
             return config != null
-                && config.FollowEffectsEnabled
-                && PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
+                && config.FollowEffectsEnabled;
         }
 
         private static bool ShouldAdvertiseSubscriberMessageCommand()
         {
             PluginConfig config = PluginConfig.Instance;
             return config != null
-                && config.SubEffectsEnabled
-                && PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
+                && config.SubEffectsEnabled;
         }
 
         private static bool ShouldAdvertiseRaidCommand()
         {
             PluginConfig config = PluginConfig.Instance;
             return config != null
-                && config.RaidEffectsEnabled
-                && PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
+                && config.RaidEffectsEnabled;
         }
 
         private static bool ShouldAdvertiseGlitterCommand()
         {
             PluginConfig config = PluginConfig.Instance;
             return config != null
-                && config.BitEffectEnabled
-                && PremiumVisualFeatureAccessController.HasAuthenticatedVisualsAccess();
+                && config.BitEffectEnabled;
         }
 
         private bool HandleSurgeonDisable(ChatContext ctx, string fullCommand)
@@ -754,7 +861,9 @@ namespace BeatSurgeon.Chat
             return message.IndexOf("entitlement", StringComparison.OrdinalIgnoreCase) >= 0
                 || message.IndexOf("Tier 1", StringComparison.OrdinalIgnoreCase) >= 0
                 || message.IndexOf("logged-in Twitch or Patreon", StringComparison.OrdinalIgnoreCase) >= 0
-                || message.IndexOf("Supporter tab", StringComparison.OrdinalIgnoreCase) >= 0;
+                || message.IndexOf("Supporter tab", StringComparison.OrdinalIgnoreCase) >= 0
+                || message.IndexOf("chatting viewer", StringComparison.OrdinalIgnoreCase) >= 0
+                || message.IndexOf("Beat Surgeon supporter", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
     }

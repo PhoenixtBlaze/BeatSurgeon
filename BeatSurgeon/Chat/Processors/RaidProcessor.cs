@@ -55,7 +55,7 @@ namespace BeatSurgeon.Chat.Processors
                 return;
             }
 
-            await RaidEffectAccessController.EnsureAuthorizedAsync(ct).ConfigureAwait(false);
+            await RaidEffectAccessController.EnsureAuthorizedAsync(ctx, ct).ConfigureAwait(false);
         }
     }
 }

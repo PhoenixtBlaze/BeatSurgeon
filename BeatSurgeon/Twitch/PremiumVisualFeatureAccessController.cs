@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using BeatSurgeon.Chat;
 using BeatSurgeon.Utils;
 
 namespace BeatSurgeon.Twitch
@@ -149,6 +150,7 @@ namespace BeatSurgeon.Twitch
             PremiumVisualFeature feature,
             string featureDisplayName,
             bool requiresToggle,
+            ChatContext ctx,
             CancellationToken ct)
         {
             return EnsureAuthorizedAsync(
@@ -156,7 +158,8 @@ namespace BeatSurgeon.Twitch
                 featureDisplayName,
                 requiresToggle,
                 ct,
-                requireSupporterEntitlement: true);
+                requireSupporterEntitlement: true,
+                ctx: ctx);
         }
 
         private static async Task EnsureAuthorizedAsync(
@@ -164,12 +167,18 @@ namespace BeatSurgeon.Twitch
             string featureDisplayName,
             bool requiresToggle,
             CancellationToken ct,
-            bool requireSupporterEntitlement)
+            bool requireSupporterEntitlement,
+            ChatContext ctx = null)
         {
             PluginConfig config = PluginConfig.Instance;
             if (config == null)
             {
                 throw new InvalidOperationException(featureDisplayName + " are unavailable because the plugin configuration is not ready.");
+            }
+
+            if (requiresToggle && !GetEnabled(config, feature))
+            {
+                throw new InvalidOperationException(featureDisplayName + " are disabled in Surgeon Commands.");
             }
 
             if (requireSupporterEntitlement)
@@ -179,22 +188,27 @@ namespace BeatSurgeon.Twitch
                     throw new InvalidOperationException(featureDisplayName + " require a logged-in Twitch or Patreon account.");
                 }
 
-                bool allowed = HasAuthenticatedVisualsAccess();
-                if (!allowed)
+                bool streamerAllowed = HasAuthenticatedVisualsAccess();
+                if (!streamerAllowed)
                 {
-                    allowed = await RefreshVisualsPermissionAsync(ct).ConfigureAwait(false);
+                    streamerAllowed = await RefreshVisualsPermissionAsync(ct).ConfigureAwait(false);
                 }
 
-                SyncAllConfigEnabledStates();
-                if (!allowed || !HasAuthenticatedVisualsAccess())
+                if (streamerAllowed && HasAuthenticatedVisualsAccess())
                 {
-                    throw new InvalidOperationException(featureDisplayName + " require an active Tier 1+ entitlement.");
+                    SyncAllConfigEnabledStates();
                 }
-            }
-
-            if (requiresToggle && !GetEnabled(config, feature))
-            {
-                throw new InvalidOperationException(featureDisplayName + " are disabled in Surgeon Commands.");
+                else
+                {
+                    ViewerSupporterLookupService lookup = ViewerSupporterLookupService.Instance;
+                    bool viewerAllowed = lookup != null
+                        && await lookup.IsViewerSupporterAsync(ctx, ct).ConfigureAwait(false);
+                    if (!viewerAllowed)
+                    {
+                        throw new InvalidOperationException(
+                            featureDisplayName + " require the streamer or the chatting viewer to be a Beat Surgeon supporter.");
+                    }
+                }
             }
         }
 

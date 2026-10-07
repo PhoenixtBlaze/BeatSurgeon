@@ -400,6 +400,29 @@ namespace BeatSurgeon.Chat
             };
         }
 
+        /// <summary>
+        /// Canonical effect keys the host currently allows. Clients use this to refund a
+        /// channel point before forwarding a command the host has turned off.
+        /// </summary>
+        internal static List<string> BuildHostEnabledCommandSnapshot()
+        {
+            string[] keys =
+            {
+                "rainbow", "disappear", "ghost", "faster", "superfast", "slower", "flashbang",
+                "bomb", "glitter", "raid", "fmsg", "smsg", "subcubes"
+            };
+            var enabled = new List<string>(keys.Length);
+            for (int i = 0; i < keys.Length; i++)
+            {
+                if (IsCommandEnabled("!" + keys[i]))
+                {
+                    enabled.Add(keys[i]);
+                }
+            }
+
+            return enabled;
+        }
+
         internal static int GetCooldownSecondsForRewardKey(string rewardKey)
         {
             switch ((rewardKey ?? string.Empty).Trim().ToLowerInvariant())

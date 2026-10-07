@@ -227,6 +227,9 @@ namespace BeatSurgeon
         // --- Multiplayer ---
         public virtual string MpClientId { get; set; } = string.Empty;
         public virtual bool MultiplayerEffectsEnabled { get; set; } = true;
+        // When on, !bmsg cut text adds "~username" on the next line. Default on by request.
+        // In a Multiplayer+ room the host's value is what every player displays.
+        public virtual bool ShowUsernameInBmsg { get; set; } = true;
 
         /// <summary>Surgeon Settings preview slider; gameplay wiring pending.</summary>
         public virtual float TextMovementSpeed { get; set; } = 5f;
