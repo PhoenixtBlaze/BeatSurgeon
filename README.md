@@ -2,7 +2,7 @@
 
 **Beat Surgeon** is a Beat Saber mod that empowers your Twitch chat to directly interact with your gameplay in real time. It turns your stream into a collaborative (and chaotic) experience, allowing viewers to trigger visual effects like Rainbow notes, Flashbang, Bombs, Disappearing Arrows, Ghost Notes, Speed modifiers, Raids, and more using simple chat commands or Channel Point Redeems. All while letting you maintain full control over cooldowns and whether each command is enabled.
 
-## Current release: **v2.1.0** (for Beat Saber v1.40.8)
+## Current release: **v2.1.0** (for Beat Saber v1.40.8 and v1.44.1)
 
 ## What this mod does
 
